@@ -1,0 +1,7 @@
+msg_intro: "Thank you for taking action. We'll connect you to your representatives."
+msg_intro_confirm: "Press any key when you're ready to begin."
+msg_target_intro: "Connecting you to {{title}} {{name}} in {{location}}."
+msg_call_block_intro: "We'll now connect you to your representatives."
+msg_between_calls: "You have {{calls_left}} more calls."
+msg_target_busy: "That representative is unavailable. Moving to the next call."
+msg_goodbye: "Thank you for making your voice heard today."

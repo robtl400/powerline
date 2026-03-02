@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Powerline Embed — Widget Test</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f1f5f9;
+      font-family: sans-serif;
+    }
+    .instructions {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="instructions">
+    Set <code>data-campaign</code> and <code>data-api-url</code> below, then open this file via a local HTTP server.
+  </div>
+
+  <!--
+    Replace the values below before testing:
+      data-campaign  — UUID of a *live* campaign with at least one target
+      data-api-url   — URL of the Powerline backend (e.g. http://localhost:8000)
+
+    Serve this file with: npx serve embed/
+    Then open: http://localhost:3000/test.html
+  -->
+  <script
+    src="./dist/powerline-embed.iife.js"
+    data-campaign="bdb9e183-e2ea-4874-bb33-224e8f7efda4"
+    data-api-url="http://localhost:8000"
+  ></script>
+</body>
+</html>
