@@ -58,6 +58,16 @@ services:
       - backend
     command: npm run dev -- --host 0.0.0.0 --port 3000
 
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+    depends_on:
+      - backend
+      - frontend
+
   celery-worker:
     build:
       context: .
