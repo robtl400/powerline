@@ -199,7 +199,7 @@ export function CampaignSettingsTab({
               <ul className="space-y-2">
                 {items.map(({ label, ok, tab }) => (
                   <li key={label} className="flex items-center gap-2 text-sm">
-                    <span className={ok ? "text-green-600" : "text-yellow-600"}>
+                    <span className={ok ? "text-[#F2542D]" : "text-[#53565B]"}>
                       {ok ? "✅" : "⚠️"}
                     </span>
                     <span className={ok ? "text-foreground" : "text-muted-foreground"}>

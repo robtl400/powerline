@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import client from "@/api/client";
+import { PAGE_HEADING } from "@/lib/styles";
 import { CAMPAIGN_STATUS_COLORS, FALLBACK_BADGE_COLOR } from "@/lib/constants";
 
 interface Campaign {
@@ -37,7 +38,7 @@ export default function Campaigns() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-foreground">Campaigns</h1>
+        <h1 className={PAGE_HEADING}>Campaigns</h1>
         <button
           onClick={() => navigate("/campaigns/new")}
           className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
@@ -71,15 +72,15 @@ export default function Campaigns() {
       )}
 
       {!loading && !error && campaigns.length > 0 && (
-        <div className="rounded-md border border-border overflow-hidden">
+        <div className="rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50">
+            <thead className="bg-[#53565B] text-white">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Targets</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Created</th>
+                <th className="text-left px-4 py-3 font-medium">Name</th>
+                <th className="text-left px-4 py-3 font-medium">Type</th>
+                <th className="text-left px-4 py-3 font-medium">Status</th>
+                <th className="text-left px-4 py-3 font-medium">Targets</th>
+                <th className="text-left px-4 py-3 font-medium">Created</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -93,7 +94,7 @@ export default function Campaigns() {
                   <td className="px-4 py-3 capitalize text-muted-foreground">{c.campaign_type}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-block px-2 py-0.5 rounded text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[c.status] ?? FALLBACK_BADGE_COLOR}`}
+                      className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[c.status] ?? FALLBACK_BADGE_COLOR}`}
                     >
                       {c.status}
                     </span>

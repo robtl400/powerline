@@ -2,32 +2,32 @@
 // Any new status/type values should be added here so all pages stay in sync.
 
 export const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-700",
-  live: "bg-green-100 text-green-700",
-  paused: "bg-yellow-100 text-yellow-700",
-  archived: "bg-red-100 text-red-700",
+  draft:    "bg-stone-100 text-[#53565B]",
+  live:     "bg-[#F2542D]/10 text-[#F2542D]",
+  paused:   "bg-stone-100 text-[#53565B]",
+  archived: "bg-[#F2542D]/10 text-[#F2542D]",
 };
 
 export const CALL_SESSION_STATUS_COLORS: Record<string, string> = {
-  completed: "bg-green-100 text-green-700",
-  initiated: "bg-blue-100 text-blue-700",
-  in_progress: "bg-yellow-100 text-yellow-700",
-  failed: "bg-red-100 text-red-700",
+  completed:   "bg-[#F2542D]/10 text-[#F2542D]",
+  initiated:   "bg-stone-100 text-[#53565B]",
+  in_progress: "bg-[#F2542D]/10 text-[#F2542D]",
+  failed:      "bg-red-100 text-red-700",
 };
 
 export const CONNECTION_TYPE_COLORS: Record<string, string> = {
-  webrtc: "bg-purple-100 text-purple-700",
-  outbound_phone: "bg-sky-100 text-sky-700",
-  inbound_phone: "bg-teal-100 text-teal-700",
+  webrtc:         "bg-stone-100 text-[#53565B]",
+  outbound_phone: "bg-stone-100 text-[#53565B]",
+  inbound_phone:  "bg-stone-100 text-[#53565B]",
 };
 
 export const TRUST_STATUS_COLORS: Record<string, string> = {
-  verified: "bg-green-100 text-green-700",
-  pending: "bg-yellow-100 text-yellow-700",
-  unknown: "bg-gray-100 text-gray-600",
+  verified: "bg-[#F2542D]/10 text-[#F2542D]",
+  pending:  "bg-stone-100 text-[#53565B]",
+  unknown:  "bg-stone-100 text-[#53565B]",
 };
 
-export const FALLBACK_BADGE_COLOR = "bg-gray-100 text-gray-700";
+export const FALLBACK_BADGE_COLOR = "bg-stone-100 text-[#53565B]";
 
 // Campaign status machine — mirrors backend VALID_TRANSITIONS
 export const VALID_TRANSITIONS: Record<string, string[]> = {

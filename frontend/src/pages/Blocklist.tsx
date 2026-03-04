@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import client from "@/api/client";
 import { getErrorDetail } from "@/lib/api-error";
-import { INPUT_CLASS } from "@/lib/styles";
+import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 
 interface BlocklistEntry {
   id: string;
@@ -84,7 +84,7 @@ export default function Blocklist() {
   return (
     <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Blocklist</h1>
+        <h1 className={PAGE_HEADING}>Blocklist</h1>
         <button
           onClick={() => setShowForm((v) => !v)}
           className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
@@ -165,13 +165,13 @@ export default function Blocklist() {
       {entries.length === 0 ? (
         <p className="text-muted-foreground text-sm">No entries yet.</p>
       ) : (
-        <div className="rounded-md border border-border overflow-hidden">
+        <div className="rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50">
+            <thead className="bg-[#53565B] text-white">
               <tr>
-                <th className="text-left px-4 py-2 font-medium text-muted-foreground">Identifier</th>
-                <th className="text-left px-4 py-2 font-medium text-muted-foreground">Reason</th>
-                <th className="text-left px-4 py-2 font-medium text-muted-foreground">Added</th>
+                <th className="text-left px-4 py-2 font-medium">Identifier</th>
+                <th className="text-left px-4 py-2 font-medium">Reason</th>
+                <th className="text-left px-4 py-2 font-medium">Added</th>
                 <th className="px-4 py-2" />
               </tr>
             </thead>

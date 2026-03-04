@@ -29,7 +29,7 @@ interface CampaignBasic {
 
 function Badge({ label, colorClass }: { label: string; colorClass: string }) {
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
+    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${colorClass}`}>
       {label.replace("_", " ")}
     </span>
   );
@@ -146,7 +146,7 @@ export default function CallLog() {
           ← {campaign?.name ?? "Campaign"}
         </button>
         <span className="text-muted-foreground">/</span>
-        <h1 className="text-xl font-semibold">Call Log</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Call Log</h1>
       </div>
 
       {/* Filters */}
@@ -243,7 +243,7 @@ export default function CallLog() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
+              <tr className="bg-[#53565B] text-left text-xs text-white">
                 <th className="px-5 py-2 font-medium">Date / Time</th>
                 <th className="px-5 py-2 font-medium">Type</th>
                 <th className="px-5 py-2 font-medium">Status</th>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import client from "@/api/client";
 import { TRUST_STATUS_COLORS, FALLBACK_BADGE_COLOR } from "@/lib/constants";
-import { INPUT_CLASS } from "@/lib/styles";
+import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 
 interface PhoneNumber {
   id: string;
@@ -79,7 +79,7 @@ export default function PhoneNumbers() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Phone Numbers</h1>
+        <h1 className={PAGE_HEADING}>Phone Numbers</h1>
         <button
           onClick={handleSync}
           disabled={syncing}
@@ -93,10 +93,10 @@ export default function PhoneNumbers() {
       {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
       {!loading && !error && (
-        <div className="rounded-md border">
+        <div className="rounded-lg border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b bg-muted/50">
+              <tr className="bg-[#53565B] text-white">
                 <th className="px-4 py-3 text-left font-medium">Number</th>
                 <th className="px-4 py-3 text-left font-medium">Label</th>
                 <th className="px-4 py-3 text-left font-medium">Provider</th>
@@ -130,7 +130,7 @@ export default function PhoneNumbers() {
                         .map(([cap]) => (
                           <span
                             key={cap}
-                            className="inline-block rounded px-1.5 py-0.5 text-xs uppercase bg-blue-100 text-blue-700"
+                            className="inline-block rounded px-1.5 py-0.5 text-xs uppercase bg-[#F2542D]/10 text-[#F2542D]"
                           >
                             {cap}
                           </span>
@@ -139,7 +139,7 @@ export default function PhoneNumbers() {
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-block rounded px-2 py-0.5 text-xs font-medium capitalize ${TRUST_STATUS_COLORS[pn.trust_status] ?? FALLBACK_BADGE_COLOR}`}
+                      className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium capitalize ${TRUST_STATUS_COLORS[pn.trust_status] ?? FALLBACK_BADGE_COLOR}`}
                     >
                       {pn.trust_status}
                     </span>

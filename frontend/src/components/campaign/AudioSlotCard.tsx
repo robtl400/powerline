@@ -82,7 +82,7 @@ export function AudioSlotCard({
       {/* Active version preview */}
       {active && (
         <div className="rounded bg-muted/40 px-3 py-2 text-xs space-y-1">
-          <span className="inline-block px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium text-xs mr-2">
+          <span className="inline-block px-1.5 py-0.5 rounded bg-[#F2542D]/10 text-[#F2542D] font-medium text-xs mr-2">
             Active v{active.version}
           </span>
           {active.file_url ? (
@@ -160,7 +160,7 @@ export function AudioSlotCard({
               <span
                 className={`px-1.5 py-0.5 rounded font-medium ${
                   v.is_active
-                    ? "bg-green-100 text-green-700"
+                    ? "bg-[#F2542D]/10 text-[#F2542D]"
                     : "bg-muted text-muted-foreground"
                 }`}
               >

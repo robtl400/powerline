@@ -61,7 +61,7 @@ export function TestCallModal({
           </button>
         </div>
         {testCallState === "success" && (
-          <p className="text-sm text-green-700 mt-1">{testCallMsg}</p>
+          <p className="text-sm text-[#F2542D] mt-1">{testCallMsg}</p>
         )}
         {testCallState === "error" && (
           <p className="text-sm text-destructive mt-1">{testCallMsg}</p>

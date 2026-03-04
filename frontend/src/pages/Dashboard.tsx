@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { PAGE_HEADING } from "@/lib/styles";
 import {
-  Bar,
-  BarChart,
+  Line,
+  LineChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -95,7 +96,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <h1 className={PAGE_HEADING}>Dashboard</h1>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -118,7 +119,7 @@ export default function Dashboard() {
           <p className="py-8 text-center text-sm text-muted-foreground">No calls recorded yet.</p>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+            <LineChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
               <XAxis
                 dataKey="date"
@@ -135,15 +136,24 @@ export default function Dashboard() {
               <Tooltip
                 contentStyle={{
                   fontSize: 12,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   border: "1px solid hsl(var(--border))",
                   background: "hsl(var(--card))",
                   color: "hsl(var(--foreground))",
                 }}
-                cursor={{ fill: "hsl(var(--muted))" }}
+                cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }}
               />
-              <Bar dataKey="calls" name="Calls" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} />
-            </BarChart>
+              {/* Primary series — small solid dot */}
+              <Line
+                type="monotone"
+                dataKey="calls"
+                name="Calls"
+                stroke="#F2542D"
+                strokeWidth={1.5}
+                dot={{ r: 3, fill: "#F2542D", strokeWidth: 0 }}
+                activeDot={{ r: 4, fill: "#F2542D", strokeWidth: 0 }}
+              />
+            </LineChart>
           </ResponsiveContainer>
         )}
       </div>
@@ -154,25 +164,25 @@ export default function Dashboard() {
           <h2 className="text-sm font-medium">Live Campaigns</h2>
           <button
             onClick={() => navigate("/campaigns")}
-            className="text-xs text-primary hover:underline"
+            className="text-xs text-[#111111] hover:underline"
           >
             View all
           </button>
         </div>
         {campaigns.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-muted-foreground">
-            No live campaigns.{" "}
+          <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+            <p>No live campaigns.</p>
             <button
               onClick={() => navigate("/campaigns/new")}
-              className="underline underline-offset-2 hover:text-foreground"
+              className="mt-1 text-[#F2542D] underline underline-offset-2 hover:opacity-80 font-semibold"
             >
               Create one
             </button>
-          </p>
+          </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
+              <tr className="bg-[#53565B] text-left text-xs text-white">
                 <th className="px-5 py-2 font-medium">Campaign</th>
                 <th className="px-5 py-2 font-medium">Type</th>
                 <th className="px-5 py-2 font-medium">Targets</th>

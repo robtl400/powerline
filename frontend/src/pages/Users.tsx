@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import client from "@/api/client";
+import { PAGE_HEADING } from "@/lib/styles";
 
 interface User {
   id: string;
@@ -27,7 +28,7 @@ export default function Users() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Users</h1>
+        <h1 className={PAGE_HEADING}>Users</h1>
         <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
           Invite User
         </button>
@@ -37,10 +38,10 @@ export default function Users() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {!isLoading && !error && (
-        <div className="rounded-md border">
+        <div className="rounded-lg border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b bg-muted/50">
+              <tr className="bg-[#53565B] text-white">
                 <th className="px-4 py-3 text-left font-medium">Name</th>
                 <th className="px-4 py-3 text-left font-medium">Email</th>
                 <th className="px-4 py-3 text-left font-medium">Phone</th>
@@ -64,9 +65,9 @@ export default function Users() {
                   <td className="px-4 py-3 capitalize">{u.role}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                      className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
                         u.is_active
-                          ? "bg-green-100 text-green-700"
+                          ? "bg-stone-100 text-[#F2542D]"
                           : "bg-muted text-muted-foreground"
                       }`}
                     >
