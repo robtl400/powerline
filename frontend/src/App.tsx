@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Toaster } from "sonner";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import DashboardShell from "@/components/DashboardShell";
@@ -35,6 +36,19 @@ export default function App() {
             </Route>
           </Route>
         </Routes>
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: "#111111",
+              color: "#FFFFFF",
+              borderRadius: "8px",
+              padding: "10px 14px",
+              fontSize: "13px",
+            },
+            duration: 2000,
+          }}
+        />
       </AuthProvider>
     </BrowserRouter>
   );

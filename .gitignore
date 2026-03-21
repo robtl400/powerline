@@ -63,3 +63,4 @@ local.docs/
 *.log
 *.pid
 *.seed
+.gstack/

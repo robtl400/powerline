@@ -5,7 +5,7 @@ import uuid
 
 import httpx
 import structlog
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -42,7 +42,6 @@ class RepsResponse(BaseModel):
 async def get_reps(
     campaign_id: uuid.UUID,
     db: DB,
-    response: Response,
     zip: str = Query(..., description="5-digit US ZIP code"),
 ) -> RepsResponse:
     """
@@ -74,10 +73,10 @@ async def get_reps(
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 429:
             retry_after = exc.response.headers.get("Retry-After", "60")
-            response.headers["Retry-After"] = retry_after
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={"message": "Rate limit reached. Please try again shortly.", "fallback": "manual_entry"},
+                headers={"Retry-After": retry_after},
             )
         log.error("reps_api_http_error", campaign_id=str(campaign_id), status=exc.response.status_code)
         raise HTTPException(

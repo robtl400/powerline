@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { PAGE_HEADING } from "@/lib/styles";
 import {
   Line,
@@ -39,10 +39,10 @@ interface Campaign {
 
 function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
-    <div className="rounded-lg border bg-card p-5 shadow-sm">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-1 text-3xl font-semibold tabular-nums">{value}</p>
-      {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
+    <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+      <p className="text-xs font-semibold uppercase tracking-[0.07em] text-brand-grey-light">{label}</p>
+      <p className="mt-1 text-3xl font-semibold tabular-nums text-brand-black">{value}</p>
+      {sub && <p className="mt-1 text-[11px] text-brand-grey-light">{sub}</p>}
     </div>
   );
 }
@@ -70,7 +70,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+      <div className="flex items-center justify-center h-48 text-brand-grey-light text-sm">
         Loading…
       </div>
     );
@@ -78,7 +78,7 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="rounded-md bg-destructive/10 text-destructive px-4 py-3 text-sm">
+      <div className="rounded-md bg-page-bg text-brand-grey-dark px-4 py-3 text-sm border border-brand-border">
         {error}
       </div>
     );
@@ -99,7 +99,7 @@ export default function Dashboard() {
       <h1 className={PAGE_HEADING}>Dashboard</h1>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Calls Today" value={data?.calls_today ?? 0} />
         <StatCard label="Calls This Week" value={data?.calls_this_week ?? 0} />
         <StatCard label="Calls This Month" value={data?.calls_this_month ?? 0} />
@@ -111,12 +111,12 @@ export default function Dashboard() {
       </div>
 
       {/* 7-day call volume chart */}
-      <div className="rounded-lg border bg-card p-5 shadow-sm">
-        <h2 className="mb-4 text-sm font-medium text-muted-foreground">
+      <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+        <h2 className="mb-4 text-sm font-medium text-brand-grey-light">
           Call Volume — Last 7 Days
         </h2>
         {chartData.every((d) => d.calls === 0) ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No calls recorded yet.</p>
+          <p className="py-8 text-center text-sm text-brand-grey-light">No calls recorded yet.</p>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
@@ -159,7 +159,7 @@ export default function Dashboard() {
       </div>
 
       {/* Live campaigns table */}
-      <div className="rounded-lg border bg-card shadow-sm">
+      <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden">
         <div className="border-b px-5 py-3 flex items-center justify-between">
           <h2 className="text-sm font-medium">Live Campaigns</h2>
           <button
@@ -169,48 +169,45 @@ export default function Dashboard() {
             View all
           </button>
         </div>
-        {campaigns.length === 0 ? (
-          <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-            <p>No live campaigns.</p>
-            <button
-              onClick={() => navigate("/campaigns/new")}
-              className="mt-1 text-[#F2542D] underline underline-offset-2 hover:opacity-80 font-semibold"
-            >
-              Create one
-            </button>
-          </div>
-        ) : (
-          <table className="w-full text-sm">
+        <table className="w-full text-sm">
             <thead>
-              <tr className="bg-[#53565B] text-left text-xs text-white">
-                <th className="px-5 py-2 font-medium">Campaign</th>
-                <th className="px-5 py-2 font-medium">Type</th>
-                <th className="px-5 py-2 font-medium">Targets</th>
-                <th className="px-5 py-2 font-medium"></th>
+              <tr className="bg-page-bg text-left text-xs text-brand-grey-dark">
+                <th className="px-5 py-2 font-semibold">Campaign</th>
+                <th className="px-5 py-2 font-semibold">Type</th>
+                <th className="px-5 py-2 font-semibold">Targets</th>
+                <th className="px-5 py-2 font-semibold"></th>
               </tr>
             </thead>
             <tbody>
-              {campaigns.map((c) => (
-                <tr
-                  key={c.id}
-                  className="border-b last:border-0 hover:bg-muted/30 transition-colors"
-                >
-                  <td className="px-5 py-3 font-medium">{c.name}</td>
-                  <td className="px-5 py-3 capitalize text-muted-foreground">{c.campaign_type}</td>
-                  <td className="px-5 py-3 text-muted-foreground">{c.target_count}</td>
-                  <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => navigate(`/campaigns/${c.id}/edit`)}
-                      className="text-xs text-primary hover:underline"
-                    >
-                      Manage
-                    </button>
+              {campaigns.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-5 py-8 text-center text-sm text-brand-grey-light">
+                    No live campaigns —{" "}
+                    <Link to="/campaigns" className="text-brand-orange hover:underline">View all campaigns</Link>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                campaigns.map((c) => (
+                  <tr
+                    key={c.id}
+                    className="border-b last:border-0 hover:bg-page-bg/50 transition-colors"
+                  >
+                    <td className="px-5 py-3 font-medium">{c.name}</td>
+                    <td className="px-5 py-3 capitalize text-brand-grey-light">{c.campaign_type}</td>
+                    <td className="px-5 py-3 text-brand-grey-light">{c.target_count}</td>
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        onClick={() => navigate(`/campaigns/${c.id}/edit`)}
+                        className="text-xs text-brand-orange hover:underline"
+                      >
+                        Manage
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
-        )}
       </div>
     </div>
   );

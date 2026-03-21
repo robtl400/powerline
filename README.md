@@ -23,6 +23,7 @@ Embed SDK (IIFE bundle) ──→ API (runs on org websites)
 ## Key Features
 
 - **Campaigns** — create and manage call campaigns with custom audio, script prompts, and target lists
+- **In-browser audio recording** — campaign audio slots support in-browser microphone recording (MediaRecorder + waveform visualizer), drag-and-drop file upload (MP3, WAV, WebM, M4A), and TTS; live campaign lock prevents audio changes without pausing
 - **CSV bulk target import** — drag-and-drop CSV upload with column mapping, upsert semantics, partial success, and a downloadable error report for failed rows
 - **Elected official rep lookup** — supporters enter their ZIP code to be connected to their federal or state representative; results cached via Redis with Google Civic + OpenStates APIs
 - **WebRTC calling** — supporters call from their browser; no phone app required

@@ -163,15 +163,15 @@ export default function Blocklist() {
       )}
 
       {entries.length === 0 ? (
-        <p className="text-muted-foreground text-sm">No entries yet.</p>
+        <p className="text-sm text-brand-grey-light py-8 text-center">No blocked numbers or emails</p>
       ) : (
-        <div className="rounded-lg border border-border overflow-hidden">
+        <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-[#53565B] text-white">
+            <thead className="bg-page-bg text-brand-grey-dark">
               <tr>
-                <th className="text-left px-4 py-2 font-medium">Identifier</th>
-                <th className="text-left px-4 py-2 font-medium">Reason</th>
-                <th className="text-left px-4 py-2 font-medium">Added</th>
+                <th className="text-left px-4 py-2 font-semibold">Identifier</th>
+                <th className="text-left px-4 py-2 font-semibold">Reason</th>
+                <th className="text-left px-4 py-2 font-semibold">Added</th>
                 <th className="px-4 py-2" />
               </tr>
             </thead>

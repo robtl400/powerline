@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.3.0] - 2026-03-21
+
+### Added
+- **Audio recording tab** — `AudioSlotCard` now supports in-browser microphone recording (MediaRecorder API) with a live waveform visualizer. iOS < 16 automatically falls back to upload tab.
+- **Audio upload via drag-and-drop** — upload tab accepts MP3, WAV, WebM, and M4A files via drag-and-drop or file picker.
+- **PhoneInput component** — reusable `+1 (XXX) XXX-XXXX` formatted phone input with E.164 output, blur-based validation, and paste normalization. Used in `TestCallModal`.
+- **`CAMPAIGN_STATUS_CHIP` constants** — inline-style color tokens for status chips (rgba-based, covering live, paused, draft, completed, failed, archived).
+- **`audio/webm` and `audio/mp4` upload support** — backend now accepts WebM and MP4 audio in addition to MP3 and WAV.
+- **Live campaign audio guard** — activating audio on a live campaign now returns HTTP 409; users must pause the campaign first.
+- **DESIGN.md** — project design system document (typography, color palette, spacing, component patterns).
+- Unit tests: `phone-input.test.ts`, `phone-input-component.test.tsx` (39 total assertions), `import-logic.test.ts` extended with `normalizePhone` tests.
+- Backend tests: `test_audio.py` covering MIME validation, file-size guard, and live-campaign guard.
+
+### Changed
+- **Dashboard** — redesigned with new typography scale, status chips, and layout using DESIGN.md tokens.
+- **CallLog, Campaigns, Users, PhoneNumbers, Blocklist pages** — updated badge colors, table spacing, and status chip styles to match design system.
+- **DashboardShell** — sidebar and nav updated with new brand colors and font treatment.
+- **AudioSlotCard** — replaced single-mode UI with tabbed Record / Upload / TTS interface; all tabs respect `campaignStatus` live-lock.
+- **CampaignAudioTab** — passes `campaignStatus` prop through to `AudioSlotCard`.
+- **CampaignWizard** — passes `campaignStatus` through to audio and targets tabs.
+- **TestCallModal** — phone number field replaced with `PhoneInput` component.
+- **`CAMPAIGN_STATUS_COLORS`** — extended with `completed` and `failed` values; border tokens added to all statuses.
+- `tailwind.config.js` — added brand color tokens from DESIGN.md.
+- `index.css` — added Inter font import and base typography reset.
+- Backend error message updated: "Only MP3 and WAV files are accepted" → "Accepted formats: MP3, WAV, WebM, MP4 (max 10 MB)".
+
 ## [2.0.2.0] - 2026-03-21
 
 ### Added

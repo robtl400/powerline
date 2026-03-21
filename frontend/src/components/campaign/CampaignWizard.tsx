@@ -91,6 +91,7 @@ function WizardBody({
         <>
           <CampaignAudioTab
             campaignId={campaignId}
+            campaignStatus="draft"
             audioLoading={data.audioLoading}
             audioByKey={data.audioByKey}
             onRefresh={data.refreshAudio}
@@ -134,6 +135,19 @@ function WizardBody({
             handleSaveTargetEdit={data.handleSaveTargetEdit}
             handleDragEnd={data.handleDragEnd}
             sensors={data.sensors}
+            importOpen={data.importOpen}
+            setImportOpen={data.setImportOpen}
+            importFile={data.importFile}
+            importHeaders={data.importHeaders}
+            importColumnMap={data.importColumnMap}
+            setImportColumnMap={data.setImportColumnMap}
+            importLoading={data.importLoading}
+            importResult={data.importResult}
+            importError={data.importError}
+            handleImportFileSelect={data.handleImportFileSelect}
+            handleImportSubmit={data.handleImportSubmit}
+            handleDownloadErrors={data.handleDownloadErrors}
+            resetImport={data.resetImport}
           />
           <div className="flex gap-3 mt-8 pt-6 border-t border-border">
             <button
@@ -162,7 +176,7 @@ function WizardBody({
                   <button
                     onClick={handleGoLive}
                     disabled={goLiveSaving}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                    className="px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
                     {goLiveSaving ? "Going live…" : "Set to Live"}
                   </button>
@@ -179,7 +193,7 @@ function WizardBody({
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                <p className="text-sm text-green-600 font-medium">Campaign is live!</p>
+                <p className="text-sm text-brand-orange font-medium">Campaign is live!</p>
                 <button
                   onClick={() => navigate(`/campaigns/${campaignId}/edit`)}
                   className="w-fit px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"

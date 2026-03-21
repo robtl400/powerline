@@ -1,5 +1,53 @@
 # TODOS
 
+## AudioSlotCard: TTS preview playback
+
+**What:** Implement `POST /audio/tts-preview` backend endpoint and an inline `<audio>` element in the TTS tab of `AudioSlotCard` so users can hear a preview before saving.
+
+**Why:** The "Generate preview" button was designed in the spec but removed from this PR because the backend endpoint didn't exist and there was no audio element to play the result. Users currently must save-then-listen to evaluate TTS output.
+
+**Pros:** Reduces wasted audio versions (save, listen, hate it, create another). Improves TTS UX significantly for non-technical users.
+
+**Cons:** Requires a new backend endpoint that calls the TTS service, streams back audio, and doesn't persist a new recording.
+
+**Context:** The design doc (robertlord-main-design-20260321-102951.md) specifies: "Generate preview" button (secondary style) — calls existing TTS endpoint; plays inline via `<audio>` element. Removed from AudioSlotCard.tsx during the branding update PR. To add: (1) register `POST /audio/tts-preview` in `audio.py` returning audio bytes, (2) add an `<audio ref>` element to the TTS tab, (3) restore the button with `handleGeneratePreview`.
+
+**Depends on / blocked by:** Nothing. Can be built independently.
+
+---
+
+## AudioSlotCard: Real upload progress tracking
+
+**What:** Replace the fake `animate-pulse` progress bar in the Upload tab with real XHR upload progress via `onUploadProgress`.
+
+**Why:** The current progress bar is always at 50% — it's a pulsing animation, not real progress. For larger files (up to 10 MB), users have no feedback on how far along the upload is.
+
+**Pros:** Better UX for large file uploads. Clear sense of progress vs. "did it hang?"
+
+**Cons:** Requires switching from Axios `client.post` to a raw XHR call with `onUploadProgress`, or using Axios's progress callback. Modest complexity increase.
+
+**Context:** `handleFileUpload` in `AudioSlotCard.tsx` uses `client.post` (Axios). Axios supports `onUploadProgress` config option — no need to switch to raw XHR. The `uploading` state already exists to show/hide the progress bar; just replace `w-1/2 animate-pulse` with a dynamically computed width from upload progress percentage.
+
+**Depends on / blocked by:** Nothing.
+
+---
+
+## Admin UI: AudioSlotCard a11y audit
+
+**What:** Screen-reader walkthrough (VoiceOver + keyboard navigation) for the AudioSlotCard 3-tab media picker — specifically the Record/Upload/TTS tabs, waveform live region, mic button state changes, and "Make active" disabled state.
+
+**Why:** The component introduces meaningful interactive complexity (ARIA tabs, live region announcements, keyboard nav) that is specified in DESIGN.md but not yet verified against actual assistive technology behavior.
+
+**Pros:** Catches ARIA misuse and focus-management issues that are invisible to sighted users. Particularly important for advocacy orgs whose staff may rely on screen readers.
+
+**Cons:** Requires a manual VoiceOver/NVDA environment; can't be fully automated.
+
+**Context:** DESIGN.md specifies `role="tab"` + arrow key navigation, `role="status" aria-live="polite"` on the waveform container, `aria-disabled` on the "Make active" button, and `aria-label` on the mic button state transitions. This TODO covers verification against that spec after the component ships. Pairs with the existing embed widget a11y TODO.
+
+**Depends on / blocked by:** AudioSlotCard implementation merged and on staging.
+
+---
+
 ## Widget: full state machine unit test coverage
 
 **What:** Write Vitest unit tests for all existing embed widget states — `connected`, `between_targets`, `audio_check`, `complete`, `error`, `phone_input`, `phone_pending` — beyond the new rep-lookup states added in the elected official API PR.
@@ -77,6 +125,38 @@
 **Context:** The embed widget is a self-contained IIFE bundle. The simplest implementation is a read-only iframe preview in the Embed tab that renders the widget in idle state with current campaign settings. The `target_levels` field is the main variable — preview should show the ZIP input when levels are configured, and the plain "Call Now" button when they're not.
 
 **Depends on / blocked by:** Rep-lookup feature stable and merged.
+
+---
+
+## Voice Note tab (Tab 4) in AudioSlotCard — post-MVP
+
+**What:** Add a Voice Note tab (Tab 4) to AudioSlotCard using the Web Share API or Cloudinary mobile upload integration.
+
+**Why:** De-scoped from the design system MVP because the Cloudinary mobile share integration path was unclear as of 2026-03-21. Capturing here so it doesn't fall off the backlog.
+
+**Pros:** Reduces friction for non-technical users who want to record a voice note on mobile and upload directly without using the Record tab's full waveform UI.
+
+**Cons:** Web Share API for receiving audio input is experimental and inconsistent across browsers. Cloudinary's mobile SDK path needs investigation.
+
+**Context:** The design doc (robertlord-main-design-20260321-102951.md) explicitly de-scoped this: "Tab 4 (Voice Note / web share API) is post-MVP — ship only when the web share API question is resolved." Re-evaluate once Cloudinary's mobile upload integration is confirmed. Start at `frontend/src/components/campaign/AudioSlotCard.tsx` — Tab 4 would be the 4th entry in the tab array alongside Record, Upload, and TTS.
+
+**Depends on / blocked by:** Cloudinary mobile SDK evaluation.
+
+---
+
+## PhoneInput: international phone support
+
+**What:** Extend `PhoneInput.tsx` to support non-US country codes when the product expands internationally.
+
+**Why:** The component is locked to US (+1) in the MVP. The component interface and validation logic will need to change when expanding — better to document the constraint now than discover it as a hidden assumption later.
+
+**Pros:** When international expansion happens, the migration path is clear and scoped to one component.
+
+**Cons:** N/A — this is purely documentation of a known constraint.
+
+**Context:** MVP is US-only per design doc. Two hardcoded US assumptions in `PhoneInput.tsx`: (1) the `🇺🇸 +1` prefix is rendered unconditionally, (2) validation requires exactly 10 digits. For international support, these become a country selector (dropdown or auto-detect) and per-country digit count validation. Also check `normalizePhone()` in `useCampaignData.ts` — CSV import normalization has the same 10-digit assumption.
+
+**Depends on / blocked by:** Product decision to expand internationally.
 
 ---
 

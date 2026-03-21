@@ -4,11 +4,13 @@ import { AudioSlotCard } from "./AudioSlotCard";
 
 export function CampaignAudioTab({
   campaignId,
+  campaignStatus,
   audioLoading,
   audioByKey,
   onRefresh,
 }: {
   campaignId: string;
+  campaignStatus: string;
   audioLoading: boolean;
   audioByKey: Record<string, AudioRecording[]>;
   onRefresh: () => void;
@@ -28,6 +30,7 @@ export function CampaignAudioTab({
             hint={hint}
             versions={audioByKey[key] ?? []}
             campaignId={campaignId}
+            campaignStatus={campaignStatus}
             onRefresh={onRefresh}
           />
         ))}

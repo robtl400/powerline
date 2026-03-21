@@ -1,4 +1,4 @@
-import { INPUT_CLASS } from "@/lib/styles";
+import { PhoneInput } from "@/components/PhoneInput";
 
 export function TestCallModal({
   isOpen,
@@ -41,16 +41,13 @@ export function TestCallModal({
           Powerline will call you and walk through the full call flow.
         </p>
         <div className="flex gap-2 mb-3">
-          <input
-            type="tel"
-            className={INPUT_CLASS}
+          <PhoneInput
             value={testPhone}
-            onChange={(e) => {
-              setTestPhone(e.target.value);
+            onChange={(v) => {
+              setTestPhone(v);
               setTestCallState("idle");
             }}
-            placeholder="+15551234567"
-            autoFocus
+            className="flex-1"
           />
           <button
             onClick={handleTestCall}

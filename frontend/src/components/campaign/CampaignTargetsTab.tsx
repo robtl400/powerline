@@ -11,6 +11,7 @@ import {
 import { INPUT_CLASS } from "@/lib/styles";
 import type { ImportResult, Target, TargetForm } from "@/types/campaign";
 import { SortableTargetRow } from "./SortableTargetRow";
+import { PhoneInput } from "@/components/PhoneInput";
 
 const REQUIRED_FIELDS = ["name", "title", "phone_number", "location"] as const;
 const OPTIONAL_FIELDS = ["external_id"] as const;
@@ -225,11 +226,10 @@ export function CampaignTargetsTab({
               value={editTargetForm.title}
               onChange={(e) => setEditTargetForm((f) => ({ ...f, title: e.target.value }))}
             />
-            <input
-              className={INPUT_CLASS}
-              placeholder="Phone (E.164, e.g. +12025551234) *"
+            <PhoneInput
               value={editTargetForm.phone_number}
-              onChange={(e) => setEditTargetForm((f) => ({ ...f, phone_number: e.target.value }))}
+              onChange={(v) => setEditTargetForm((f) => ({ ...f, phone_number: v }))}
+              required
             />
             <input
               className={INPUT_CLASS}
@@ -278,11 +278,10 @@ export function CampaignTargetsTab({
               value={targetForm.title}
               onChange={(e) => setTargetForm((f) => ({ ...f, title: e.target.value }))}
             />
-            <input
-              className={INPUT_CLASS}
-              placeholder="Phone (E.164, e.g. +12025551234) *"
+            <PhoneInput
               value={targetForm.phone_number}
-              onChange={(e) => setTargetForm((f) => ({ ...f, phone_number: e.target.value }))}
+              onChange={(v) => setTargetForm((f) => ({ ...f, phone_number: v }))}
+              required
             />
             <input
               className={INPUT_CLASS}
