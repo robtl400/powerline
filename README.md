@@ -20,6 +20,14 @@ Admin Frontend (React) ──→ API
 Embed SDK (IIFE bundle) ──→ API (runs on org websites)
 ```
 
+## Key Features
+
+- **Campaigns** — create and manage call campaigns with custom audio, script prompts, and target lists
+- **CSV bulk target import** — drag-and-drop CSV upload with column mapping, upsert semantics, partial success, and a downloadable error report for failed rows
+- **WebRTC calling** — supporters call from their browser; no phone app required
+- **Embed widget** — drop a "Call Now" button on any website with a single `<script>` tag
+- **Voice Insights** — Celery background task syncs Twilio call quality scores every 15 minutes
+
 ## Tech Stack
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic, Celery + Redis
@@ -201,6 +209,12 @@ docker compose exec backend python -m pytest tests/ -v
 # Run a specific test file
 docker compose exec backend python -m pytest tests/test_campaigns.py -v
 
+# Run frontend tests
+cd frontend && npm test
+
+# Frontend tests in watch mode
+cd frontend && npm run test:watch
+
 # Lint / format Python
 docker compose exec backend ruff check app/
 docker compose exec backend ruff format app/
@@ -208,6 +222,8 @@ docker compose exec backend ruff format app/
 # Build embed widget
 cd embed && npm install && npm run build
 ```
+
+See [frontend/TESTING.md](frontend/TESTING.md) for the frontend test philosophy and conventions.
 
 ### Celery
 
