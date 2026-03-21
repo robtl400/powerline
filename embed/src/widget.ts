@@ -2,7 +2,7 @@
  * PowerlineWidget — root state machine that owns the DOM and orchestrates
  * WebRTCClient / PhoneFallbackClient.
  */
-import { fetchCallCount, fetchCampaign } from "./api.js";
+import { fetchCallCount, fetchCampaign, fetchReps, isRepsError } from "./api.js";
 import { PhoneFallbackClient } from "./phone-fallback.js";
 import { injectStyles } from "./ui/styles.js";
 import {
@@ -13,14 +13,17 @@ import {
   renderError,
   renderIdle,
   renderLoading,
+  renderLookingUpReps,
   renderMicPermission,
   renderPhoneInput,
   renderPhonePending,
+  renderRepSelection,
 } from "./ui/templates.js";
 import { WebRTCClient } from "./webrtc.js";
 import type {
   CampaignPublic,
   ConnectedData,
+  RepInfo,
   TargetPublicInfo,
   WidgetState,
 } from "./types.js";
@@ -48,6 +51,12 @@ export class PowerlineWidget {
   private callsCompleted = 0;
   // Message to show on the phone input screen (e.g. after mic denial).
   private phoneFallbackMsg: string | undefined = undefined;
+  // Rep-lookup state
+  private repSelectionReps: RepInfo[] = [];
+  private repSelectionMessage: string | undefined = undefined;
+  private selectedRepPhone: string | null = null;
+  private selectedRepName: string | null = null;
+  private selectedRepTitle: string | null = null;
 
   constructor({ campaignId, container, apiUrl = "" }: WidgetOptions) {
     this.campaignId = campaignId;
@@ -179,6 +188,12 @@ export class PowerlineWidget {
       case "phone_pending":
         this.container.innerHTML = renderPhonePending();
         break;
+      case "lookingUpReps":
+        this.container.innerHTML = renderLookingUpReps();
+        break;
+      case "repSelection":
+        this.container.innerHTML = renderRepSelection(this.repSelectionReps, this.repSelectionMessage);
+        break;
       case "between_targets": {
         const idx = (this.connectedData?.targetIndex ?? 0) + 1;
         const next: TargetPublicInfo =
@@ -221,17 +236,34 @@ export class PowerlineWidget {
     this._boundClickHandler = (e: Event) => {
       const target = (e.target as HTMLElement).closest("[data-pl-action]");
       if (!target) return;
-      const action = (target as HTMLElement).dataset.plAction;
-      this._handleAction(action ?? "");
+      const el = target as HTMLElement;
+      this._handleAction(el.dataset.plAction ?? "", el);
     };
     this.container.addEventListener("click", this._boundClickHandler);
   }
 
-  private _handleAction(action: string): void {
+  private _handleAction(action: string, el?: HTMLElement): void {
     switch (action) {
       case "call-now":
-        this._startCall();
+        if ((this.campaign?.target_levels?.length ?? 0) > 0) {
+          this._startRepLookup();
+        } else {
+          this._startCall();
+        }
         break;
+
+      case "select-rep": {
+        const phone = el?.dataset.plPhone ?? "";
+        const name = el?.dataset.plName ?? "";
+        const title = el?.dataset.plTitle ?? "";
+        if (phone) {
+          this.selectedRepPhone = phone;
+          this.selectedRepName = name;
+          this.selectedRepTitle = title;
+          this._startCall();
+        }
+        break;
+      }
 
       case "show-phone":
         this.state = "phone_input";
@@ -240,6 +272,11 @@ export class PowerlineWidget {
 
       case "back-to-idle":
         this.phoneFallbackMsg = undefined;
+        this.selectedRepPhone = null;
+        this.selectedRepName = null;
+        this.selectedRepTitle = null;
+        this.repSelectionReps = [];
+        this.repSelectionMessage = undefined;
         this.state = "idle";
         this._render("idle");
         break;
@@ -257,6 +294,11 @@ export class PowerlineWidget {
       case "retry-webrtc":
         this._destroyClients();
         this.phoneFallbackMsg = undefined;
+        this.selectedRepPhone = null;
+        this.selectedRepName = null;
+        this.selectedRepTitle = null;
+        this.repSelectionReps = [];
+        this.repSelectionMessage = undefined;
         this.state = "idle";
         this._render("idle");
         break;
@@ -279,6 +321,59 @@ export class PowerlineWidget {
 
   // ── Call initiation ──────────────────────────────────────────────────────
 
+  private _startRepLookup(): void {
+    const input = this.container.querySelector<HTMLInputElement>("#pl-zip-input");
+    const zip = input?.value.trim() ?? "";
+
+    if (!/^\d{5}$/.test(zip)) {
+      if (input) {
+        input.setAttribute("aria-invalid", "true");
+        input.style.borderColor = "#ef4444";
+      }
+      const errorEl = this.container.querySelector<HTMLElement>("#pl-zip-error");
+      if (errorEl) errorEl.textContent = "Please enter a valid 5-digit ZIP code.";
+      return;
+    }
+
+    if (input) {
+      input.removeAttribute("aria-invalid");
+      input.style.borderColor = "";
+    }
+    const errorEl = this.container.querySelector<HTMLElement>("#pl-zip-error");
+    if (errorEl) errorEl.textContent = "";
+
+    this.state = "lookingUpReps";
+    this.container.innerHTML = renderLookingUpReps();
+    this._bindEvents();
+
+    void this._fetchAndShowReps(zip);
+  }
+
+  private async _fetchAndShowReps(zip: string): Promise<void> {
+    if (!this.campaign) return;
+
+    try {
+      const result = await fetchReps(this.baseUrl, this.campaignId, zip);
+
+      if (isRepsError(result)) {
+        // 503 with manual_entry fallback → show phone input with a message
+        this.phoneFallbackMsg = result.message;
+        this.state = "phone_input";
+        this._render("phone_input");
+        return;
+      }
+
+      this.repSelectionReps = result.reps;
+      this.repSelectionMessage = result.message;
+      this.state = "repSelection";
+      this.container.innerHTML = renderRepSelection(result.reps, result.message);
+      this._bindEvents();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not look up representatives.";
+      this._render("error", msg);
+    }
+  }
+
   private _startCall(): void {
     if (!this.campaign) return;
 
@@ -290,7 +385,10 @@ export class PowerlineWidget {
         this.baseUrl,
         this.campaign,
         this._onStateChange,
-        this._onTimerTick
+        this._onTimerTick,
+        this.selectedRepPhone ?? undefined,
+        this.selectedRepName ?? undefined,
+        this.selectedRepTitle ?? undefined
       );
       void this.webrtc.start();
     } else if (this.campaign.allow_phone_callback) {
@@ -310,7 +408,10 @@ export class PowerlineWidget {
     this.phoneFallback = new PhoneFallbackClient(
       this.baseUrl,
       this.campaignId,
-      this._onStateChange
+      this._onStateChange,
+      this.selectedRepPhone ?? undefined,
+      this.selectedRepName ?? undefined,
+      this.selectedRepTitle ?? undefined
     );
     void this.phoneFallback.submit(phone);
   }

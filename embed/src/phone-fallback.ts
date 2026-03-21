@@ -8,7 +8,10 @@ export class PhoneFallbackClient {
   constructor(
     private readonly baseUrl: string,
     private readonly campaignId: string,
-    private readonly onStateChange: StateCallback
+    private readonly onStateChange: StateCallback,
+    private readonly targetPhoneOverride?: string,
+    private readonly targetRepName?: string,
+    private readonly targetRepTitle?: string
   ) {}
 
   /** Submit a phone number and request a callback. */
@@ -22,7 +25,14 @@ export class PhoneFallbackClient {
     this.onStateChange("loading");
 
     try {
-      await createCall(this.baseUrl, this.campaignId, cleaned);
+      await createCall(
+        this.baseUrl,
+        this.campaignId,
+        cleaned,
+        this.targetPhoneOverride,
+        this.targetRepName,
+        this.targetRepTitle
+      );
       this.onStateChange("phone_pending");
     } catch (err) {
       const msg =

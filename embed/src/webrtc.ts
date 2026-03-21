@@ -9,7 +9,7 @@
  * The widget drives state changes; this class emits state events upward.
  */
 import { Call, Device } from "@twilio/voice-sdk";
-import { requestToken } from "./api.js";
+import { requestTokenWithOverride } from "./api.js";
 import type { CampaignPublic, ConnectedData, WidgetState } from "./types.js";
 
 type StateCallback = (state: WidgetState, data?: unknown) => void;
@@ -29,7 +29,10 @@ export class WebRTCClient {
     private readonly baseUrl: string,
     private readonly campaign: CampaignPublic,
     private readonly onStateChange: StateCallback,
-    private readonly onTimerTick: (elapsed: number) => void
+    private readonly onTimerTick: (elapsed: number) => void,
+    private readonly targetPhoneOverride?: string,
+    private readonly targetRepName?: string,
+    private readonly targetRepTitle?: string
   ) {}
 
   /** Request a token, create the Twilio Device, and register it. */
@@ -39,7 +42,13 @@ export class WebRTCClient {
     let token: string;
     let sessionId: string;
     try {
-      const res = await requestToken(this.baseUrl, this.campaign.id);
+      const res = await requestTokenWithOverride(
+        this.baseUrl,
+        this.campaign.id,
+        this.targetPhoneOverride,
+        this.targetRepName,
+        this.targetRepTitle
+      );
       token = res.token;
       sessionId = res.session_id;
     } catch (err) {
