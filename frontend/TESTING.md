@@ -24,8 +24,8 @@ npm run test:watch  # watch mode
 
 | Layer | What | Where |
 |-------|------|--------|
-| Unit | Pure logic functions (column mapping, CSV transforms) | `src/test/*.test.ts` |
-| Component | React components in isolation (future) | `src/test/*.test.tsx` |
+| Unit | Pure logic functions (column mapping, CSV transforms, phone formatting) | `src/test/*.test.ts` |
+| Component | React components in isolation (PhoneInput, etc.) | `src/test/*.test.tsx` |
 
 ## Conventions
 
