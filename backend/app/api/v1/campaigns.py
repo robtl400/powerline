@@ -310,6 +310,7 @@ async def get_campaign_public(
             if ct.target_id in targets_by_id
         ]
 
+    embed_config: dict = campaign.embed_config or {}
     response.headers["Cache-Control"] = "public, max-age=60"
     return CampaignPublicResponse(
         id=campaign.id,
@@ -319,6 +320,7 @@ async def get_campaign_public(
         allow_webrtc=campaign.allow_webrtc,
         allow_phone_callback=campaign.allow_phone_callback,
         targets=target_infos,
+        target_levels=embed_config.get("target_levels", []),
     )
 
 
