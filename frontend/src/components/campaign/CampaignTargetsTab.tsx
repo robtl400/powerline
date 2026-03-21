@@ -24,6 +24,8 @@ const FIELD_LABELS: Record<string, string> = {
 
 export function CampaignTargetsTab({
   targets,
+  targetLevels = [],
+  onTargetLevelsChange,
   addingTarget,
   setAddingTarget,
   targetForm,
@@ -56,6 +58,8 @@ export function CampaignTargetsTab({
   resetImport,
 }: {
   targets: Target[];
+  targetLevels?: string[];
+  onTargetLevelsChange?: (levels: string[]) => void;
   addingTarget: boolean;
   setAddingTarget: (v: boolean) => void;
   targetForm: TargetForm;
@@ -104,8 +108,58 @@ export function CampaignTargetsTab({
     if (file) handleImportFileSelect(file);
   }
 
+  function toggleLevel(level: string) {
+    if (!onTargetLevelsChange) return;
+    const next = targetLevels.includes(level)
+      ? targetLevels.filter((l) => l !== level)
+      : [...targetLevels, level];
+    onTargetLevelsChange(next);
+  }
+
   return (
     <section>
+      {onTargetLevelsChange && (
+        <div className="mb-6 p-4 border border-border rounded-lg">
+          <h3 className="text-sm font-medium mb-1">Who to call</h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            Select which levels of government to route supporter calls to via ZIP code lookup.
+            When enabled, representative calls run in addition to any manually-configured
+            targets below.
+          </p>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-border text-primary accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                checked={targetLevels.includes("federal")}
+                onChange={() => toggleLevel("federal")}
+              />
+              Federal (Senate &amp; House)
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-border text-primary accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                checked={targetLevels.includes("state")}
+                onChange={() => toggleLevel("state")}
+              />
+              State legislators
+            </label>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-not-allowed select-none">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-border cursor-not-allowed"
+                disabled
+              />
+              Local{" "}
+              <span className="ml-1 text-xs font-medium bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
+                coming soon
+              </span>
+            </label>
+          </div>
+        </div>
+      )}
+
       {targetError && (
         <div className="mb-3 px-3 py-2 rounded bg-destructive/10 text-destructive text-sm">
           {targetError}

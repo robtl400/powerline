@@ -45,6 +45,8 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [embedConfig, setEmbedConfig] = useState<Record<string, unknown>>({});
+  const [targetLevels, setTargetLevels] = useState<string[]>([]);
 
   // ── Targets ────────────────────────────────────────────────────────────────
   const [targets, setTargets] = useState<Target[]>([]);
@@ -130,6 +132,9 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
         });
         setStatus(c.status);
         setTargets(c.targets);
+        const ec = c.embed_config ?? {};
+        setEmbedConfig(ec);
+        setTargetLevels((ec.target_levels as string[]) ?? []);
       })
       .catch(() => setError("Failed to load campaign."))
       .finally(() => setLoading(false));
@@ -229,6 +234,22 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     } finally {
       setStatusMenuOpen(false);
       setPendingStatus(null);
+    }
+  }
+
+  async function handleTargetLevelsChange(levels: string[]) {
+    if (!id) return;
+    const prevLevels = targetLevels;
+    const prevEmbedConfig = embedConfig;
+    setTargetLevels(levels);
+    const newEmbedConfig = { ...embedConfig, target_levels: levels };
+    setEmbedConfig(newEmbedConfig);
+    try {
+      await client.patch(`/campaigns/${id}`, { embed_config: newEmbedConfig });
+    } catch (e: unknown) {
+      setTargetLevels(prevLevels);
+      setEmbedConfig(prevEmbedConfig);
+      setError(getErrorDetail(e, "Failed to save target levels."));
     }
   }
 
@@ -477,6 +498,8 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     addingTarget, setAddingTarget,
     targetForm, setTargetForm,
     targetError, setTargetError,
+    targetLevels,
+    handleTargetLevelsChange,
     editingTarget, setEditingTarget,
     editTargetForm, setEditTargetForm,
     handleAddTarget,

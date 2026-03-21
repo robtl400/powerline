@@ -116,6 +116,8 @@ function WizardBody({
         <>
           <CampaignTargetsTab
             targets={data.targets}
+            targetLevels={data.targetLevels}
+            onTargetLevelsChange={data.handleTargetLevelsChange}
             addingTarget={data.addingTarget}
             setAddingTarget={data.setAddingTarget}
             targetForm={data.targetForm}

@@ -38,6 +38,7 @@ export interface CampaignDetail {
   lookup_validate: boolean;
   lookup_require_mobile: boolean;
   talking_points: string | null;
+  embed_config: Record<string, unknown>;
   targets: Target[];
 }
 
