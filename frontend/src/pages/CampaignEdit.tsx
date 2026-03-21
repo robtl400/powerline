@@ -139,6 +139,7 @@ export default function CampaignEdit() {
       {!isNew && activeTab === "audio" && (
         <CampaignAudioTab
           campaignId={id!}
+          campaignStatus={data.status}
           audioLoading={data.audioLoading}
           audioByKey={data.audioByKey}
           onRefresh={data.refreshAudio}

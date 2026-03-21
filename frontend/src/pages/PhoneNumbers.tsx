@@ -93,15 +93,15 @@ export default function PhoneNumbers() {
       {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
 
       {!loading && !error && (
-        <div className="rounded-lg border overflow-hidden">
+        <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-[#53565B] text-white">
-                <th className="px-4 py-3 text-left font-medium">Number</th>
-                <th className="px-4 py-3 text-left font-medium">Label</th>
-                <th className="px-4 py-3 text-left font-medium">Provider</th>
-                <th className="px-4 py-3 text-left font-medium">Capabilities</th>
-                <th className="px-4 py-3 text-left font-medium">Trust / SHAKEN</th>
+              <tr className="bg-page-bg text-brand-grey-dark">
+                <th className="px-4 py-3 text-left font-semibold">Number</th>
+                <th className="px-4 py-3 text-left font-semibold">Label</th>
+                <th className="px-4 py-3 text-left font-semibold">Provider</th>
+                <th className="px-4 py-3 text-left font-semibold">Capabilities</th>
+                <th className="px-4 py-3 text-left font-semibold">Trust / SHAKEN</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -110,7 +110,7 @@ export default function PhoneNumbers() {
                 <tr>
                   <td
                     colSpan={6}
-                    className="px-4 py-8 text-center text-muted-foreground"
+                    className="px-4 py-8 text-center text-sm text-brand-grey-light"
                   >
                     No phone numbers. Click "Sync from Twilio" to import.
                   </td>

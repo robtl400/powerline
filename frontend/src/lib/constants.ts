@@ -1,33 +1,46 @@
 // Shared color-class mappings for status badges.
 // Any new status/type values should be added here so all pages stay in sync.
 
+// Status chip inline styles (used via style={} for rgba values Tailwind can't express)
+export const CAMPAIGN_STATUS_CHIP: Record<string, { color: string; background: string; border: string }> = {
+  live:     { color: "#F2542D", background: "rgba(242,84,45,0.10)",  border: "rgba(242,84,45,0.25)" },
+  completed:{ color: "#B05357", background: "rgba(176,83,87,0.10)",  border: "rgba(176,83,87,0.20)" },
+  paused:   { color: "#92918F", background: "#F4F5F7",               border: "#E4E6EC" },
+  draft:    { color: "#92918F", background: "#F9FAFB",               border: "#E4E6EC" },
+  failed:   { color: "#53565B", background: "#F3F4F6",               border: "#D1D3D9" },
+  archived: { color: "#92918F", background: "#F4F5F7",               border: "#E4E6EC" },
+};
+
+// Tailwind class-based mappings kept for simpler badge use
 export const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
-  draft:    "bg-stone-100 text-[#53565B]",
-  live:     "bg-[#F2542D]/10 text-[#F2542D]",
-  paused:   "bg-stone-100 text-[#53565B]",
-  archived: "bg-[#F2542D]/10 text-[#F2542D]",
+  draft:    "bg-[#F9FAFB] text-[#92918F] border border-[#E4E6EC]",
+  live:     "bg-[rgba(242,84,45,0.10)] text-[#F2542D] border border-[rgba(242,84,45,0.25)]",
+  paused:   "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  archived: "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  completed:"bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
+  failed:   "bg-[#F3F4F6] text-[#53565B] border border-[#D1D3D9]",
 };
 
 export const CALL_SESSION_STATUS_COLORS: Record<string, string> = {
-  completed:   "bg-[#F2542D]/10 text-[#F2542D]",
-  initiated:   "bg-stone-100 text-[#53565B]",
-  in_progress: "bg-[#F2542D]/10 text-[#F2542D]",
-  failed:      "bg-red-100 text-red-700",
+  completed:   "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
+  initiated:   "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  in_progress: "bg-[rgba(242,84,45,0.10)] text-[#F2542D] border border-[rgba(242,84,45,0.25)]",
+  failed:      "bg-[#F3F4F6] text-[#53565B] border border-[#D1D3D9]",
 };
 
 export const CONNECTION_TYPE_COLORS: Record<string, string> = {
-  webrtc:         "bg-stone-100 text-[#53565B]",
-  outbound_phone: "bg-stone-100 text-[#53565B]",
-  inbound_phone:  "bg-stone-100 text-[#53565B]",
+  webrtc:         "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  outbound_phone: "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  inbound_phone:  "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
 };
 
 export const TRUST_STATUS_COLORS: Record<string, string> = {
-  verified: "bg-[#F2542D]/10 text-[#F2542D]",
-  pending:  "bg-stone-100 text-[#53565B]",
-  unknown:  "bg-stone-100 text-[#53565B]",
+  verified: "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
+  pending:  "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  unknown:  "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
 };
 
-export const FALLBACK_BADGE_COLOR = "bg-stone-100 text-[#53565B]";
+export const FALLBACK_BADGE_COLOR = "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]";
 
 // Campaign status machine — mirrors backend VALID_TRANSITIONS
 export const VALID_TRANSITIONS: Record<string, string[]> = {

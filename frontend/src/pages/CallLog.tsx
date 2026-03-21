@@ -134,6 +134,7 @@ export default function CallLog() {
 
   const totalPages = Math.ceil(page.total / PAGE_SIZE);
   const currentPage = Math.floor(skip / PAGE_SIZE) + 1;
+  const hasActiveFilters = Boolean(statusFilter || typeFilter || startDate || endDate);
 
   return (
     <div className="space-y-6">
@@ -141,7 +142,7 @@ export default function CallLog() {
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate(`/campaigns/${id}/edit`)}
-          className="text-sm text-muted-foreground hover:text-foreground"
+          className="text-sm text-brand-grey-light hover:text-brand-black"
         >
           ← {campaign?.name ?? "Campaign"}
         </button>
@@ -150,11 +151,11 @@ export default function CallLog() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4">
+      <div className="flex flex-wrap items-end gap-3 rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] p-4">
         <div>
-          <label className="block text-xs text-muted-foreground mb-1">Status</label>
+          <label className="block text-xs text-brand-grey-light mb-1">Status</label>
           <select
-            className="text-sm border border-border rounded px-2 py-1.5 bg-background min-w-[120px]"
+            className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white min-w-[120px]"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -166,9 +167,9 @@ export default function CallLog() {
           </select>
         </div>
         <div>
-          <label className="block text-xs text-muted-foreground mb-1">Type</label>
+          <label className="block text-xs text-brand-grey-light mb-1">Type</label>
           <select
-            className="text-sm border border-border rounded px-2 py-1.5 bg-background min-w-[140px]"
+            className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white min-w-[140px]"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
           >
@@ -179,20 +180,20 @@ export default function CallLog() {
           </select>
         </div>
         <div>
-          <label className="block text-xs text-muted-foreground mb-1">From</label>
+          <label className="block text-xs text-brand-grey-light mb-1">From</label>
           <input
             type="date"
-            className="text-sm border border-border rounded px-2 py-1.5 bg-background"
+            className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white"
             value={startDate}
             max={endDate || undefined}
             onChange={(e) => setStartDate(e.target.value)}
           />
         </div>
         <div>
-          <label className="block text-xs text-muted-foreground mb-1">To</label>
+          <label className="block text-xs text-brand-grey-light mb-1">To</label>
           <input
             type="date"
-            className="text-sm border border-border rounded px-2 py-1.5 bg-background"
+            className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white"
             value={endDate}
             min={startDate || undefined}
             max={new Date().toISOString().slice(0, 10)}
@@ -202,20 +203,20 @@ export default function CallLog() {
         <div className="flex gap-2 ml-auto">
           <button
             onClick={applyFilters}
-            className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-sm hover:opacity-90 transition-opacity"
+            className="px-3 py-1.5 bg-brand-orange text-white rounded text-sm hover:opacity-90 transition-opacity"
           >
             Apply
           </button>
           <button
             onClick={clearFilters}
-            className="px-3 py-1.5 border border-border rounded text-sm hover:bg-muted/50 transition-colors"
+            className="px-3 py-1.5 border border-brand-border rounded text-sm hover:bg-page-bg transition-colors"
           >
             Clear
           </button>
           <button
             onClick={handleCsvExport}
             disabled={csvLoading}
-            className="px-3 py-1.5 border border-border rounded text-sm hover:bg-muted/50 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 border border-brand-border rounded text-sm hover:bg-page-bg transition-colors disabled:opacity-50"
           >
             {csvLoading ? "Exporting…" : "Export CSV"}
           </button>
@@ -223,58 +224,66 @@ export default function CallLog() {
       </div>
 
       {error && (
-        <div className="rounded-md bg-destructive/10 text-destructive px-4 py-3 text-sm">
+        <div className="rounded-md bg-page-bg text-brand-grey-dark px-4 py-3 text-sm border border-brand-border">
           {error}
         </div>
       )}
 
       {/* Table */}
-      <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
+      <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
         <div className="border-b px-5 py-3 flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-brand-grey-light">
             {page.total} session{page.total !== 1 ? "s" : ""}
           </p>
         </div>
 
         {loading ? (
-          <p className="px-5 py-8 text-center text-sm text-muted-foreground">Loading…</p>
-        ) : page.items.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-muted-foreground">No sessions found.</p>
+          <p className="px-5 py-8 text-center text-sm text-brand-grey-light">Loading…</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-[#53565B] text-left text-xs text-white">
-                <th className="px-5 py-2 font-medium">Date / Time</th>
-                <th className="px-5 py-2 font-medium">Type</th>
-                <th className="px-5 py-2 font-medium">Status</th>
-                <th className="px-5 py-2 font-medium text-right">Calls Made</th>
-                <th className="px-5 py-2 font-medium text-right">Duration</th>
+              <tr className="bg-page-bg text-left text-xs text-brand-grey-dark">
+                <th className="px-5 py-2 font-semibold">Date / Time</th>
+                <th className="px-5 py-2 font-semibold">Type</th>
+                <th className="px-5 py-2 font-semibold">Status</th>
+                <th className="px-5 py-2 font-semibold text-right">Calls Made</th>
+                <th className="px-5 py-2 font-semibold text-right">Duration</th>
               </tr>
             </thead>
             <tbody>
-              {page.items.map((row) => (
-                <tr key={row.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
-                  <td className="px-5 py-3 font-mono text-xs text-muted-foreground">
-                    {formatDateTime(row.created_at)}
-                  </td>
-                  <td className="px-5 py-3">
-                    <Badge
-                      label={row.connection_type}
-                      colorClass={CONNECTION_TYPE_COLORS[row.connection_type] ?? FALLBACK_BADGE_COLOR}
-                    />
-                  </td>
-                  <td className="px-5 py-3">
-                    <Badge
-                      label={row.status}
-                      colorClass={CALL_SESSION_STATUS_COLORS[row.status] ?? FALLBACK_BADGE_COLOR}
-                    />
-                  </td>
-                  <td className="px-5 py-3 text-right tabular-nums">{row.call_count}</td>
-                  <td className="px-5 py-3 text-right tabular-nums text-muted-foreground">
-                    {row.duration != null ? `${row.duration}s` : "—"}
+              {page.items.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-brand-grey-light">
+                    {hasActiveFilters ? (
+                      <>No sessions match your filters — <button onClick={clearFilters} className="text-brand-orange hover:underline">Clear filters</button></>
+                    ) : "No call sessions yet"}
                   </td>
                 </tr>
-              ))}
+              ) : (
+                page.items.map((row) => (
+                  <tr key={row.id} className="border-b last:border-0 hover:bg-page-bg/50 transition-colors">
+                    <td className="px-5 py-3 font-mono text-xs text-brand-grey-light">
+                      {formatDateTime(row.created_at)}
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge
+                        label={row.connection_type}
+                        colorClass={CONNECTION_TYPE_COLORS[row.connection_type] ?? FALLBACK_BADGE_COLOR}
+                      />
+                    </td>
+                    <td className="px-5 py-3">
+                      <Badge
+                        label={row.status}
+                        colorClass={CALL_SESSION_STATUS_COLORS[row.status] ?? FALLBACK_BADGE_COLOR}
+                      />
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums">{row.call_count}</td>
+                    <td className="px-5 py-3 text-right tabular-nums text-brand-grey-light">
+                      {row.duration != null ? `${row.duration}s` : "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         )}
@@ -282,7 +291,7 @@ export default function CallLog() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <div className="flex items-center justify-between text-sm text-brand-grey-light">
           <button
             onClick={() => setSkip(Math.max(0, skip - PAGE_SIZE))}
             disabled={skip === 0}

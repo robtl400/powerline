@@ -30,13 +30,13 @@
     --destructive:        0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
-    /* Borders — bold restyle */
-    --border:             217 5% 34%;    /* Dark Grey #53565B — card/general borders */
-    --input:              217 5% 34%;    /* Dark Grey #53565B — input borders */
+    /* Borders */
+    --border:             220 23% 92%;   /* #E4E6EC brand-border */
+    --input:              220 23% 92%;   /* #E4E6EC brand-border */
     --ring:               0 0% 7%;       /* Black #111111 — 2px focus ring */
 
-    /* Border radius — subtle path: nearly square */
-    --radius: 0.25rem;
+    /* Border radius */
+    --radius: 0.5rem;
   }
 }
 

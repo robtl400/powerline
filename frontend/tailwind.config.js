@@ -39,14 +39,13 @@ export default {
           foreground: "hsl(var(--card-foreground))",
         },
         /* Brand palette tokens — bg-brand-gum, text-brand-orange, etc. */
-        brand: {
-          gum:          "#B05357",
-          black:        "#111111",
-          orange:       "#F2542D",
-          "grey-light": "#92918F",
-          "grey-dark":  "#53565B",
-          white:        "#F0F4FF",
-        },
+        "brand-orange":     "#F2542D",
+        "brand-gum":        "#B05357",
+        "brand-black":      "#111111",
+        "brand-grey-dark":  "#53565B",
+        "brand-grey-light": "#92918F",
+        "page-bg":          "#F4F5F7",
+        "brand-border":     "#E4E6EC",
       },
       borderRadius: {
         lg: "var(--radius)",
