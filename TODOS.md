@@ -1,93 +1,91 @@
 # TODOS
 
-## Campaigns / Rep Lookup
+## Widget: full state machine unit test coverage
 
-### Local Elected Officials (Hyper-local Rep Lookup)
+**What:** Write Vitest unit tests for all existing embed widget states — `connected`, `between_targets`, `audio_check`, `complete`, `error`, `phone_input`, `phone_pending` — beyond the new rep-lookup states added in the elected official API PR.
 
-**What:** Extend the rep lookup to resolve local officials (city council, county supervisors, school boards) in addition to federal/state reps.
+**Why:** The widget is the most complex client-side component. Without unit tests, regressions during future changes (new states, refactors) are caught only by manual QA. The framework (Vitest + jsdom) is already set up.
 
-**Why:** Advocacy orgs running local campaigns (zoning, school policy) need local officials, not just federal/state reps. This is the long-term completeness of the "flexibility vs. New/Mode" value prop.
+**Pros:** Catches regressions cheaply. Documents expected widget behavior as executable specs.
 
-**Context:** Step 3 (Google Civic / OpenStates) covers federal + state well; local coverage is sparse and inconsistent. Options: Cicero API (paid, best local data), Google Civic's `roles` filter for local, or manual fallback. Evaluate after Step 3 is live and org feedback arrives. Low priority until an org explicitly asks for local targeting.
+**Cons:** Takes time to mock Twilio Voice SDK; the `connected` state in particular requires a live Twilio Device mock.
 
-**Effort:** M
-**Priority:** P2
-**Depends on:** Rep lookup service (step 3) shipping; org feedback confirming local targeting need
+**Context:** State machine tests for the new rep-lookup paths (lookingUpReps, repSelection, select-rep, fallback) were added in the elected official API PR. This TODO covers the existing states that remain untested. Start with `widget.test.ts` and mock `WebRTCClient` at the class boundary.
 
----
-
-### Campaign Health Panel
-
-**What:** Admin panel on the campaign stats tab showing real-time operational metrics: cache hit rate (last hour), rep lookup success rate, call connection rate, and geolocation fallback trigger rate.
-
-**Why:** Organizers launching a campaign have no visibility into whether the rep lookup is working without manually testing it. A health panel lets them verify "rep lookups: 98% success" before going live and makes on-call debugging much faster.
-
-**Context:** Metrics will be available once the rep lookup service (civic_service.py) and geocoding service are built in step 3. The panel reads from structlog aggregates or a lightweight Redis counter set that the services write to. This is a v2 follow-up — build after real traffic generates metrics worth displaying.
-
-**Effort:** S
-**Priority:** P2
-**Depends on:** Rep lookup service (step 3) shipping and generating real metrics
+**Depends on / blocked by:** Nothing. Can be done independently.
 
 ---
 
-## Infrastructure / Observability
+## OpenStates: benchmark p95 latency and add pre-warming if needed
 
-### Post-call SMS Follow-up
+**What:** After the first live campaign, measure p95 latency for OpenStates `GET /api/v3/people.geo` from app logs. If p95 consistently exceeds 2 seconds, implement async cache pre-warming for expected ZIP codes.
 
-**What:** After a supporter completes a call, send them a configurable SMS: "Thanks for calling Rep. Smith! Here's a talking point for your next call: [link]"
+**Why:** The design doc flagged this: "if p95 >2s, add async pre-warming or accept the slower path." Cold cache lookups on election-day traffic spikes could frustrate supporters waiting for rep results.
 
-**Why:** Turns a one-time action into continued engagement. Advocacy orgs track supporter engagement metrics. Post-call SMS is a standard expectation in digital organizing tools.
+**Pros:** Reduces call-initiation latency for high-traffic campaigns. Pre-warming is especially valuable for orgs with known constituent geography.
 
-**Context:** SMS infrastructure exists: `services/sms.py`. The `embed_config` JSONB on Campaign already stores custom per-campaign settings. Triggered via Twilio status callback when call completes (status = "completed"). Campaign admin configures the SMS body in embed_config. Requires opt-in consent UX in the embed widget (supporter enters phone for callback → opt-in implied). Evaluate consent flow carefully before building.
+**Cons:** Adds operational complexity (background task, ZIP prediction logic). May be unnecessary if OpenStates p95 is comfortably under 2s.
 
-**Effort:** S/M
-**Priority:** P2
-**Depends on:** Reliability hardening (step 5); legal review of SMS consent requirements
+**Context:** The Redis cache (24h TTL) already handles repeated lookups within a session. Pre-warming is only needed for first-hit cold misses at scale. Benchmark using Twilio/app logs from the first live campaign before building anything.
 
----
-
-### Real-time Campaign Analytics Dashboard
-
-**What:** Live dashboard showing call volume, connect rate, talk time distribution, and per-target call counts. Visible to campaign admins during a live campaign.
-
-**Why:** Organizers need to know if their campaign is working in real-time. "How many calls have been made today?" is the first question every org asks post-launch.
-
-**Context:** Call data is already written to the `calls` table via Twilio status callbacks. The analytics router (`api/v1/analytics.py`) exists. This is a querying + UI problem, not a data collection problem. Consider a polling endpoint (`GET /api/v1/campaigns/{id}/live-stats`) that aggregates calls in the last N minutes. Upgrade to Server-Sent Events or WebSocket if polling latency (5s) is too slow for organizers.
-
-**Effort:** M
-**Priority:** P2
-**Depends on:** None — data already available
+**Depends on / blocked by:** Requires a live campaign with real traffic data.
 
 ---
 
-### CRM/Webhook Integration
+## Local government level lookup
 
-**What:** When a call is completed, push a webhook to a configurable URL: `{supporter_phone, campaign_id, target_name, call_status, duration, timestamp}`. Enables ActionNetwork, NGP VAN, and custom CRM integrations.
+**What:** Implement `"local"` as a selectable government level in the campaign admin UI and the LevelRouter, using Google Civic's local office data.
 
-**Why:** Advocacy orgs use CRMs to track constituent engagement. Without this, call data is siloed in Powerline. With it, every call is an action in the org's contact database.
+**Why:** Some advocacy campaigns target city council, county commissioners, or school boards. The "coming soon" badge in the admin UI is a placeholder for this.
 
-**Context:** Campaign model has `embed_config` JSONB for per-campaign settings. Add `webhook_url` and `webhook_secret` fields (HMAC signing for verification). Fire via Celery task on call completion. This is a standard Zapier/Make-style webhook pattern.
+**Pros:** Expands the types of campaigns Powerline can support. Differentiates from New/Mode, which has limited local support.
 
-**Effort:** M
-**Priority:** P2
-**Depends on:** Reliability hardening (step 5); call status webhook pipeline stable
+**Cons:** Google Civic's local data coverage is sparse and inconsistent by geography. Quality needs to be confirmed before shipping — an org could get zero local reps for large portions of their supporter base. May require a secondary data source (e.g., Cicero API) for reliable local coverage.
+
+**Context:** The admin UI already has a disabled "Local" checkbox with a "coming soon" badge (`CampaignTargetsTab.tsx`). The `LevelRouter` has a `_PROVIDER_MAP` dict — adding `"local"` is a matter of implementing `fetch_local_reps()` and registering it. Start by confirming which orgs need local targets and what coverage they'd require.
+
+**Depends on / blocked by:** Org feedback on whether local government is needed. Google Civic API key already in place.
 
 ---
 
-### Phone Number Validation Badges
+## Embed widget: full a11y audit for rep-lookup flow
 
-**What:** In the campaign targets list, show a green/yellow/red badge per target indicating Twilio Lookup validation status: valid mobile, valid landline, or invalid/unverifiable.
+**What:** Screen-reader walkthrough (VoiceOver + NVDA), color contrast check (WCAG AA), and keyboard navigation test for the ZIP input, rep selection list, and error states in the embed widget.
 
-**Why:** Organizers can identify bad phone numbers in their target list before going live. Avoids the frustration of a call campaign that silently fails for 20% of targets.
+**Why:** The embed widget runs on advocacy org websites where a11y failures are visible to all supporters. The rep-lookup flow introduces new interactive elements (ZIP input, rep buttons) that were not part of the original widget and have not been audited.
 
-**Context:** Twilio Lookup API (`lookup_validate` flag already on Campaign model). Currently lookup is called at call-initiation time. For target validation badges, run Lookup asynchronously on target creation/import via a Celery task and store result in `target_metadata`. Show badge in `SortableTargetRow.tsx`. Consider cost: Twilio Lookup is not free (~$0.005/lookup). Add a campaign-level toggle.
+**Pros:** Catches failures invisible to sighted keyboard users. A civic engagement tool failing screen-reader users is particularly damaging to org credibility.
 
-**Effort:** M
-**Priority:** P3
-**Depends on:** CSV import (step 2) to provide bulk targets worth validating
+**Cons:** Requires VoiceOver/NVDA testing environment and some manual effort.
+
+**Context:** Basic a11y attributes have been specified in the design review (label on ZIP input, aria-live error region, aria-invalid on validation failure, 44px min touch targets on rep buttons). This TODO covers a full hands-on walkthrough after those are implemented to catch anything missed. Start with the ZIP → lookup → rep selection → call path.
+
+**Depends on / blocked by:** Rep-lookup feature on staging.
+
+---
+
+## Admin UI: embed widget preview panel
+
+**What:** A live preview panel in the Campaign admin (Targets or Embed tab) showing what the embed widget will look like to supporters based on current campaign settings — specifically when government levels are configured.
+
+**Why:** Admins setting government levels (Federal/State) have no feedback on what the ZIP input and rep selection flow will look like to supporters without embedding the widget on a test page. This creates a confidence gap during campaign setup.
+
+**Pros:** Reduces setup errors. Helps admins understand the supporter experience without a separate test deployment. Analogous to Mailchimp's email preview.
+
+**Cons:** Requires rendering a widget preview inside a React iframe or shadow DOM sandbox, which adds complexity.
+
+**Context:** The embed widget is a self-contained IIFE bundle. The simplest implementation is a read-only iframe preview in the Embed tab that renders the widget in idle state with current campaign settings. The `target_levels` field is the main variable — preview should show the ZIP input when levels are configured, and the plain "Call Now" button when they're not.
+
+**Depends on / blocked by:** Rep-lookup feature stable and merged.
+
+---
 
 ## Completed
 
 ### CSV Import Error Report Download
 **What:** After a CSV import with errors, provide a "Download Error Report" button that returns a CSV of the failed rows with an added `error_reason` column.
 **Completed:** v2.0.1.0 (2026-03-20)
+
+### Elected Official Rep Lookup (federal + state)
+**What:** Implement ZIP → representative lookup via Google Civic and OpenStates APIs, with rep selection flow in the embed widget and admin UI for configuring government levels.
+**Completed:** v2.0.2.0 (2026-03-21)
