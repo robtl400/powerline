@@ -19,13 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser
 from app.models.audio import AUDIO_KEYS, AudioRecording
+from app.models.campaign import Campaign
 from app.schemas.audio import AudioRecordingCreate, AudioRecordingResponse
 from app.services.audio_service import upload_audio_to_cloudinary
 
 router_audio = APIRouter(prefix="/audio", tags=["audio"])
 router_campaign_audio = APIRouter(prefix="/campaigns", tags=["audio"])
 
-_ALLOWED_CONTENT_TYPES = {"audio/mpeg", "audio/wav", "audio/x-wav"}
+_ALLOWED_CONTENT_TYPES = {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/webm", "audio/mp4"}
 _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
@@ -65,7 +66,7 @@ async def upload_audio(
     """
     if file.content_type not in _ALLOWED_CONTENT_TYPES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Only MP3 and WAV files are accepted"
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Accepted formats: MP3, WAV, WebM, MP4 (max 10 MB)"
         )
     if key not in AUDIO_KEYS:
         raise HTTPException(
@@ -77,7 +78,9 @@ async def upload_audio(
     if len(file_bytes) > _MAX_FILE_BYTES:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="File too large. Maximum size is 10 MB.")
 
-    ext = "mp3" if "mpeg" in (file.content_type or "") else "wav"
+    ext_map = {"mpeg": "mp3", "wav": "wav", "x-wav": "wav", "webm": "webm", "mp4": "m4a"}
+    subtype = (file.content_type or "").split("/")[-1]
+    ext = ext_map.get(subtype, "mp3")
     filename = f"{uuid.uuid4()}.{ext}"
 
     url = await upload_audio_to_cloudinary(file_bytes, filename, file.content_type or "audio/mpeg")
@@ -118,6 +121,18 @@ async def activate_audio(
     recording = result.scalar_one_or_none()
     if not recording:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audio recording not found")
+
+    # Block activation on live campaigns.
+    if recording.campaign_id:
+        campaign_result = await db.execute(
+            select(Campaign).where(Campaign.id == recording.campaign_id)
+        )
+        campaign = campaign_result.scalar_one_or_none()
+        if campaign and campaign.status == "live":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Pause the campaign before changing audio",
+            )
 
     # Deactivate all other versions for this (campaign_id, key) pair.
     await db.execute(
