@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
 
+    # Civic API (ZIP → representative lookup)
+    GOOGLE_CIVIC_API_KEY: str = ""
+    OPENSTATES_API_KEY: str = ""
+
     # CORS — comma-separated list of allowed origins, or "*" for all.
     # Use "*" for development and the embed widget (runs on third-party sites).
     # In production, restrict to your frontend domain: "https://app.example.com"
