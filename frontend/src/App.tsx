@@ -7,6 +7,7 @@ import Dashboard from "@/pages/Dashboard";
 import Users from "@/pages/Users";
 import Campaigns from "@/pages/Campaigns";
 import CampaignEdit from "@/pages/CampaignEdit";
+import CampaignWizard from "@/components/campaign/CampaignWizard";
 import PhoneNumbers from "@/pages/PhoneNumbers";
 import Blocklist from "@/pages/Blocklist";
 import CallLog from "@/pages/CallLog";
@@ -27,6 +28,7 @@ export default function App() {
               <Route path="/campaigns" element={<Campaigns />} />
               <Route path="/campaigns/new" element={<CampaignEdit />} />
               <Route path="/campaigns/:id/edit" element={<CampaignEdit />} />
+              <Route path="/campaigns/:id/wizard" element={<CampaignWizard />} />
               <Route path="/campaigns/:id/calls" element={<CallLog />} />
               <Route path="/phone-numbers" element={<PhoneNumbers />} />
               <Route path="/blocklist" element={<Blocklist />} />

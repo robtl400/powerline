@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -8,8 +9,18 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { INPUT_CLASS } from "@/lib/styles";
-import type { Target, TargetForm } from "@/types/campaign";
+import type { ImportResult, Target, TargetForm } from "@/types/campaign";
 import { SortableTargetRow } from "./SortableTargetRow";
+
+const REQUIRED_FIELDS = ["name", "title", "phone_number", "location"] as const;
+const OPTIONAL_FIELDS = ["external_id"] as const;
+const FIELD_LABELS: Record<string, string> = {
+  name: "Name",
+  title: "Title",
+  phone_number: "Phone number",
+  location: "Location",
+  external_id: "External ID (optional)",
+};
 
 export function CampaignTargetsTab({
   targets,
@@ -29,6 +40,20 @@ export function CampaignTargetsTab({
   handleSaveTargetEdit,
   handleDragEnd,
   sensors,
+  // import
+  importOpen,
+  setImportOpen,
+  importFile,
+  importHeaders,
+  importColumnMap,
+  setImportColumnMap,
+  importLoading,
+  importResult,
+  importError,
+  handleImportFileSelect,
+  handleImportSubmit,
+  handleDownloadErrors,
+  resetImport,
 }: {
   targets: Target[];
   addingTarget: boolean;
@@ -47,7 +72,38 @@ export function CampaignTargetsTab({
   handleSaveTargetEdit: () => void;
   handleDragEnd: (event: DragEndEvent) => void;
   sensors: ReturnType<typeof import("@dnd-kit/core").useSensors>;
+  importOpen: boolean;
+  setImportOpen: (v: boolean) => void;
+  importFile: File | null;
+  importHeaders: string[];
+  importColumnMap: Record<string, string>;
+  setImportColumnMap: (m: Record<string, string>) => void;
+  importLoading: boolean;
+  importResult: ImportResult | null;
+  importError: string | null;
+  handleImportFileSelect: (file: File) => void;
+  handleImportSubmit: () => void;
+  handleDownloadErrors: () => void;
+  resetImport: () => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [errorsExpanded, setErrorsExpanded] = useState(false);
+
+  const requiredMapped = REQUIRED_FIELDS.every((f) => importColumnMap[f]);
+
+  function handleFileDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleImportFileSelect(file);
+  }
+
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleImportFileSelect(file);
+  }
+
   return (
     <section>
       {targetError && (
@@ -213,12 +269,185 @@ export function CampaignTargetsTab({
           </div>
         </div>
       ) : (
-        <button
-          onClick={() => setAddingTarget(true)}
-          className="px-4 py-2 border border-dashed border-border rounded-md text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
-        >
-          + Add Target
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setAddingTarget(true)}
+            className="px-4 py-2 border border-dashed border-border rounded-md text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+          >
+            + Add Target
+          </button>
+          {!importOpen && (
+            <button
+              onClick={() => setImportOpen(true)}
+              className="px-4 py-2 border border-dashed border-border rounded-md text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+            >
+              Import CSV
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* CSV Import panel */}
+      {importOpen && (
+        <div className="mt-4 rounded-md border border-border p-4 bg-muted/20 space-y-4">
+          <p className="text-sm font-medium">Import targets from CSV</p>
+
+          {/* Import result summary */}
+          {importResult ? (
+            <div className="space-y-3">
+              <div className="text-sm">
+                <span className="font-medium">{importResult.imported} imported</span>
+                {importResult.updated > 0 && (
+                  <span>, <span className="font-medium">{importResult.updated} updated</span></span>
+                )}
+                {importResult.errors.length > 0 && (
+                  <span>, <span className="font-medium text-destructive">{importResult.errors.length} error{importResult.errors.length !== 1 ? "s" : ""}</span></span>
+                )}
+              </div>
+
+              {importResult.errors.length > 0 && (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setErrorsExpanded((v) => !v)}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    {errorsExpanded ? "Hide" : "Show"} error details
+                  </button>
+                  {errorsExpanded && (
+                    <div className="rounded border border-border divide-y divide-border text-xs max-h-40 overflow-y-auto">
+                      {importResult.errors.map((e) => (
+                        <div key={e.row} className="px-3 py-1.5 flex gap-3">
+                          <span className="text-muted-foreground shrink-0">Row {e.row}</span>
+                          <span className="text-destructive">{e.error}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleDownloadErrors}
+                    className="text-xs text-primary underline-offset-2 hover:underline"
+                  >
+                    Download error report
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={() => {
+                  resetImport();
+                  setImportOpen(true);
+                }}
+                className="px-3 py-1.5 border border-border rounded-md text-xs"
+              >
+                Import another file
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* File drop zone */}
+              {!importFile ? (
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleFileDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-md p-6 text-center cursor-pointer transition-colors ${
+                    dragOver
+                      ? "border-primary/60 bg-primary/5"
+                      : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <p className="text-sm text-muted-foreground">
+                    Drag &amp; drop a CSV file here, or{" "}
+                    <span className="text-foreground font-medium">click to browse</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Required columns: name, title, phone_number, location
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={handleFileInput}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Selected file + column mapping */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-medium">{importFile.name}</span>
+                    <button
+                      onClick={() => {
+                        resetImport();
+                        setImportOpen(true);
+                      }}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Change file
+                    </button>
+                  </div>
+
+                  {importHeaders.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                        Column mapping
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {([...REQUIRED_FIELDS, ...OPTIONAL_FIELDS] as string[]).map((field) => (
+                          <div key={field} className="space-y-1">
+                            <label className="text-xs text-muted-foreground">
+                              {FIELD_LABELS[field]}
+                              {REQUIRED_FIELDS.includes(field as typeof REQUIRED_FIELDS[number]) && (
+                                <span className="text-destructive ml-0.5">*</span>
+                              )}
+                            </label>
+                            <select
+                              className={INPUT_CLASS}
+                              value={importColumnMap[field] ?? ""}
+                              onChange={(e) =>
+                                setImportColumnMap({ ...importColumnMap, [field]: e.target.value })
+                              }
+                            >
+                              <option value="">— skip —</option>
+                              {importHeaders.map((h) => (
+                                <option key={h} value={h}>
+                                  {h}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {importError && (
+                    <div className="px-3 py-2 rounded bg-destructive/10 text-destructive text-sm">
+                      {importError}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleImportSubmit}
+                  disabled={!importFile || !requiredMapped || importLoading}
+                  className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
+                >
+                  {importLoading ? "Importing…" : "Import"}
+                </button>
+                <button
+                  onClick={resetImport}
+                  className="px-4 py-1.5 border border-border rounded-md text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </section>
   );

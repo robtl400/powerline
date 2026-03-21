@@ -18,12 +18,22 @@ import {
   type CampaignForm,
   type CampaignStats,
   type DailyCount,
+  type ImportResult,
   type QualityData,
   type Target,
   type TargetForm,
   emptyForm,
   emptyTargetForm,
 } from "@/types/campaign";
+
+// Keep in sync with _KNOWN_FIELDS / _REQUIRED_FIELDS in backend/app/api/v1/campaigns.py
+const _FIELD_ALIASES: Record<string, string[]> = {
+  name: ["name", "full name", "fullname"],
+  title: ["title"],
+  phone_number: ["phone", "phone_number", "phone number", "phonenumber"],
+  location: ["location", "district"],
+  external_id: ["external_id", "external id", "id"],
+};
 
 export function useCampaignData(id: string | undefined, activeTab: string) {
   const isNew = !id;
@@ -43,6 +53,15 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
   const [targetError, setTargetError] = useState<string | null>(null);
   const [editingTarget, setEditingTarget] = useState<Target | null>(null);
   const [editTargetForm, setEditTargetForm] = useState<TargetForm>(emptyTargetForm());
+
+  // ── CSV Import ─────────────────────────────────────────────────────────────
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importHeaders, setImportHeaders] = useState<string[]>([]);
+  const [importColumnMap, setImportColumnMap] = useState<Record<string, string>>({});
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   // ── Audio ──────────────────────────────────────────────────────────────────
   const [audioRecordings, setAudioRecordings] = useState<AudioRecording[]>([]);
@@ -292,6 +311,115 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     }
   }
 
+  // ── Import handlers ────────────────────────────────────────────────────────
+
+  function handleImportFileSelect(file: File) {
+    setImportFile(file);
+    setImportResult(null);
+    setImportError(null);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = (e.target?.result as string) ?? "";
+      // Strip BOM and get first line
+      const firstLine = text.replace(/^\uFEFF/, "").split(/\r?\n/)[0] ?? "";
+      const headers = firstLine.split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+      setImportHeaders(headers);
+
+      // Auto-map headers to canonical field names
+      const map: Record<string, string> = {};
+      for (const header of headers) {
+        const lower = header.toLowerCase();
+        for (const [field, aliases] of Object.entries(_FIELD_ALIASES)) {
+          if (aliases.includes(lower)) {
+            map[field] = header;
+            break;
+          }
+        }
+      }
+      setImportColumnMap(map);
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleImportSubmit() {
+    if (!id || !importFile) return;
+    setImportLoading(true);
+    setImportError(null);
+    try {
+      let fileToUpload: File | Blob = importFile;
+
+      // Only remap if the user changed any column mapping
+      const canonicalFields = ["name", "title", "phone_number", "location", "external_id"];
+      const mappedHeaders = canonicalFields.filter((f) => importColumnMap[f]);
+
+      // Check if any header needs renaming
+      const anyRenamed = mappedHeaders.some((f) => importColumnMap[f] !== f);
+      if (anyRenamed) {
+        const text = await importFile.text();
+        const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+        const originalHeaders = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+
+        // Build index map: original header index → canonical field name
+        const colToField: Record<number, string> = {};
+        for (const [field, origHeader] of Object.entries(importColumnMap)) {
+          const idx = originalHeaders.indexOf(origHeader);
+          if (idx !== -1) colToField[idx] = field;
+        }
+
+        // Rebuild CSV with canonical headers
+        const newHeader = originalHeaders.map((_, i) => colToField[i] ?? originalHeaders[i]).join(",");
+        const newLines = [newHeader, ...lines.slice(1)].join("\n");
+        fileToUpload = new Blob([newLines], { type: "text/csv" });
+      }
+
+      const formData = new FormData();
+      formData.append("file", fileToUpload, "targets.csv");
+
+      const res = await client.post<ImportResult>(
+        `/campaigns/${id}/targets/import`,
+        formData
+      );
+      setImportResult(res.data);
+
+      // Refresh targets list from API
+      if (res.data.imported > 0 || res.data.updated > 0) {
+        const refreshed = await client.get<{ targets: Target[] }>(`/campaigns/${id}`);
+        setTargets(refreshed.data.targets);
+      }
+    } catch (e: unknown) {
+      setImportError(getErrorDetail(e, "Import failed."));
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  function handleDownloadErrors() {
+    if (!id) return;
+    client
+      .get(`/campaigns/${id}/targets/import-errors`, { responseType: "blob" })
+      .then((res) => {
+        const url = URL.createObjectURL(res.data as Blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `import-errors-${id}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => {
+        setImportError("Failed to download error report. The report may have expired.");
+      });
+  }
+
+  function resetImport() {
+    setImportOpen(false);
+    setImportFile(null);
+    setImportHeaders([]);
+    setImportColumnMap({});
+    setImportResult(null);
+    setImportError(null);
+  }
+
   function refreshAudio() {
     if (!id) return;
     client
@@ -357,6 +485,18 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     handleSaveTargetEdit,
     handleDragEnd,
     sensors,
+    // import
+    importOpen, setImportOpen,
+    importFile,
+    importHeaders,
+    importColumnMap, setImportColumnMap,
+    importLoading,
+    importResult,
+    importError,
+    handleImportFileSelect,
+    handleImportSubmit,
+    handleDownloadErrors,
+    resetImport,
     // audio
     audioRecordings,
     audioLoading,
