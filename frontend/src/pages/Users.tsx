@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import client from "@/api/client";
-import { PAGE_HEADING } from "@/lib/styles";
+import { getErrorDetail } from "@/lib/api-error";
+import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 
 interface User {
   id: string;
@@ -12,10 +13,24 @@ interface User {
   created_at: string;
 }
 
+interface InviteForm {
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+}
+
+const EMPTY_FORM: InviteForm = { name: "", email: "", phone: "", role: "staff" };
+
 export default function Users() {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] = useState<InviteForm>(EMPTY_FORM);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
 
   useEffect(() => {
     client
@@ -25,14 +40,105 @@ export default function Users() {
       .finally(() => setIsLoading(false));
   }, []);
 
+  async function handleInvite(e: React.FormEvent) {
+    e.preventDefault();
+    setInviting(true);
+    setInviteError(null);
+    try {
+      const res = await client.post<User>("/users", inviteForm);
+      setUsers((prev) => [...prev, res.data]);
+      setInviteOpen(false);
+      setInviteForm(EMPTY_FORM);
+    } catch (err) {
+      setInviteError(getErrorDetail(err, "Failed to invite user."));
+    } finally {
+      setInviting(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className={PAGE_HEADING}>Users</h1>
-        <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+        <button
+          onClick={() => { setInviteOpen(true); setInviteError(null); setInviteForm(EMPTY_FORM); }}
+          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
           Invite User
         </button>
       </div>
+
+      {/* Invite modal */}
+      {inviteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-background rounded-lg border border-border p-6 w-full max-w-md shadow-lg">
+            <h2 className="text-base font-semibold mb-4">Invite User</h2>
+            <form onSubmit={handleInvite} className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Name <span className="text-destructive">*</span></label>
+                <input
+                  className={INPUT_CLASS}
+                  required
+                  value={inviteForm.name}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Full name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Email <span className="text-destructive">*</span></label>
+                <input
+                  className={INPUT_CLASS}
+                  type="email"
+                  required
+                  value={inviteForm.email}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="user@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Phone <span className="text-destructive">*</span></label>
+                <input
+                  className={INPUT_CLASS}
+                  required
+                  value={inviteForm.phone}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="+12025551234"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Role</label>
+                <select
+                  className={INPUT_CLASS}
+                  value={inviteForm.role}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, role: e.target.value }))}
+                >
+                  <option value="staff">Staff</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              {inviteError && (
+                <p className="text-sm text-destructive">{inviteError}</p>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={inviting}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
+                >
+                  {inviting ? "Inviting…" : "Send Invite"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInviteOpen(false)}
+                  className="px-4 py-2 border border-border rounded-md text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
