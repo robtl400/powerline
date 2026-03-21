@@ -30,21 +30,6 @@
 
 ---
 
-### CSV Import Error Report Download
-
-**What:** After a CSV import with errors, provide a "Download Error Report" button that returns a CSV of the failed rows with an added `error_reason` column (e.g., "invalid phone number", "missing name").
-
-**Why:** Without this, the user sees "2 rows failed" but can't easily identify and fix them without comparing back to their original file. At 1000+ rows, this is a major friction point that risks orgs abandoning the CSV import feature.
-
-**Context:** The import endpoint already accumulates failed rows per-row with error detail for the summary UI. Extending this to return a downloadable CSV is a small backend change: accumulate failed rows in memory during import, expose a `GET /api/v1/campaigns/{id}/targets/import/{import_id}/errors` endpoint that streams the error CSV. Frontend adds a "Download error report" link in the import summary component when error count > 0.
-
-**Effort:** S
-**Priority:** P1
-**Depends on:** CSV import feature (step 2)
-**Note:** Bundle into the Step 2 CSV import PR — the error accumulation is already in memory at that point. Don't defer.
-
----
-
 ## Infrastructure / Observability
 
 ### Post-call SMS Follow-up
