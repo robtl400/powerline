@@ -6,13 +6,15 @@
   "description": "Powerline embeddable call-campaign widget",
   "scripts": {
     "build": "vite build",
-    "dev": "vite build --watch"
+    "dev": "vite build --watch",
+    "test": "vitest run"
   },
   "dependencies": {
     "@twilio/voice-sdk": "^2.11.0"
   },
   "devDependencies": {
     "typescript": "~5.6.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
   }
 }

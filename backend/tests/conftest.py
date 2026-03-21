@@ -67,6 +67,17 @@ async def reset_redis() -> AsyncGenerator[None, None]:
 
 
 @pytest.fixture
+async def redis():
+    """Yield the test Redis client for direct key manipulation (e.g. rate-limit cleanup).
+
+    reset_redis (autouse) creates a fresh client before each test; this fixture
+    just exposes that client so tests can flush specific keys.
+    """
+    from app.redis_client import get_redis
+    yield get_redis()
+
+
+@pytest.fixture
 async def db() -> AsyncGenerator[AsyncSession, None]:
     async with _TestSession() as session:
         yield session

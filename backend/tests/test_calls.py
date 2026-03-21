@@ -7,6 +7,7 @@ Twilio outbound call is mocked so tests never hit the real Twilio API,
 regardless of whether TWILIO_ACCOUNT_SID / PUBLIC_BASE_URL are set in .env.
 Redis must be reachable (provided by docker compose).
 """
+import hashlib
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.call import Call
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
@@ -190,3 +192,124 @@ async def test_create_call_rejects_callback_disabled(
     # Restore for fixture cleanup
     live_campaign.allow_phone_callback = True
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Rate limit: POST /calls/create (phone-hash-based, per campaign.rate_limit)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def rate_limited_campaign(db: AsyncSession, campaign_with_target: tuple[Campaign, Target]) -> Campaign:
+    """Set rate_limit=5 on the shared campaign so rate limiting is enforced."""
+    campaign, _ = campaign_with_target
+    campaign.rate_limit = 5
+    await db.commit()
+    await db.refresh(campaign)
+    return campaign
+
+
+async def test_rate_limit_calls_create(
+    client: AsyncClient,
+    db: AsyncSession,
+    rate_limited_campaign: Campaign,
+    redis,
+) -> None:
+    """6th call from the same phone number within an hour returns 429."""
+    phone = "+15559990001"
+    phone_hash = hashlib.sha256(phone.encode()).hexdigest()
+
+    # Flush any leftover rate-limit state for this phone from other tests.
+    await redis.delete(f"rate:{phone_hash}")
+
+    # calls.py also uses is_dev bypass — enable enforcement with a fake token.
+    original = settings.TWILIO_AUTH_TOKEN
+    settings.TWILIO_AUTH_TOKEN = "fake-token-for-rate-limit-test"
+    try:
+        for i in range(5):
+            resp = await client.post(
+                "/api/v1/calls/create",
+                json={
+                    "campaign_id": str(rate_limited_campaign.id),
+                    "phone_number": phone,
+                },
+            )
+            assert resp.status_code == 200, f"Call {i + 1} expected 200, got {resp.status_code}: {resp.text}"
+
+        resp = await client.post(
+            "/api/v1/calls/create",
+            json={
+                "campaign_id": str(rate_limited_campaign.id),
+                "phone_number": phone,
+            },
+        )
+        assert resp.status_code == 429, f"Expected 429 on 6th call, got {resp.status_code}"
+    finally:
+        settings.TWILIO_AUTH_TOKEN = original
+        await redis.delete(f"rate:{phone_hash}")
+
+
+# ---------------------------------------------------------------------------
+# Task 4: Call failure statuses written correctly by call-complete webhook
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "dial_status,expected_db_status",
+    [
+        ("no-answer", "no_answer"),
+        ("busy", "busy"),
+        ("failed", "failed"),
+    ],
+)
+async def test_call_complete_writes_failure_statuses(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_target: tuple[Campaign, Target],
+    dial_status: str,
+    expected_db_status: str,
+) -> None:
+    """call-complete webhook correctly writes no_answer/busy/failed to the calls table.
+
+    Failure rate = (calls.status IN ('failed', 'no_answer')) / total calls.
+    This test verifies the numerator values are persisted accurately.
+    """
+    campaign, target = campaign_with_target
+
+    # Step 1: create session
+    create_resp = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": "+15559990002"},
+    )
+    assert create_resp.status_code == 200, create_resp.text
+    session_id = create_resp.json()["session_id"]
+
+    # Step 2: advance to in_progress via voice-app (phone callback path)
+    va_resp = await client.post(
+        f"/webhooks/twilio/voice-app?session_id={session_id}",
+        data={"CallSid": "CAfailtest001", "From": "+15559990002"},
+    )
+    assert va_resp.status_code == 200, va_resp.text
+
+    # Step 3: call-complete with the target failure status
+    cc_resp = await client.post(
+        f"/webhooks/twilio/call-complete?session_id={session_id}",
+        data={
+            "CallSid": "CAfailtest001",
+            "DialCallSid": "CAleg001",
+            "DialCallStatus": dial_status,
+            "DialCallDuration": "0",
+        },
+    )
+    assert cc_resp.status_code == 200, cc_resp.text
+
+    # Verify the Call record has the correct status.
+    result = await db.execute(
+        select(Call).where(Call.session_id == uuid.UUID(session_id))
+    )
+    call = result.scalar_one_or_none()
+    assert call is not None, "Expected a Call record to be created"
+    assert call.status == expected_db_status, (
+        f"DialCallStatus '{dial_status}' should map to Call.status '{expected_db_status}', "
+        f"got '{call.status}'"
+    )

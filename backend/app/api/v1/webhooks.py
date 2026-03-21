@@ -108,6 +108,9 @@ async def voice_app(
         is_admin=is_dev,
     )
 
+    if campaign is None:
+        log.warning("voice_app_campaign_not_found", session_id=session_id, call_sid=call_sid)
+
     # Blocklist check — hang up silently if the caller is blocked.
     if identifier:
         bl_result = await db.execute(
@@ -116,7 +119,12 @@ async def voice_app(
             .limit(1)
         )
         if bl_result.scalar_one_or_none():
-            log.warning("blocklist_hit", identifier=identifier[:12], session_id=session_id)
+            log.warning(
+                "blocklist_hit",
+                identifier=identifier[:12],
+                session_id=session_id,
+                call_sid=call_sid,
+            )
             return _hangup_xml()
 
     # Persist the Twilio CallSid and advance status to in_progress.
@@ -150,13 +158,15 @@ async def make_calls(
     """
     form = dict(await request.form())
     session_id = request.query_params.get("session_id") or form.get("session_id", "")
+    call_sid = form.get("CallSid", "")
 
     if not session_id:
+        log.warning("make_calls_no_session_id", call_sid=call_sid)
         return _hangup_xml()
 
     state = await load_call_state(session_id)
     if not state:
-        log.warning("make_calls_state_missing", session_id=session_id)
+        log.warning("make_calls_state_missing", session_id=session_id, call_sid=call_sid)
         return _hangup_xml()
 
     campaign_id = uuid.UUID(state["campaign_id"])
@@ -183,13 +193,15 @@ async def dial_target(
     """
     form = dict(await request.form())
     session_id = request.query_params.get("session_id") or form.get("session_id", "")
+    call_sid = form.get("CallSid", "")
 
     if not session_id:
+        log.warning("dial_target_no_session_id", call_sid=call_sid)
         return _hangup_xml()
 
     state = await load_call_state(session_id)
     if not state:
-        log.warning("dial_target_state_missing", session_id=session_id)
+        log.warning("dial_target_state_missing", session_id=session_id, call_sid=call_sid)
         return _hangup_xml()
 
     target_ids: list[str] = state["target_ids"]
@@ -206,7 +218,12 @@ async def dial_target(
     result = await db.execute(select(Target).where(Target.id == target_id))
     target = result.scalar_one_or_none()
     if not target:
-        log.error("dial_target_not_found", target_id=str(target_id), session_id=session_id)
+        log.error(
+            "dial_target_not_found",
+            target_id=str(target_id),
+            session_id=session_id,
+            call_sid=call_sid,
+        )
         return _hangup_xml()
 
     caller_id = await get_campaign_caller_id(campaign_id, db)
@@ -251,7 +268,7 @@ async def call_complete(
 
     state = await load_call_state(session_id)
     if not state:
-        log.warning("call_complete_state_missing", session_id=session_id)
+        log.warning("call_complete_state_missing", session_id=session_id, call_sid=parent_call_sid)
         return _hangup_xml()
 
     target_ids: list[str] = state["target_ids"]
@@ -286,6 +303,7 @@ async def call_complete(
         log.info(
             "call_logged",
             session_id=session_id,
+            call_sid=dial_call_sid or parent_call_sid,
             target_id=target_ids[idx],
             status=call_status,
             duration=dial_duration,
@@ -310,6 +328,7 @@ async def call_complete(
             .values(status="completed")
         )
         await db.commit()
+        log.info("session_completed", session_id=session_id, call_sid=parent_call_sid)
         goodbye_audio = await get_audio_config("msg_goodbye", campaign_id, db)
         twiml = build_goodbye(goodbye_audio, {})
 
@@ -349,6 +368,7 @@ async def status_callback(
     session_status = _status_map.get(raw_status)
     if not session_status:
         # Intermediate states (queued, ringing) — nothing to update yet.
+        log.debug("status_callback_skipped", call_sid=call_sid, raw_status=raw_status)
         return Response(content="", status_code=200)
 
     updates: dict = {"status": session_status}
