@@ -53,6 +53,26 @@ function remapCsvHeaders(csvText: string, columnMap: Record<string, string>): st
   return [newHeader, ...lines.slice(1)].join("\n");
 }
 
+// ── normalizePhone tests ──────────────────────────────────────────────────────
+
+describe("normalizePhone", () => {
+  it("normalizes bare 10-digit number", () => {
+    expect(normalizePhone("2025550142")).toBe("+12025550142");
+  });
+
+  it("normalizes E.164 +12025550142 unchanged", () => {
+    expect(normalizePhone("+12025550142")).toBe("+12025550142");
+  });
+
+  it("throws for 9-digit number", () => {
+    expect(() => normalizePhone("202555014")).toThrow();
+  });
+
+  it("throws for 11-digit non-US number", () => {
+    expect(() => normalizePhone("44202555014")).toThrow();
+  });
+});
+
 // ── autoMapHeaders ────────────────────────────────────────────────────────────
 
 describe("autoMapHeaders", () => {
@@ -98,6 +118,16 @@ describe("autoMapHeaders", () => {
     expect(autoMapHeaders([])).toEqual({});
   });
 });
+
+// ── normalizePhone ────────────────────────────────────────────────────────────
+// Mirrors CSV phone normalization that should happen before import submission.
+
+function normalizePhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  throw new Error(`Invalid phone number: ${raw}`);
+}
 
 // ── remapCsvHeaders ───────────────────────────────────────────────────────────
 
