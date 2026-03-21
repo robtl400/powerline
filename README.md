@@ -24,6 +24,7 @@ Embed SDK (IIFE bundle) ──→ API (runs on org websites)
 
 - **Campaigns** — create and manage call campaigns with custom audio, script prompts, and target lists
 - **CSV bulk target import** — drag-and-drop CSV upload with column mapping, upsert semantics, partial success, and a downloadable error report for failed rows
+- **Elected official rep lookup** — supporters enter their ZIP code to be connected to their federal or state representative; results cached via Redis with Google Civic + OpenStates APIs
 - **WebRTC calling** — supporters call from their browser; no phone app required
 - **Embed widget** — drop a "Call Now" button on any website with a single `<script>` tag
 - **Voice Insights** — Celery background task syncs Twilio call quality scores every 15 minutes
@@ -182,6 +183,8 @@ export function PowerlineWidget({ campaignId }: { campaignId: string }) {
 | `TWILIO_API_KEY_SECRET` | Yes (WebRTC) | |
 | `CORS_ORIGINS` | Recommended | Set to your frontend domain in prod |
 | `CLOUDINARY_*` | Optional | For audio file uploads |
+| `GOOGLE_CIVIC_API_KEY` | Optional | Federal rep lookup (Senate & House); leave empty to disable |
+| `OPENSTATES_API_KEY` | Optional | State legislator lookup; leave empty to disable |
 
 ### CORS
 
