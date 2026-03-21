@@ -134,6 +134,19 @@ function WizardBody({
             handleSaveTargetEdit={data.handleSaveTargetEdit}
             handleDragEnd={data.handleDragEnd}
             sensors={data.sensors}
+            importOpen={data.importOpen}
+            setImportOpen={data.setImportOpen}
+            importFile={data.importFile}
+            importHeaders={data.importHeaders}
+            importColumnMap={data.importColumnMap}
+            setImportColumnMap={data.setImportColumnMap}
+            importLoading={data.importLoading}
+            importResult={data.importResult}
+            importError={data.importError}
+            handleImportFileSelect={data.handleImportFileSelect}
+            handleImportSubmit={data.handleImportSubmit}
+            handleDownloadErrors={data.handleDownloadErrors}
+            resetImport={data.resetImport}
           />
           <div className="flex gap-3 mt-8 pt-6 border-t border-border">
             <button
