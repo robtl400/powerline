@@ -1,4 +1,4 @@
-import type { CampaignPublic, TargetPublicInfo } from "../types.js";
+import type { CampaignPublic, RepInfo, TargetPublicInfo } from "../types.js";
 
 function esc(s: string | null | undefined): string {
   if (!s) return "";
@@ -18,6 +18,38 @@ function progressPips(current: number, total: number): string {
 }
 
 export function renderIdle(campaign: CampaignPublic): string {
+  const hasRepLookup = (campaign.target_levels?.length ?? 0) > 0;
+  const zipInput = hasRepLookup
+    ? `<label
+         for="pl-zip-input"
+         style="display:block;font-size:12px;color:#6b7280;margin-bottom:4px"
+       >Your ZIP code</label>
+       <input
+         class="pl-input"
+         id="pl-zip-input"
+         type="text"
+         inputmode="numeric"
+         maxlength="5"
+         placeholder="e.g. 94103"
+         autocomplete="postal-code"
+         aria-label="Your ZIP code"
+         aria-describedby="pl-zip-error"
+       />
+       <div
+         id="pl-zip-error"
+         role="alert"
+         aria-live="polite"
+         style="font-size:12px;color:#dc2626;min-height:18px;margin-bottom:8px"
+       ></div>`
+    : "";
+
+  const zipGroup = hasRepLookup
+    ? `<p class="pl-subtext" style="margin-bottom:8px">
+         We'll find your elected representatives based on your ZIP code.
+       </p>
+       ${zipInput}`
+    : "";
+
   const phoneLink = campaign.allow_phone_callback
     ? `<div style="text-align:center;margin-top:12px">
          <button class="pl-btn pl-btn-ghost" data-pl-action="show-phone">
@@ -29,10 +61,78 @@ export function renderIdle(campaign: CampaignPublic): string {
   return `<div class="pl-card">
     <p class="pl-heading">${esc(campaign.name)}</p>
     ${campaign.description ? `<p class="pl-subtext">${esc(campaign.description)}</p>` : ""}
+    ${zipGroup}
     <button class="pl-btn pl-btn-primary" data-pl-action="call-now">
       📞 Call Now
     </button>
     ${phoneLink}
+  </div>`;
+}
+
+export function renderLookingUpReps(): string {
+  return `<div class="pl-card" style="text-align:center">
+    <div class="pl-spinner"></div>
+    <p class="pl-status">Finding your representatives…</p>
+  </div>`;
+}
+
+export function renderRepSelection(reps: RepInfo[], message?: string): string {
+  const notice = `<p class="pl-subtext" style="margin-bottom:12px">${esc(message ?? "Select a representative to connect your call.")}</p>`;
+
+  let items: string;
+
+  if (reps.length === 0) {
+    items = `<p class="pl-subtext" style="margin:12px 0">
+      We couldn't match your ZIP to any representatives.
+      Try the Back button to re-enter your ZIP, or use the phone option below.
+    </p>`;
+  } else {
+    // Group reps by level: federal first, then state, then others
+    const order = ["federal", "state"];
+    const groups: Record<string, RepInfo[]> = {};
+    for (const r of reps) {
+      (groups[r.level] ??= []).push(r);
+    }
+
+    const levelLabel: Record<string, string> = {
+      federal: "Federal",
+      state: "State",
+    };
+
+    const sections = [...order, ...Object.keys(groups).filter((l) => !order.includes(l))]
+      .filter((l) => groups[l]?.length)
+      .map((level) => {
+        const header = `<p style="font-size:11px;font-weight:600;letter-spacing:0.07em;color:#9ca3af;text-transform:uppercase;margin:8px 0 6px">${esc(levelLabel[level] ?? level)}</p>`;
+        const buttons = groups[level]
+          .map(
+            (r) => `
+          <button
+            class="pl-btn"
+            style="width:100%;text-align:left;margin-bottom:8px;padding:10px 12px;min-height:44px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;display:flex;flex-direction:column;justify-content:center"
+            data-pl-action="select-rep"
+            data-pl-phone="${esc(r.phone)}"
+            data-pl-name="${esc(r.name)}"
+            data-pl-title="${esc(r.title)}"
+          >
+            <strong style="display:block;font-size:14px">📞 Call ${esc(r.name)}</strong>
+            <span style="font-size:12px;color:#6b7280">${esc(r.title)}</span>
+          </button>`
+          )
+          .join("");
+        return header + buttons;
+      })
+      .join("");
+
+    items = sections;
+  }
+
+  return `<div class="pl-card">
+    <p class="pl-heading">Choose who to call</p>
+    ${notice}
+    <div style="max-height:280px;overflow-y:auto;margin-top:4px">${items}</div>
+    <div style="text-align:center;margin-top:12px">
+      <button class="pl-btn pl-btn-ghost" data-pl-action="back-to-idle">&larr; Back</button>
+    </div>
   </div>`;
 }
 

@@ -1,0 +1,25 @@
+zip,lat,lng,city,state_id,state_name
+00501,40.8154,-73.0452,Holtsville,NY,New York
+01001,42.0648,-72.6277,Agawam,MA,Massachusetts
+10001,40.7484,-73.9967,New York,NY,New York
+10025,40.7994,-73.9684,New York,NY,New York
+20001,38.9126,-77.0232,Washington,DC,District of Columbia
+20005,38.9008,-77.0310,Washington,DC,District of Columbia
+30301,33.7490,-84.3880,Atlanta,GA,Georgia
+60601,41.8858,-87.6181,Chicago,IL,Illinois
+77001,29.7511,-95.3677,Houston,TX,Texas
+90001,33.9731,-118.2479,Los Angeles,CA,California
+90210,34.0901,-118.4065,Beverly Hills,CA,California
+94102,37.7807,-122.4134,San Francisco,CA,California
+98101,47.6080,-122.3352,Seattle,WA,Washington
+02101,42.3601,-71.0589,Boston,MA,Massachusetts
+55401,44.9784,-93.2742,Minneapolis,MN,Minnesota
+85001,33.4484,-112.0740,Phoenix,AZ,Arizona
+33101,25.7617,-80.1918,Miami,FL,Florida
+48201,42.3314,-83.0458,Detroit,MI,Michigan
+63101,38.6270,-90.1994,St. Louis,MO,Missouri
+80201,39.7392,-104.9903,Denver,CO,Colorado
+97201,45.5051,-122.6750,Portland,OR,Oregon
+73101,35.4676,-97.5164,Oklahoma City,OK,Oklahoma
+37201,36.1627,-86.7816,Nashville,TN,Tennessee
+28201,35.2271,-80.8431,Charlotte,NC,North Carolina

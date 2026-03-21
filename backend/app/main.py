@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.v1 import auth, calls, campaigns, health, phone_numbers, tokens, users, webhooks
+from app.api.v1 import auth, calls, campaigns, health, phone_numbers, reps, tokens, users, webhooks
 from app.api.v1.admin import router as admin_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.audio import router_audio, router_campaign_audio
@@ -18,6 +18,10 @@ log = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info("powerline_api_starting", version="2.0.0-dev")
+    if not settings.GOOGLE_CIVIC_API_KEY:
+        log.warning("civic_key_missing", key="GOOGLE_CIVIC_API_KEY")
+    if not settings.OPENSTATES_API_KEY:
+        log.warning("civic_key_missing", key="OPENSTATES_API_KEY")
     yield
 
 
@@ -59,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, prefix="/api/v1")
     app.include_router(analytics_router, prefix="/api/v1")
     app.include_router(calls.router, prefix="/api/v1")
+    app.include_router(reps.router, prefix="/api/v1")
     app.include_router(tokens.router, prefix="/api/v1")
 
     # Serve the built embed bundle at /static/powerline-embed.iife.js.

@@ -109,6 +109,7 @@ class CampaignPublicResponse(BaseModel):
     allow_webrtc: bool
     allow_phone_callback: bool
     targets: list[TargetPublicInfo] = []
+    target_levels: list[str] = []
 
     model_config = {"from_attributes": True}
 

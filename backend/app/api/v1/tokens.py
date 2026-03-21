@@ -15,10 +15,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB
+from app.api.v1.helpers import resolve_target_ids
 from app.config import settings
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
-from app.models.campaign_target import CampaignTarget
 from app.redis_client import get_redis
 from app.schemas.tokens import VoiceTokenRequest, VoiceTokenResponse
 from app.services.call_state import save_call_state
@@ -58,19 +58,19 @@ async def create_voice_token(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="This campaign does not support browser calling"
         )
 
-    # 2. Load targets in configured order
-    ct_result = await db.execute(
-        select(CampaignTarget)
-        .where(CampaignTarget.campaign_id == campaign.id)
-        .order_by(CampaignTarget.order)
+    # 2. Load targets (DB campaign targets or transient rep-lookup target)
+    target_ids = await resolve_target_ids(
+        campaign,
+        db,
+        target_phone_override=body.target_phone_override,
+        target_rep_name=body.target_rep_name,
+        target_rep_title=body.target_rep_title,
     )
-    campaign_targets = ct_result.scalars().all()
-    target_ids = [str(ct.target_id) for ct in campaign_targets]
 
     if not target_ids:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Campaign has no targets configured")
 
-    if campaign.target_ordering == "shuffle":
+    if campaign.target_ordering == "shuffle" and not body.target_phone_override:
         random.shuffle(target_ids)
 
     # 3. Rate limit by IP — dev bypass mirrors validate_twilio_request pattern

@@ -15,6 +15,20 @@ export interface CampaignPublic {
   allow_webrtc: boolean;
   allow_phone_callback: boolean;
   targets: TargetPublicInfo[];
+  /** Levels of government to route calls to via ZIP lookup (from embed_config). */
+  target_levels?: string[];
+}
+
+export interface RepInfo {
+  name: string;
+  title: string;
+  phone: string;
+  level: string;
+}
+
+export interface RepsResponse {
+  reps: RepInfo[];
+  message?: string;
 }
 
 export interface VoiceTokenResponse {
@@ -31,16 +45,18 @@ export interface CallCreateResponse {
 /**
  * Widget state machine.
  *
- * idle         → user sees "Call Now" button
- * loading      → fetching token / placing call
- * mic_permission → waiting for browser mic grant
- * audio_check  → connected but no audio detected; show troubleshooting
- * connected    → in a live call with a target
+ * idle           → user sees zip input + "Call Now" button
+ * loading         → fetching token / placing call
+ * mic_permission  → waiting for browser mic grant
+ * audio_check     → connected but no audio detected; show troubleshooting
+ * connected       → in a live call with a target
  * between_targets → transitioning to next target
- * complete     → all targets called
- * error        → unrecoverable error; show message + retry
- * phone_input  → user chose phone fallback; entering number
- * phone_pending → phone callback placed; waiting for call
+ * complete        → all targets called
+ * error           → unrecoverable error; show message + retry
+ * phone_input     → user chose phone fallback; entering number
+ * phone_pending   → phone callback placed; waiting for call
+ * lookingUpReps   → spinner while fetching reps from backend
+ * repSelection    → showing rep list for the user to pick
  */
 export type WidgetState =
   | "idle"
@@ -52,7 +68,9 @@ export type WidgetState =
   | "complete"
   | "error"
   | "phone_input"
-  | "phone_pending";
+  | "phone_pending"
+  | "lookingUpReps"
+  | "repSelection";
 
 export interface ConnectedData {
   target: TargetPublicInfo;
