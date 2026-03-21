@@ -88,7 +88,7 @@ export default function Campaigns() {
               {campaigns.map((c) => (
                 <tr
                   key={c.id}
-                  className="border-t border-border hover:bg-muted/30 transition-colors"
+                  className={`border-t border-border hover:bg-muted/30 transition-colors ${c.status === "draft" ? "opacity-50" : ""}`}
                 >
                   <td className="px-4 py-3 font-medium">{c.name}</td>
                   <td className="px-4 py-3 capitalize text-muted-foreground">{c.campaign_type}</td>
@@ -104,12 +104,21 @@ export default function Campaigns() {
                     {new Date(c.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => navigate(`/campaigns/${c.id}/edit`)}
-                      className="text-primary text-sm hover:underline"
-                    >
-                      Edit
-                    </button>
+                    {c.status === "draft" ? (
+                      <button
+                        onClick={() => navigate(`/campaigns/${c.id}/wizard`)}
+                        className="text-amber-600 text-sm hover:underline"
+                      >
+                        Resume wizard
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => navigate(`/campaigns/${c.id}/edit`)}
+                        className="text-primary text-sm hover:underline"
+                      >
+                        Edit
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

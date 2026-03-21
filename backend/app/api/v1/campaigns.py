@@ -1,8 +1,13 @@
+import csv
+import io
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+logger = logging.getLogger(__name__)
+
+from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -28,7 +33,8 @@ from app.schemas.campaign import (
     CampaignUpdate,
     TargetPublicInfo,
 )
-from app.schemas.target import ReorderRequest, TargetCreate, TargetInCampaign, TargetUpdate
+from app.schemas.target import ImportResult, ImportRowError, ReorderRequest, TargetCreate, TargetInCampaign, TargetUpdate
+from app.schemas.target import normalize_phone
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -443,6 +449,207 @@ async def reorder_targets(
         for i, tid in enumerate(body.target_ids)
         if tid in targets_by_id
     ]
+
+
+# Keep in sync with _FIELD_ALIASES in frontend/src/hooks/useCampaignData.ts
+_KNOWN_FIELDS = {"name", "title", "phone_number", "location", "external_id"}
+_REQUIRED_FIELDS = {"name", "title", "phone_number", "location"}
+_MAX_CSV_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+async def _do_import(
+    campaign_id: uuid.UUID,
+    file: UploadFile,
+    db: AsyncSession,
+    redis: object,
+) -> ImportResult:
+    """Core import logic — called inside the per-campaign Redis lock."""
+    content = await file.read()
+
+    if len(content) > _MAX_CSV_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds 5 MB limit")
+
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").lower()
+    if not filename.endswith(".csv") and "csv" not in content_type and "text/plain" not in content_type:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a CSV")
+
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be UTF-8 encoded")
+
+    reader = csv.DictReader(io.StringIO(text))
+    rows = list(reader)
+
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV has no data rows")
+
+    headers = {h.lower().strip() for h in (reader.fieldnames or [])}
+    missing = _REQUIRED_FIELDS - headers
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"CSV missing required columns: {', '.join(sorted(missing))}",
+        )
+
+    campaign = await get_campaign_or_404(campaign_id, db)
+
+    # Load existing targets in this campaign keyed by external_id for upsert lookup
+    existing_result = await db.execute(
+        select(Target, CampaignTarget)
+        .join(CampaignTarget, CampaignTarget.target_id == Target.id)
+        .where(
+            CampaignTarget.campaign_id == campaign_id,
+            Target.external_id.isnot(None),
+        )
+    )
+    existing_by_ext_id: dict[str, Target] = {
+        row.Target.external_id: row.Target for row in existing_result.all()
+    }
+
+    # Current max order for appending new targets
+    max_order_result = await db.execute(
+        select(func.coalesce(func.max(CampaignTarget.order), -1)).where(
+            CampaignTarget.campaign_id == campaign_id
+        )
+    )
+    next_order = max_order_result.scalar_one() + 1
+
+    errors: list[ImportRowError] = []
+    new_targets: list[Target] = []
+    updated_count = 0
+
+    for idx, raw_row in enumerate(rows):
+        row_num = idx + 2  # 1-based, +1 for header
+        row = {k.lower().strip(): (v or "").strip() for k, v in raw_row.items()}
+
+        # Validate required fields
+        missing_vals = [f for f in _REQUIRED_FIELDS if not row.get(f)]
+        if missing_vals:
+            errors.append(ImportRowError(
+                row=row_num,
+                error=f"missing required field: {', '.join(sorted(missing_vals))}",
+            ))
+            continue
+
+        # Validate phone number
+        try:
+            phone = normalize_phone(row["phone_number"])
+        except ValueError as exc:
+            errors.append(ImportRowError(row=row_num, error=f"invalid phone number: {row['phone_number']} — {exc}"))
+            continue
+
+        external_id = row.get("external_id") or None
+        extra_cols = {k: v for k, v in row.items() if k not in _KNOWN_FIELDS and v}
+        target_metadata = extra_cols if extra_cols else {}
+
+        # Upsert: update existing if external_id matches
+        if external_id and external_id in existing_by_ext_id:
+            existing = existing_by_ext_id[external_id]
+            existing.name = row["name"]
+            existing.title = row["title"]
+            existing.phone_number = phone
+            existing.location = row["location"]
+            existing.target_metadata = target_metadata
+            updated_count += 1
+        else:
+            new_targets.append(Target(
+                name=row["name"],
+                title=row["title"],
+                phone_number=phone,
+                location=row["location"],
+                external_id=external_id,
+                target_metadata=target_metadata,
+            ))
+
+    # Bulk insert new targets
+    if new_targets:
+        db.add_all(new_targets)
+        await db.flush()
+
+        new_cts = [
+            CampaignTarget(campaign_id=campaign.id, target_id=t.id, order=next_order + i)
+            for i, t in enumerate(new_targets)
+        ]
+        db.add_all(new_cts)
+
+    if new_targets or updated_count:
+        campaign.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    # Cache errors in Redis (TTL 1 hour) for the download endpoint.
+    # Non-fatal: DB commit already succeeded. If Redis is unavailable, log and
+    # continue — the ImportResult.errors field already contains the error list.
+    try:
+        await redis.set(  # type: ignore[union-attr]
+            f"import_errors:{campaign_id}",
+            json.dumps([{"row": e.row, "error": e.error} for e in errors]),
+            ex=3600,
+        )
+    except Exception:
+        logger.warning(
+            "import_errors Redis cache write failed for campaign %s; errors returned in response body only",
+            campaign_id,
+        )
+
+    return ImportResult(imported=len(new_targets), updated=updated_count, errors=errors)
+
+
+@router.post("/{campaign_id}/targets/import", response_model=ImportResult)
+async def import_targets(
+    campaign_id: uuid.UUID,
+    _: AdminUser,
+    db: DB,
+    file: UploadFile = File(...),
+) -> ImportResult:
+    """Bulk-import targets from a CSV file. Partial success: valid rows commit even if some fail."""
+    # Acquire per-campaign import lock to prevent concurrent imports from creating
+    # duplicate targets when the same external_id appears in overlapping requests.
+    redis = get_redis()
+    lock_key = f"import_lock:{campaign_id}"
+    locked = await redis.set(lock_key, "1", nx=True, ex=60)
+    if not locked:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An import is already in progress for this campaign. Please wait and try again.",
+        )
+
+    try:
+        return await _do_import(campaign_id, file, db, redis)
+    finally:
+        await redis.delete(lock_key)
+
+
+@router.get("/{campaign_id}/targets/import-errors")
+async def download_import_errors(
+    campaign_id: uuid.UUID,
+    _: AdminUser,
+    db: DB,
+) -> Response:
+    """Download the last import's error rows as a CSV file."""
+    await get_campaign_or_404(campaign_id, db)
+
+    redis = get_redis()
+    data = await redis.get(f"import_errors:{campaign_id}")
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No recent import errors found")
+
+    errors = json.loads(data)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["row", "error_reason"])
+    for e in errors:
+        writer.writerow([e["row"], e["error"]])
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=import-errors-{campaign_id}.csv"},
+    )
 
 
 @router.post("/{campaign_id}/targets", response_model=TargetInCampaign, status_code=status.HTTP_201_CREATED)

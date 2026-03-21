@@ -9,6 +9,7 @@ import { CampaignSettingsTab } from "@/components/campaign/CampaignSettingsTab";
 import { CampaignStatsTab } from "@/components/campaign/CampaignStatsTab";
 import { CampaignTargetsTab } from "@/components/campaign/CampaignTargetsTab";
 import { TestCallModal } from "@/components/campaign/TestCallModal";
+import CampaignWizard from "@/components/campaign/CampaignWizard";
 
 type TabType = "settings" | "targets" | "audio" | "embed" | "stats";
 
@@ -20,6 +21,8 @@ export default function CampaignEdit() {
   const [activeTab, setActiveTab] = useState<TabType>("settings");
 
   const data = useCampaignData(id, activeTab);
+
+  if (isNew) return <CampaignWizard />;
 
   if (data.loading) return <p className="text-muted-foreground">Loading…</p>;
 
@@ -116,6 +119,19 @@ export default function CampaignEdit() {
           handleSaveTargetEdit={data.handleSaveTargetEdit}
           handleDragEnd={data.handleDragEnd}
           sensors={data.sensors}
+          importOpen={data.importOpen}
+          setImportOpen={data.setImportOpen}
+          importFile={data.importFile}
+          importHeaders={data.importHeaders}
+          importColumnMap={data.importColumnMap}
+          setImportColumnMap={data.setImportColumnMap}
+          importLoading={data.importLoading}
+          importResult={data.importResult}
+          importError={data.importError}
+          handleImportFileSelect={data.handleImportFileSelect}
+          handleImportSubmit={data.handleImportSubmit}
+          handleDownloadErrors={data.handleDownloadErrors}
+          resetImport={data.resetImport}
         />
       )}
 

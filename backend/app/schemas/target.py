@@ -6,7 +6,7 @@ from phonenumbers import PhoneNumberFormat
 from pydantic import BaseModel, field_validator
 
 
-def _normalize_phone(v: str) -> str:
+def normalize_phone(v: str) -> str:
     try:
         parsed = phonenumbers.parse(v, None)
     except phonenumbers.NumberParseException:
@@ -27,7 +27,7 @@ class TargetCreate(BaseModel):
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v: str) -> str:
-        return _normalize_phone(v)
+        return normalize_phone(v)
 
 
 class TargetUpdate(BaseModel):
@@ -43,7 +43,7 @@ class TargetUpdate(BaseModel):
     def validate_phone(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        return _normalize_phone(v)
+        return normalize_phone(v)
 
 
 class TargetResponse(BaseModel):
@@ -65,3 +65,14 @@ class TargetInCampaign(TargetResponse):
 
 class ReorderRequest(BaseModel):
     target_ids: list[uuid.UUID]
+
+
+class ImportRowError(BaseModel):
+    row: int
+    error: str
+
+
+class ImportResult(BaseModel):
+    imported: int
+    updated: int
+    errors: list[ImportRowError]

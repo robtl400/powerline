@@ -1,5 +1,16 @@
 // Campaign-related TypeScript types shared across CampaignEdit and its sub-components.
 
+export interface ImportRowError {
+  row: number;
+  error: string;
+}
+
+export interface ImportResult {
+  imported: number;
+  updated: number;
+  errors: ImportRowError[];
+}
+
 export interface Target {
   id: string;
   name: string;
