@@ -5,6 +5,10 @@ from pydantic import BaseModel
 
 class VoiceTokenRequest(BaseModel):
     campaign_id: uuid.UUID
+    # Rep-lookup path: caller selected a specific representative.
+    target_phone_override: str | None = None
+    target_rep_name: str | None = None
+    target_rep_title: str | None = None
 
 
 class VoiceTokenResponse(BaseModel):
