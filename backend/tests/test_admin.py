@@ -212,3 +212,86 @@ async def test_dashboard_days_follow_configured_timezone(
 
     await db.execute(delete(CallSession).where(CallSession.id == session.id))
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Dashboard: totals and the seven-day series
+# ---------------------------------------------------------------------------
+
+
+async def _dashboard(client: AsyncClient, headers: dict) -> dict:
+    resp = await client.get("/api/v1/admin/dashboard", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def test_dashboard_counts_new_sessions_across_every_window(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_headers: dict,
+    monkeypatch,
+) -> None:
+    """Three fresh sessions land in today, this week, this month, and the breakdown."""
+    monkeypatch.setattr(settings, "TIMEZONE", "UTC")
+
+    before = await _dashboard(client, admin_headers)
+
+    sessions = [
+        CallSession(
+            campaign_id=campaign.id,
+            connection_type=connection_type,
+            twilio_call_sid=f"CAdash{uuid.uuid4().hex[:20]}",
+            status="completed",
+        )
+        for connection_type in ("webrtc", "outbound_phone", "inbound_phone")
+    ]
+    db.add_all(sessions)
+    await db.commit()
+
+    after = await _dashboard(client, admin_headers)
+
+    assert after["calls_today"] == before["calls_today"] + 3
+    assert after["calls_this_week"] == before["calls_this_week"] + 3
+    assert after["calls_this_month"] == before["calls_this_month"] + 3
+    assert after["webrtc_count"] == before["webrtc_count"] + 1
+    assert after["phone_count"] == before["phone_count"] + 2
+    assert after["calls_last_7_days"][-1]["count"] == (
+        before["calls_last_7_days"][-1]["count"] + 3
+    )
+
+    await db.execute(delete(CallSession).where(CallSession.id.in_([s.id for s in sessions])))
+    await db.commit()
+
+
+async def test_dashboard_counts_live_campaigns(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_headers: dict,
+) -> None:
+    before = await _dashboard(client, admin_headers)
+
+    campaign.status = "live"
+    await db.commit()
+
+    after = await _dashboard(client, admin_headers)
+    assert after["active_campaigns"] == before["active_campaigns"] + 1
+
+    campaign.status = "draft"
+    await db.commit()
+
+
+async def test_dashboard_series_is_seven_zero_filled_days_oldest_first(
+    client: AsyncClient, admin_headers: dict, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "TIMEZONE", "UTC")
+
+    series = (await _dashboard(client, admin_headers))["calls_last_7_days"]
+    assert len(series) == 7
+
+    days = [datetime.fromisoformat(row["date"]).date() for row in series]
+    assert days == sorted(days)
+    assert days[-1] == datetime.now(UTC).date()
+    assert all(days[i + 1] - days[i] == timedelta(days=1) for i in range(6))
+    assert all(isinstance(row["count"], int) for row in series)

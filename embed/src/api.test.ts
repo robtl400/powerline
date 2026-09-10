@@ -6,7 +6,14 @@
  * entirely when no representative was selected.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createCall, requestToken } from "./api.js";
+import {
+  createCall,
+  fetchCallCount,
+  fetchCampaign,
+  fetchReps,
+  isRepsError,
+  requestToken,
+} from "./api.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -94,5 +101,199 @@ describe("createCall", () => {
       phone_number: "+15555550123",
     });
     expect("rep_token" in body).toBe(false);
+  });
+});
+
+describe("read endpoints", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = mockJsonResponse({ total: 12, last_24h: 3, last_7d: 9 });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("fetches the public campaign record", async () => {
+    await fetchCampaign("http://localhost", "campaign-1");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://localhost/api/v1/campaigns/campaign-1/public"
+    );
+  });
+
+  it("fetches the campaign call count", async () => {
+    const counts = await fetchCallCount("http://localhost", "campaign-1");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://localhost/api/v1/campaigns/campaign-1/count"
+    );
+    expect(counts.total).toBe(12);
+  });
+});
+
+describe("error handling", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  /** Non-OK response whose body parses (or not, when json throws). */
+  function mockErrorResponse(
+    status: number,
+    statusText: string,
+    json: () => Promise<unknown>
+  ): void {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status,
+      statusText,
+      json,
+    }) as unknown as typeof fetch;
+  }
+
+  it("raises the FastAPI detail from a failed request", async () => {
+    mockErrorResponse(403, "Forbidden", async () => ({
+      detail: "Campaign is not accepting calls",
+    }));
+
+    await expect(
+      fetchCampaign("http://localhost", "campaign-1")
+    ).rejects.toThrow("Campaign is not accepting calls");
+  });
+
+  it("falls back to the status text when the body is not JSON", async () => {
+    mockErrorResponse(502, "Bad Gateway", async () => {
+      throw new SyntaxError("Unexpected token < in JSON");
+    });
+
+    await expect(
+      fetchCampaign("http://localhost", "campaign-1")
+    ).rejects.toThrow("Bad Gateway");
+  });
+});
+
+describe("fetchReps", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  /**
+   * A Response body can only be read once, so json() here throws on a second
+   * call the way fetch's own Response does.
+   */
+  function mockResponse(res: {
+    ok: boolean;
+    status: number;
+    statusText?: string;
+    json: () => Promise<unknown>;
+  }): ReturnType<typeof vi.fn> {
+    let consumed = false;
+    const json = async (): Promise<unknown> => {
+      if (consumed) throw new TypeError("Body has already been consumed.");
+      consumed = true;
+      return res.json();
+    };
+    const mock = vi
+      .fn()
+      .mockResolvedValue({ statusText: "", ...res, json });
+    globalThis.fetch = mock as unknown as typeof fetch;
+    return mock;
+  }
+
+  it("URL-encodes the ZIP into the reps query", async () => {
+    const mock = mockResponse({
+      ok: true,
+      status: 200,
+      json: async () => ({ reps: [], message: null }),
+    });
+
+    await fetchReps("http://localhost", "campaign-1", "94103");
+
+    expect(mock.mock.calls[0][0]).toBe(
+      "http://localhost/api/v1/campaigns/campaign-1/reps?zip=94103"
+    );
+  });
+
+  it("returns the rep list on success", async () => {
+    mockResponse({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        reps: [
+          {
+            name: "Rep Example",
+            title: "U.S. Representative",
+            level: "federal",
+            rep_token: "tok-1",
+          },
+        ],
+        message: null,
+      }),
+    });
+
+    const result = await fetchReps("http://localhost", "campaign-1", "94103");
+
+    expect(isRepsError(result)).toBe(false);
+    expect(result).toEqual({
+      reps: [
+        {
+          name: "Rep Example",
+          title: "U.S. Representative",
+          level: "federal",
+          rep_token: "tok-1",
+        },
+      ],
+      message: null,
+    });
+  });
+
+  it("returns a manual-entry fallback instead of throwing on 503", async () => {
+    mockResponse({
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      json: async () => ({
+        detail: {
+          fallback: "manual_entry",
+          message: "Lookup is down — enter your number instead.",
+        },
+      }),
+    });
+
+    const result = await fetchReps("http://localhost", "campaign-1", "94103");
+
+    expect(isRepsError(result)).toBe(true);
+    expect(result).toEqual({
+      fallback: "manual_entry",
+      message: "Lookup is down — enter your number instead.",
+    });
+  });
+
+  it("throws on a 503 that offers no fallback", async () => {
+    mockResponse({
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      json: async () => ({ detail: "Upstream lookup failed" }),
+    });
+
+    await expect(
+      fetchReps("http://localhost", "campaign-1", "94103")
+    ).rejects.toThrow("Upstream lookup failed");
+  });
+
+  it("throws the detail on any other error status", async () => {
+    mockResponse({
+      ok: false,
+      status: 422,
+      statusText: "Unprocessable Entity",
+      json: async () => ({ detail: "Invalid ZIP code" }),
+    });
+
+    await expect(
+      fetchReps("http://localhost", "campaign-1", "0000")
+    ).rejects.toThrow("Invalid ZIP code");
   });
 });

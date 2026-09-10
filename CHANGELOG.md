@@ -100,6 +100,16 @@ All notable changes to this project will be documented in this file.
 - **Dev-server hostnames are configurable** — `VITE_ALLOWED_HOSTS` replaces the hardcoded tunnel hostname.
 - **Embed bundle is minified with source maps**, Copy Link works without inline script, and HTML escaping covers single quotes.
 
+### Fixed (found by the new tests)
+- **Duplicate campaign names return 409** — creating or renaming a campaign onto a name that an active campaign already uses returns "A campaign with that name already exists" instead of an unhandled integrity error.
+- **Embed rep-lookup errors keep their message** — `fetchReps` parsed a non-OK body twice, so the backend's `detail` was lost on every 503 that was not a manual-entry fallback; the body is now read once. The phone-entry screen also shows the lookup fallback message instead of only the microphone-denied notice.
+- **Call log filters have accessible names** — the Status, Type, From and To controls are associated with their labels.
+
+### Tests
+- **Backend** — 155 → 227 test functions (300 collected): Twilio webhook signature validation (real `RequestValidator` signatures, dev-mode skip, tampered form and query), users CRUD, phone number sync/list/assign with a mocked provider, analytics happy paths over seeded sessions and calls, dashboard aggregates with zero-filled series, campaign PATCH/archive/checklist/count-cache/shuffle, and every webhook handler's not-found and malformed-session paths.
+- **Frontend** — 66 → 117: auth context, protected route, the campaign data hook (optimistic updates and rollbacks, import, downloads, test call), campaign settings tab (read-only mode, checklist, test-call gating), and the call log page (filters, pagination, export).
+- **Embed** — 28 → 61: full WebRTC call lifecycle under fake timers, phone fallback, every `api.ts` error branch, and the widget's ZIP validation, rep selection, expired-selection recovery, completion count and copy-link flows.
+
 ### Removed
 - **Dead telephony code** — `LookupService`, the provider's `generate_access_token`/`generate_voice_grant`, the unused TwiML builders, the unused `CAMPAIGN_STATUS_CHIP` export, and import-logic tests for a `normalizePhone` that never existed in production code.
 

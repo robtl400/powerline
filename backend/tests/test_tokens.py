@@ -178,7 +178,9 @@ async def test_rate_limit_tokens_voice(
             "/api/v1/tokens/voice",
             json={"campaign_id": str(campaign.id)},
         )
-        assert resp.status_code == 200, f"Call {i + 1} expected 200, got {resp.status_code}: {resp.text}"
+        assert resp.status_code == 200, (
+            f"Call {i + 1} expected 200, got {resp.status_code}: {resp.text}"
+        )
 
     resp = await client.post(
         "/api/v1/tokens/voice",

@@ -86,6 +86,8 @@ const fakeCampaign: CampaignPublic = {
 /** Twilio Call stub that records handlers so tests can fire call events. */
 function makeCallStub(): {
   on: ReturnType<typeof vi.fn>;
+  sendDigits: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
   fire: (event: string, ...args: unknown[]) => void;
 } {
   const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
@@ -93,6 +95,8 @@ function makeCallStub(): {
     on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
       (handlers[event] ??= []).push(handler);
     }),
+    sendDigits: vi.fn(),
+    disconnect: vi.fn(),
     fire: (event: string, ...args: unknown[]) => {
       for (const h of handlers[event] ?? []) h(...args);
     },
@@ -340,6 +344,165 @@ describe("WebRTCClient", () => {
         ([state]) => state === "audio_check"
       );
       expect(audioChecks).toHaveLength(1);
+    });
+  });
+
+  describe("start failures", () => {
+    it("reports the token error and never builds a Device", async () => {
+      mockRequestToken.mockRejectedValueOnce(new Error("Campaign is not live"));
+
+      const client = new WebRTCClient(
+        "http://localhost",
+        fakeCampaign,
+        onStateChange,
+        onTimerTick
+      );
+
+      await client.start();
+
+      expect(onStateChange).toHaveBeenCalledWith("error", "Campaign is not live");
+      expect(MockDevice).not.toHaveBeenCalled();
+    });
+
+    it("reports a connect failure as an error state", async () => {
+      mockRegister.mockResolvedValueOnce(undefined);
+      mockConnect.mockRejectedValueOnce(new Error("Could not reach Twilio"));
+
+      const client = new WebRTCClient(
+        "http://localhost",
+        fakeCampaign,
+        onStateChange,
+        onTimerTick
+      );
+
+      await client.start();
+
+      expect(onStateChange).toHaveBeenCalledWith(
+        "error",
+        "Could not reach Twilio"
+      );
+    });
+  });
+
+  describe("call lifecycle", () => {
+    /** start() a client whose device.connect resolves to a controllable call stub. */
+    async function startWith(
+      call: ReturnType<typeof makeCallStub>
+    ): Promise<WebRTCClient> {
+      mockRegister.mockResolvedValueOnce(undefined);
+      mockConnect.mockResolvedValueOnce(call);
+      const client = new WebRTCClient(
+        "http://localhost",
+        fakeCampaign,
+        onStateChange,
+        onTimerTick
+      );
+      await client.start();
+      return client;
+    }
+
+    it("ends the call through the Twilio call handle", async () => {
+      const call = makeCallStub();
+      const client = await startWith(call);
+      call.fire("accept");
+
+      client.end();
+
+      expect(call.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips a target by sending the DTMF star digit", async () => {
+      const call = makeCallStub();
+      const client = await startWith(call);
+
+      client.skip();
+
+      expect(call.sendDigits).toHaveBeenCalledWith("*");
+    });
+
+    it("goes back to idle when the call is cancelled", async () => {
+      const call = makeCallStub();
+      await startWith(call);
+
+      call.fire("cancel");
+
+      expect(onStateChange).toHaveBeenCalledWith("idle");
+    });
+
+    it("surfaces a call-level error message", async () => {
+      const call = makeCallStub();
+      await startWith(call);
+
+      call.fire("error", { message: "Call rejected" });
+
+      expect(onStateChange).toHaveBeenCalledWith("error", "Call rejected");
+    });
+
+    it("falls back to a generic message when the call error has none", async () => {
+      const call = makeCallStub();
+      await startWith(call);
+
+      call.fire("error", {});
+
+      expect(onStateChange).toHaveBeenCalledWith("error", "Call error");
+    });
+
+    describe("timer", () => {
+      beforeEach(() => {
+        vi.useFakeTimers();
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("ticks once per second after accept", async () => {
+        const call = makeCallStub();
+        await startWith(call);
+        call.fire("accept");
+
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(onTimerTick).toHaveBeenCalledWith(1);
+
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(onTimerTick).toHaveBeenLastCalledWith(2);
+      });
+
+      it("stops the timer and completes on disconnect", async () => {
+        const call = makeCallStub();
+        await startWith(call);
+        call.fire("accept");
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        call.fire("disconnect");
+
+        expect(onStateChange).toHaveBeenCalledWith("complete");
+
+        onTimerTick.mockClear();
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        expect(onTimerTick).not.toHaveBeenCalled();
+      });
+
+      it("destroy() tears down the device and stops the timer", async () => {
+        const call = makeCallStub();
+        const client = await startWith(call);
+        call.fire("accept");
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        client.destroy();
+
+        expect(mockDestroy).toHaveBeenCalledTimes(1);
+
+        onTimerTick.mockClear();
+        onStateChange.mockClear();
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(onTimerTick).not.toHaveBeenCalled();
+        expect(onStateChange).not.toHaveBeenCalled();
+      });
     });
   });
 });

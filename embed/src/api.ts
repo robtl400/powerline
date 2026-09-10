@@ -96,24 +96,23 @@ export async function fetchReps(
   const url = `${baseUrl}/api/v1/campaigns/${campaignId}/reps?zip=${encodeURIComponent(zip)}`;
   const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
 
-  if (res.status === 503) {
-    let fallback: "manual_entry" | undefined;
-    let message = "Representative lookup is temporarily unavailable.";
-    try {
-      const body = (await res.json()) as { detail?: { fallback?: string; message?: string } };
-      if (body.detail?.fallback === "manual_entry") fallback = "manual_entry";
-      if (body.detail?.message) message = body.detail.message;
-    } catch { /* ignore */ }
-    if (fallback === "manual_entry") return { fallback: "manual_entry", message };
-  }
-
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: unknown;
     try {
-      const body = (await res.json()) as { detail?: string };
-      if (body.detail) detail = body.detail;
+      ({ detail } = (await res.json()) as { detail?: unknown });
     } catch { /* ignore */ }
-    throw new Error(detail);
+
+    if (res.status === 503 && typeof detail === "object" && detail !== null) {
+      const d = detail as { fallback?: string; message?: string };
+      if (d.fallback === "manual_entry") {
+        return {
+          fallback: "manual_entry",
+          message: d.message ?? "Representative lookup is temporarily unavailable.",
+        };
+      }
+    }
+
+    throw new Error(typeof detail === "string" && detail ? detail : res.statusText);
   }
 
   return res.json() as Promise<RepsResponse>;

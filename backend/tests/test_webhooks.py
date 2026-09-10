@@ -322,3 +322,110 @@ async def test_call_complete_plays_between_message_after_a_connected_target(
     assert resp.status_code == 200
     assert "more calls" in resp.text
     assert "That representative is unavailable" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# dial-target: the dialed leg, the end of the list, and a vanished target
+# ---------------------------------------------------------------------------
+
+
+async def test_dial_target_dials_the_current_target(
+    client: AsyncClient,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """The TwiML names the target's number and routes the result to call-complete."""
+    _, target, session, call_sid = flow
+
+    resp = await client.post(
+        f"/webhooks/twilio/dial-target?session_id={session.id}",
+        data={"CallSid": call_sid},
+    )
+    assert resp.status_code == 200
+    assert "<Dial" in resp.text
+    assert target.phone_number in resp.text
+    assert f"call-complete?session_id={session.id}" in resp.text
+    assert 'hangupOnStar="true"' in resp.text
+
+
+async def test_dial_target_past_the_last_target_says_goodbye(
+    client: AsyncClient,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    _, _, session, call_sid = flow
+    state = await load_call_state(str(session.id))
+    state["current_target_index"] = len(state["target_ids"])
+    await save_call_state(session.id, state)
+
+    resp = await client.post(
+        f"/webhooks/twilio/dial-target?session_id={session.id}",
+        data={"CallSid": call_sid},
+    )
+    assert resp.status_code == 200
+    assert "<Hangup" in resp.text
+    assert "<Dial" not in resp.text
+
+
+async def test_dial_target_hangs_up_when_the_target_row_is_gone(
+    client: AsyncClient,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A target deleted mid-session ends the call rather than raising."""
+    _, _, session, call_sid = flow
+    state = await load_call_state(str(session.id))
+    state["target_ids"] = [str(uuid.uuid4())]
+    state["current_target_index"] = 0
+    await save_call_state(session.id, state)
+
+    resp = await client.post(
+        f"/webhooks/twilio/dial-target?session_id={session.id}",
+        data={"CallSid": call_sid},
+    )
+    assert resp.status_code == 200
+    assert "<Hangup" in resp.text
+    assert "<Dial" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Session ids that no handler can use
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("handler", ["voice-app", "make-calls", "dial-target", "call-complete"])
+async def test_unknown_session_id_hangs_up(client: AsyncClient, handler: str) -> None:
+    """A well-formed id with no Redis state gets a hangup, never a call."""
+    resp = await client.post(
+        f"/webhooks/twilio/{handler}?session_id={uuid.uuid4()}",
+        data={"CallSid": f"CAghost{uuid.uuid4().hex[:16]}"},
+    )
+    assert resp.status_code == 200
+    assert "<Hangup" in resp.text
+    assert "<Dial" not in resp.text
+
+
+@pytest.mark.parametrize("handler", ["voice-app", "make-calls", "dial-target", "call-complete"])
+@pytest.mark.parametrize("session_id", ["not-a-uuid", "", "../../etc/passwd", "1"])
+async def test_malformed_session_id_hangs_up_instead_of_erroring(
+    client: AsyncClient, handler: str, session_id: str
+) -> None:
+    resp = await client.post(
+        f"/webhooks/twilio/{handler}?session_id={session_id}",
+        data={"CallSid": f"CAjunk{uuid.uuid4().hex[:16]}"},
+    )
+    assert resp.status_code == 200
+    assert "<Hangup" in resp.text
+
+
+async def test_voice_app_hangs_up_when_the_session_belongs_to_another_call(
+    client: AsyncClient,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A leaked session_id cannot be replayed from a different Twilio call."""
+    _, _, session, call_sid = flow
+
+    resp = await client.post(
+        f"/webhooks/twilio/voice-app?session_id={session.id}",
+        data={"CallSid": f"CAother{uuid.uuid4().hex[:16]}"},
+    )
+    assert resp.status_code == 200
+    assert "<Hangup" in resp.text
+    assert "<Gather" not in resp.text

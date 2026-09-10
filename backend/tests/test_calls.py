@@ -228,7 +228,9 @@ async def test_create_call_rejects_callback_disabled(
 
 
 @pytest.fixture
-async def rate_limited_campaign(db: AsyncSession, campaign_with_target: tuple[Campaign, Target]) -> Campaign:
+async def rate_limited_campaign(
+    db: AsyncSession, campaign_with_target: tuple[Campaign, Target]
+) -> Campaign:
     """Set rate_limit=5 on the shared campaign so rate limiting is enforced."""
     campaign, _ = campaign_with_target
     campaign.rate_limit = 5
@@ -253,7 +255,9 @@ async def test_rate_limit_calls_create(
                 "phone_number": phone,
             },
         )
-        assert resp.status_code == 200, f"Call {i + 1} expected 200, got {resp.status_code}: {resp.text}"
+        assert resp.status_code == 200, (
+            f"Call {i + 1} expected 200, got {resp.status_code}: {resp.text}"
+        )
 
     resp = await client.post(
         "/api/v1/calls/create",

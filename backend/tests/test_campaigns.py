@@ -1,18 +1,23 @@
 """Smoke tests for campaign and target endpoints."""
 
+import hashlib
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audio import AudioRecording
 from app.models.call import Call
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
 from app.models.user import User
+from app.services.call_state import load_call_state
+from app.services.telephony.base import CallResult
 
 
 async def test_create_campaign(
@@ -369,3 +374,421 @@ async def test_remove_target_keeps_target_shared_with_another_campaign(
     await db.commit()
     await db.execute(delete(Target).where(Target.id == target_id))
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# PATCH: every editable field round-trips
+# ---------------------------------------------------------------------------
+
+
+async def test_update_campaign_writes_every_editable_field(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    updates = {
+        "name": f"Renamed {uuid.uuid4().hex[:8]}",
+        "description": "A fuller description",
+        "campaign_type": "custom",
+        "language": "es-MX",
+        "target_ordering": "shuffle",
+        "call_maximum": 250,
+        "rate_limit": 9,
+        "allow_call_in": True,
+        "allow_webrtc": False,
+        "allow_phone_callback": False,
+        "lookup_validate": False,
+        "lookup_require_mobile": True,
+        "embed_config": {"target_levels": ["federal"]},
+        "talking_points": "Ask them to vote yes.",
+    }
+
+    resp = await client.patch(
+        f"/api/v1/campaigns/{campaign.id}", json=updates, headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    for field, value in updates.items():
+        assert body[field] == value, field
+
+    fetched = await client.get(f"/api/v1/campaigns/{campaign.id}", headers=admin_headers)
+    assert fetched.status_code == 200
+    for field, value in updates.items():
+        assert fetched.json()[field] == value, field
+
+
+# ---------------------------------------------------------------------------
+# POST /{id}/archive
+# ---------------------------------------------------------------------------
+
+
+async def test_archive_rejects_a_draft_campaign(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    """draft has no archived transition — it must be paused or live first."""
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/archive", headers=admin_headers
+    )
+    assert resp.status_code == 422
+    assert "draft" in resp.json()["detail"]
+
+
+async def test_archive_a_paused_campaign_then_refuses_to_repeat(
+    client: AsyncClient, db: AsyncSession, campaign: Campaign, admin_headers: dict
+) -> None:
+    campaign.status = "paused"
+    await db.commit()
+
+    archived = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/archive", headers=admin_headers
+    )
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["status"] == "archived"
+
+    again = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/archive", headers=admin_headers
+    )
+    assert again.status_code == 422
+    assert "archived" in again.json()["detail"]
+
+
+async def test_archive_requires_admin(
+    client: AsyncClient, db: AsyncSession, campaign: Campaign, staff_headers: dict
+) -> None:
+    campaign.status = "live"
+    await db.commit()
+
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/archive", headers=staff_headers
+    )
+    assert resp.status_code == 403
+
+
+async def test_a_name_frees_up_once_its_campaign_is_archived(
+    client: AsyncClient, db: AsyncSession, campaign: Campaign, admin_headers: dict
+) -> None:
+    """The unique index only covers non-archived campaigns."""
+    name = campaign.name
+
+    clash = await client.post("/api/v1/campaigns", json={"name": name}, headers=admin_headers)
+    assert clash.status_code == 409, clash.text
+
+    campaign.status = "paused"
+    await db.commit()
+    assert (
+        await client.post(f"/api/v1/campaigns/{campaign.id}/archive", headers=admin_headers)
+    ).status_code == 200
+
+    reused = await client.post("/api/v1/campaigns", json={"name": name}, headers=admin_headers)
+    assert reused.status_code == 201, reused.text
+
+    await db.execute(delete(Campaign).where(Campaign.id == uuid.UUID(reused.json()["id"])))
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# GET /{id}/checklist
+# ---------------------------------------------------------------------------
+
+
+async def test_checklist_tracks_targets_audio_and_talking_points(
+    client: AsyncClient, db: AsyncSession, campaign: Campaign, admin_headers: dict
+) -> None:
+    empty = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/checklist", headers=admin_headers
+    )
+    assert empty.status_code == 200, empty.text
+    assert empty.json() == {
+        "targets_configured": False,
+        "audio_configured": False,
+        "phone_number_assigned": False,
+        "phone_verified": False,
+        "talking_points_written": False,
+    }
+
+    added = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets",
+        json={
+            "name": "Checklist Target",
+            "title": "Rep",
+            "phone_number": "+12025558001",
+            "location": "OR-03",
+        },
+        headers=admin_headers,
+    )
+    assert added.status_code == 201, added.text
+
+    recording = AudioRecording(
+        campaign_id=campaign.id,
+        key="msg_intro",
+        version=1,
+        tts_text="Welcome",
+        is_active=True,
+    )
+    db.add(recording)
+    await db.commit()
+
+    patched = await client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json={"talking_points": "Ask for a yes vote."},
+        headers=admin_headers,
+    )
+    assert patched.status_code == 200, patched.text
+
+    filled = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/checklist", headers=admin_headers
+    )
+    assert filled.status_code == 200
+    assert filled.json() == {
+        "targets_configured": True,
+        "audio_configured": True,
+        "phone_number_assigned": False,
+        "phone_verified": False,
+        "talking_points_written": True,
+    }
+
+    await db.execute(delete(AudioRecording).where(AudioRecording.id == recording.id))
+    await db.commit()
+
+
+async def test_checklist_ignores_whitespace_only_talking_points(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    patched = await client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json={"talking_points": "   \n  "},
+        headers=admin_headers,
+    )
+    assert patched.status_code == 200
+
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/checklist", headers=admin_headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()["talking_points_written"] is False
+
+
+# ---------------------------------------------------------------------------
+# GET /{id}/count — public, cached for ten minutes
+# ---------------------------------------------------------------------------
+
+
+async def test_count_unknown_campaign_is_404(client: AsyncClient) -> None:
+    resp = await client.get(f"/api/v1/campaigns/{uuid.uuid4()}/count")
+    assert resp.status_code == 404
+
+
+async def test_count_reports_completed_sessions_then_serves_the_cache(
+    client: AsyncClient, db: AsyncSession, campaign: Campaign, redis
+) -> None:
+    cache_key = f"campaign_count:{campaign.id}"
+    await redis.delete(cache_key)
+
+    def _session(status: str) -> CallSession:
+        return CallSession(
+            campaign_id=campaign.id,
+            connection_type="webrtc",
+            twilio_call_sid=f"CAcnt{uuid.uuid4().hex[:20]}",
+            status=status,
+        )
+
+    seeded = [_session("completed"), _session("completed"), _session("failed")]
+    db.add_all(seeded)
+    await db.commit()
+
+    first = await client.get(f"/api/v1/campaigns/{campaign.id}/count")
+    assert first.status_code == 200, first.text
+    assert first.json() == {"total": 2, "last_24h": 2, "last_7d": 2}
+
+    later = _session("completed")
+    db.add(later)
+    await db.commit()
+
+    cached = await client.get(f"/api/v1/campaigns/{campaign.id}/count")
+    assert cached.status_code == 200
+    assert cached.json() == {"total": 2, "last_24h": 2, "last_7d": 2}
+
+    await redis.delete(cache_key)
+    fresh = await client.get(f"/api/v1/campaigns/{campaign.id}/count")
+    assert fresh.json()["total"] == 3
+
+    await redis.delete(cache_key)
+    ids = [s.id for s in seeded] + [later.id]
+    await db.execute(delete(CallSession).where(CallSession.id.in_(ids)))
+    await db.commit()
+
+
+async def test_renaming_onto_a_live_name_is_a_conflict(
+    client: AsyncClient, db: AsyncSession, campaign: Campaign, admin_headers: dict
+) -> None:
+    other = await client.post(
+        "/api/v1/campaigns",
+        json={"name": f"Rename Target {uuid.uuid4().hex[:8]}"},
+        headers=admin_headers,
+    )
+    assert other.status_code == 201, other.text
+    other_id = uuid.UUID(other.json()["id"])
+
+    clash = await client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json={"name": other.json()["name"]},
+        headers=admin_headers,
+    )
+    assert clash.status_code == 409, clash.text
+
+    still_named = await client.get(f"/api/v1/campaigns/{campaign.id}", headers=admin_headers)
+    assert still_named.json()["name"] == campaign.name
+
+    await db.execute(delete(Campaign).where(Campaign.id == other_id))
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# target_ordering="shuffle": the stored call order is a permutation
+# ---------------------------------------------------------------------------
+
+
+async def _five_targets(
+    client: AsyncClient, campaign_id: uuid.UUID, admin_headers: dict
+) -> list[str]:
+    ids: list[str] = []
+    for i in range(5):
+        resp = await client.post(
+            f"/api/v1/campaigns/{campaign_id}/targets",
+            json={
+                "name": f"Shuffle Target {i}",
+                "title": "Representative",
+                "phone_number": f"+1202555910{i}",
+                "location": "CA",
+            },
+            headers=admin_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        ids.append(resp.json()["id"])
+    return ids
+
+
+async def _drop_targets(db: AsyncSession, target_ids: list[str]) -> None:
+    ids = [uuid.UUID(t) for t in target_ids]
+    await db.execute(delete(CampaignTarget).where(CampaignTarget.target_id.in_(ids)))
+    await db.commit()
+    await db.execute(delete(Target).where(Target.id.in_(ids)))
+    await db.commit()
+
+
+async def test_shuffle_permutes_target_ids_on_calls_create(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_headers: dict,
+    redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A shuffled campaign stores the permuted order, not the configured one."""
+    ordered = await _five_targets(client, campaign.id, admin_headers)
+
+    campaign.status = "live"
+    campaign.target_ordering = "shuffle"
+    campaign.allow_phone_callback = True
+    campaign.lookup_validate = False
+    campaign.rate_limit = 20
+    await db.commit()
+
+    monkeypatch.setattr("random.shuffle", lambda seq: seq.reverse())
+    provider = MagicMock()
+    provider.create_call.return_value = CallResult(sid="CAshuffle", status="queued")
+    monkeypatch.setattr("app.api.v1.calls.get_provider", lambda: provider)
+
+    phone = "+12025559110"
+    rate_keys = [
+        "rate:call-ip:127.0.0.1",
+        f"rate:call:{hashlib.sha256(phone.encode()).hexdigest()}",
+    ]
+    await redis.delete(*rate_keys)
+
+    resp = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": phone},
+    )
+    assert resp.status_code == 200, resp.text
+    session_id = resp.json()["session_id"]
+
+    state = await load_call_state(session_id)
+    assert state["target_ids"] == list(reversed(ordered))
+
+    await redis.delete(*rate_keys, f"call_session:{session_id}")
+    await db.execute(delete(CallSession).where(CallSession.id == uuid.UUID(session_id)))
+    await db.commit()
+    await _drop_targets(db, ordered)
+
+
+async def test_shuffle_permutes_target_ids_on_tokens_voice(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_headers: dict,
+    redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ordered = await _five_targets(client, campaign.id, admin_headers)
+
+    campaign.status = "live"
+    campaign.target_ordering = "shuffle"
+    campaign.allow_webrtc = True
+    campaign.rate_limit = 20
+    await db.commit()
+
+    monkeypatch.setattr("random.shuffle", lambda seq: seq.reverse())
+    monkeypatch.setattr("app.api.v1.tokens._build_access_token", lambda session_id: "dev-token")
+
+    rate_keys = ["rate:token:127.0.0.1", f"rate:token-campaign:{campaign.id}"]
+    await redis.delete(*rate_keys)
+
+    resp = await client.post(
+        "/api/v1/tokens/voice", json={"campaign_id": str(campaign.id)}
+    )
+    assert resp.status_code == 200, resp.text
+    session_id = resp.json()["session_id"]
+
+    state = await load_call_state(session_id)
+    assert state["target_ids"] == list(reversed(ordered))
+
+    await redis.delete(*rate_keys, f"call_session:{session_id}")
+    await db.execute(delete(CallSession).where(CallSession.id == uuid.UUID(session_id)))
+    await db.commit()
+    await _drop_targets(db, ordered)
+
+
+async def test_in_order_campaigns_keep_the_configured_order(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_headers: dict,
+    redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same reversing shuffle is never reached when ordering is in_order."""
+    ordered = await _five_targets(client, campaign.id, admin_headers)
+
+    campaign.status = "live"
+    campaign.allow_webrtc = True
+    campaign.rate_limit = 20
+    await db.commit()
+
+    monkeypatch.setattr("random.shuffle", lambda seq: seq.reverse())
+    monkeypatch.setattr("app.api.v1.tokens._build_access_token", lambda session_id: "dev-token")
+
+    rate_keys = ["rate:token:127.0.0.1", f"rate:token-campaign:{campaign.id}"]
+    await redis.delete(*rate_keys)
+
+    resp = await client.post(
+        "/api/v1/tokens/voice", json={"campaign_id": str(campaign.id)}
+    )
+    assert resp.status_code == 200, resp.text
+    session_id = resp.json()["session_id"]
+
+    state = await load_call_state(session_id)
+    assert state["target_ids"] == ordered
+
+    await redis.delete(*rate_keys, f"call_session:{session_id}")
+    await db.execute(delete(CallSession).where(CallSession.id == uuid.UUID(session_id)))
+    await db.commit()
+    await _drop_targets(db, ordered)

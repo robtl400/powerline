@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import case, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -91,6 +92,24 @@ def _target_to_response(target: Target, order: int) -> TargetInCampaign:
 # ---------------------------------------------------------------------------
 
 
+# Partial unique index: campaign names must be unique among non-archived campaigns.
+_NAME_INDEX = "ux_campaigns_name_active"
+
+
+async def _commit_unique_name(db: AsyncSession) -> None:
+    """Commit, turning a campaign-name collision into 409 instead of a 500."""
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        if _NAME_INDEX not in str(exc):
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A campaign with that name already exists",
+        )
+
+
 async def _get_target_count(campaign_id: uuid.UUID, db: AsyncSession) -> int:
     result = await db.execute(
         select(func.count(CampaignTarget.target_id)).where(
@@ -165,7 +184,7 @@ async def create_campaign(
 ) -> CampaignResponse:
     campaign = Campaign(**body.model_dump(), created_by_id=current_user.id)
     db.add(campaign)
-    await db.commit()
+    await _commit_unique_name(db)
     await db.refresh(campaign)
     return _campaign_to_response(campaign, 0)
 
@@ -370,7 +389,7 @@ async def update_campaign(
         setattr(campaign, field, value)
 
     campaign.updated_at = datetime.now(timezone.utc)
-    await db.commit()
+    await _commit_unique_name(db)
     await db.refresh(campaign)
 
     count = await _get_target_count(campaign_id, db)

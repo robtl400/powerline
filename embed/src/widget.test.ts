@@ -8,7 +8,7 @@
  * firing after a disconnect must not clobber the completion or idle screen.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchCampaign, fetchReps } from "./api.js";
+import { fetchCallCount, fetchCampaign, fetchReps, isRepsError } from "./api.js";
 import { WebRTCClient } from "./webrtc.js";
 import { PowerlineWidget } from "./widget.js";
 import type { CampaignPublic, ConnectedData, WidgetState } from "./types.js";
@@ -49,6 +49,8 @@ vi.mock("./webrtc.js", () => ({
 
 const mockFetchCampaign = vi.mocked(fetchCampaign);
 const mockFetchReps = vi.mocked(fetchReps);
+const mockFetchCallCount = vi.mocked(fetchCallCount);
+const mockIsRepsError = vi.mocked(isRepsError);
 const MockWebRTCClient = vi.mocked(WebRTCClient);
 
 type StateDriver = (state: WidgetState, data?: unknown) => void;
@@ -238,5 +240,223 @@ describe("PowerlineWidget rep selection", () => {
       name: "Rep Example",
       title: "U.S. Representative",
     });
+  });
+});
+
+describe("PowerlineWidget rep lookup", () => {
+  const repCampaign: CampaignPublic = {
+    ...fakeCampaign,
+    target_levels: ["federal"],
+  };
+
+  let container: HTMLElement;
+  let widget: PowerlineWidget;
+
+  /** Type a ZIP into the idle screen and press Call Now. */
+  function callNowWithZip(zip: string): void {
+    container.querySelector<HTMLInputElement>("#pl-zip-input")!.value = zip;
+    container
+      .querySelector<HTMLElement>('[data-pl-action="call-now"]')!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  }
+
+  beforeEach(async () => {
+    document.body.innerHTML = "";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+
+    MockWebRTCClient.mockClear();
+    mockFetchReps.mockReset();
+    mockIsRepsError.mockReset();
+    mockIsRepsError.mockReturnValue(false);
+    mockFetchCampaign.mockResolvedValue(repCampaign);
+
+    widget = new PowerlineWidget({ campaignId: "campaign-1", container });
+    await widget.init();
+  });
+
+  it("rejects a malformed ZIP without hitting the reps endpoint", () => {
+    callNowWithZip("9410");
+
+    expect(
+      container.querySelector<HTMLElement>("#pl-zip-error")!.textContent
+    ).toBe("Please enter a valid 5-digit ZIP code.");
+    expect(
+      container
+        .querySelector<HTMLInputElement>("#pl-zip-input")!
+        .getAttribute("aria-invalid")
+    ).toBe("true");
+    expect(mockFetchReps).not.toHaveBeenCalled();
+  });
+
+  it("shows the lookup spinner, then the rep buttons", async () => {
+    mockFetchReps.mockResolvedValue({
+      reps: [
+        {
+          name: "Rep Example",
+          title: "U.S. Representative",
+          level: "federal",
+          rep_token: "tok-1",
+        },
+      ],
+      message: null,
+    });
+
+    callNowWithZip("94103");
+
+    expect(container.innerHTML).toContain("Finding your representatives");
+    expect(mockFetchReps).toHaveBeenCalledWith("", "campaign-1", "94103");
+
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-pl-action="select-rep"]')
+      ).not.toBeNull()
+    );
+
+    const button = container.querySelector<HTMLElement>(
+      '[data-pl-action="select-rep"]'
+    )!;
+    expect(button.dataset.plRepToken).toBe("tok-1");
+    expect(container.innerHTML).toContain("Choose who to call");
+  });
+
+  it("falls back to phone entry with the backend's message on a lookup outage", async () => {
+    mockFetchReps.mockResolvedValue({
+      fallback: "manual_entry",
+      message: "Lookup is down — leave us your number.",
+    });
+    mockIsRepsError.mockReturnValue(true);
+
+    callNowWithZip("94103");
+
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-pl-action="submit-phone"]')
+      ).not.toBeNull()
+    );
+
+    expect(container.innerHTML).toContain("Lookup is down — leave us your number.");
+  });
+
+  it("surfaces a lookup failure as an error screen", async () => {
+    mockFetchReps.mockRejectedValue(new Error("ZIP service unavailable"));
+
+    callNowWithZip("94103");
+
+    await vi.waitFor(() =>
+      expect(container.innerHTML).toContain("ZIP service unavailable")
+    );
+    expect(container.innerHTML).toContain("Something went wrong");
+  });
+
+  it("returns to the ZIP form when the rep selection has expired", async () => {
+    mockFetchReps.mockResolvedValue({
+      reps: [
+        {
+          name: "Rep Example",
+          title: "U.S. Representative",
+          level: "federal",
+          rep_token: "tok-1",
+        },
+      ],
+      message: null,
+    });
+
+    callNowWithZip("94103");
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-pl-action="select-rep"]')
+      ).not.toBeNull()
+    );
+    container
+      .querySelector<HTMLElement>('[data-pl-action="select-rep"]')!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    driverFor(widget)("error", "Invalid or expired representative selection");
+
+    expect(container.querySelector("#pl-zip-input")).not.toBeNull();
+    expect(
+      container.querySelector<HTMLElement>("#pl-zip-error")!.textContent
+    ).toBe("Invalid or expired representative selection");
+    expect(container.innerHTML).not.toContain("Something went wrong");
+  });
+});
+
+describe("PowerlineWidget completion screen", () => {
+  let container: HTMLElement;
+  let widget: PowerlineWidget;
+
+  beforeEach(async () => {
+    document.body.innerHTML = "";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+
+    mockFetchCallCount.mockReset();
+    mockFetchCampaign.mockResolvedValue(fakeCampaign);
+
+    widget = new PowerlineWidget({ campaignId: "campaign-1", container });
+    await widget.init();
+  });
+
+  it("adds the campaign-wide caller count once it arrives", async () => {
+    mockFetchCallCount.mockResolvedValue({
+      total: 1234,
+      last_24h: 12,
+      last_7d: 90,
+    });
+
+    driverFor(widget)("connected", connectedData);
+    driverFor(widget)("complete");
+
+    expect(mockFetchCallCount).toHaveBeenCalledWith("", "campaign-1");
+
+    await vi.waitFor(() =>
+      expect(container.innerHTML).toContain("You're among")
+    );
+    expect(container.innerHTML).toContain("1,234");
+    expect(container.innerHTML).toContain("You made 1 call.");
+  });
+
+  it("keeps the session count when no callers are reported", async () => {
+    mockFetchCallCount.mockResolvedValue({ total: 0, last_24h: 0, last_7d: 0 });
+
+    driverFor(widget)("connected", connectedData);
+    driverFor(widget)("complete");
+
+    await vi.waitFor(() => expect(mockFetchCallCount).toHaveBeenCalled());
+
+    expect(container.innerHTML).toContain("Thank you!");
+    expect(container.innerHTML).not.toContain("You're among");
+  });
+
+  it("flashes 'Copied!' on the copy-link button for two seconds", async () => {
+    // The count fetch failing keeps the completion screen from re-rendering
+    // underneath the button while the label is swapped.
+    mockFetchCallCount.mockRejectedValue(new Error("counts unavailable"));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    vi.useFakeTimers();
+    try {
+      driverFor(widget)("connected", connectedData);
+      driverFor(widget)("complete");
+
+      const button = container.querySelector<HTMLElement>(
+        '[data-pl-action="copy-link"]'
+      )!;
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(button.textContent).toBe("Copied!");
+
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(button.textContent).toBe("Copy Link");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

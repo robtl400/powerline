@@ -153,8 +153,9 @@ export default function CallLog() {
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3 rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] p-4">
         <div>
-          <label className="block text-xs text-brand-grey-light mb-1">Status</label>
+          <label htmlFor="calllog-status" className="block text-xs text-brand-grey-light mb-1">Status</label>
           <select
+            id="calllog-status"
             className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white min-w-[120px]"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -167,8 +168,9 @@ export default function CallLog() {
           </select>
         </div>
         <div>
-          <label className="block text-xs text-brand-grey-light mb-1">Type</label>
+          <label htmlFor="calllog-type" className="block text-xs text-brand-grey-light mb-1">Type</label>
           <select
+            id="calllog-type"
             className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white min-w-[140px]"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
@@ -180,8 +182,9 @@ export default function CallLog() {
           </select>
         </div>
         <div>
-          <label className="block text-xs text-brand-grey-light mb-1">From</label>
+          <label htmlFor="calllog-start" className="block text-xs text-brand-grey-light mb-1">From</label>
           <input
+            id="calllog-start"
             type="date"
             className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white"
             value={startDate}
@@ -190,8 +193,9 @@ export default function CallLog() {
           />
         </div>
         <div>
-          <label className="block text-xs text-brand-grey-light mb-1">To</label>
+          <label htmlFor="calllog-end" className="block text-xs text-brand-grey-light mb-1">To</label>
           <input
+            id="calllog-end"
             type="date"
             className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white"
             value={endDate}

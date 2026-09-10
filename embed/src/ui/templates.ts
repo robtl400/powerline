@@ -272,14 +272,17 @@ export function renderError(message: string, showRetry = true): string {
 }
 
 export function renderPhoneInput(campaign: CampaignPublic, message?: string): string {
-  const micNotice = message === "mic_denied"
-    ? `<div class="pl-callout-warning">
+  let notice = "";
+  if (message === "mic_denied") {
+    notice = `<div class="pl-callout-warning">
         🚫 Microphone access was denied — no problem! Enter your number below and we'll call you.
-       </div>`
-    : "";
+       </div>`;
+  } else if (message) {
+    notice = `<div class="pl-callout-warning">${esc(message)}</div>`;
+  }
 
   return `<div class="pl-card">
-    ${micNotice}
+    ${notice}
     <p class="pl-heading">We'll call you</p>
     <p class="pl-subtext">
       Enter your phone number and we'll connect you to ${esc(campaign.name)}.
