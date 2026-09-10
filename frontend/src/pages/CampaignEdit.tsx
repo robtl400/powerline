@@ -10,9 +10,10 @@ import { CampaignSettingsTab } from "@/components/campaign/CampaignSettingsTab";
 import { CampaignStatsTab } from "@/components/campaign/CampaignStatsTab";
 import { CampaignTargetsTab } from "@/components/campaign/CampaignTargetsTab";
 import { TestCallModal } from "@/components/campaign/TestCallModal";
+import { CampaignTabs, type CampaignTab } from "@/components/campaign/CampaignTabs";
 import CampaignWizard from "@/components/campaign/CampaignWizard";
 
-type TabType = "settings" | "targets" | "audio" | "embed" | "stats";
+type TabType = CampaignTab;
 
 export default function CampaignEdit() {
   const { id } = useParams<{ id: string }>();
@@ -58,131 +59,121 @@ export default function CampaignEdit() {
       )}
 
       {/* Tab bar — edit mode only */}
-      {!isNew && (
-        <div className="flex gap-1 border-b border-brand-border mb-6">
-          {(["settings", "targets", "audio", "embed", "stats"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
-                activeTab === tab
-                  ? "border-brand-orange text-brand-black"
-                  : "border-transparent text-brand-grey-dark hover:text-brand-black"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-      )}
+      {!isNew && <CampaignTabs activeTab={activeTab} onChange={setActiveTab} />}
 
-      {/* Settings tab (or full form for new campaign) */}
-      {(isNew || activeTab === "settings") && (
-        <CampaignSettingsTab
-          form={data.form}
-          setForm={data.setForm}
-          status={data.status}
-          isNew={isNew}
-          saving={data.saving}
-          handleSave={data.handleSave}
-          statusMenuOpen={data.statusMenuOpen}
-          setStatusMenuOpen={data.setStatusMenuOpen}
-          pendingStatus={data.pendingStatus}
-          setPendingStatus={data.setPendingStatus}
-          openStatusMenu={data.openStatusMenu}
-          confirmStatusChange={data.confirmStatusChange}
-          nextStatuses={data.nextStatuses}
-          checklist={data.checklist}
-          checklistLoading={data.checklistLoading}
-          onTabChange={setActiveTab}
-          onOpenTestCall={() => {
-            data.setTestCallOpen(true);
-            data.setTestCallState("idle");
-          }}
-          readOnly={readOnly}
-        />
-      )}
+      <div
+        id={`campaign-panel-${activeTab}`}
+        role="tabpanel"
+        aria-labelledby={`campaign-tab-${activeTab}`}
+      >
+        {/* Settings tab (or full form for new campaign) */}
+        {(isNew || activeTab === "settings") && (
+          <CampaignSettingsTab
+            form={data.form}
+            setForm={data.setForm}
+            status={data.status}
+            isNew={isNew}
+            saving={data.saving}
+            handleSave={data.handleSave}
+            statusMenuOpen={data.statusMenuOpen}
+            setStatusMenuOpen={data.setStatusMenuOpen}
+            pendingStatus={data.pendingStatus}
+            setPendingStatus={data.setPendingStatus}
+            openStatusMenu={data.openStatusMenu}
+            confirmStatusChange={data.confirmStatusChange}
+            nextStatuses={data.nextStatuses}
+            checklist={data.checklist}
+            checklistLoading={data.checklistLoading}
+            onTabChange={setActiveTab}
+            onOpenTestCall={() => {
+              data.setTestCallOpen(true);
+              data.setTestCallState("idle");
+            }}
+            readOnly={readOnly}
+          />
+        )}
 
-      {/* Targets tab */}
-      {!isNew && activeTab === "targets" && (
-        <CampaignTargetsTab
-          targets={data.targets}
-          addingTarget={data.addingTarget}
-          setAddingTarget={data.setAddingTarget}
-          targetForm={data.targetForm}
-          setTargetForm={data.setTargetForm}
-          targetError={data.targetError}
-          setTargetError={data.setTargetError}
-          editingTarget={data.editingTarget}
-          setEditingTarget={data.setEditingTarget}
-          editTargetForm={data.editTargetForm}
-          setEditTargetForm={data.setEditTargetForm}
-          handleAddTarget={data.handleAddTarget}
-          handleDeleteTarget={data.handleDeleteTarget}
-          pendingDeleteTarget={data.pendingDeleteTarget}
-          cancelDeleteTarget={data.cancelDeleteTarget}
-          confirmDeleteTarget={data.confirmDeleteTarget}
-          startEditTarget={data.startEditTarget}
-          handleSaveTargetEdit={data.handleSaveTargetEdit}
-          handleDragEnd={data.handleDragEnd}
-          sensors={data.sensors}
-          importOpen={data.importOpen}
-          setImportOpen={data.setImportOpen}
-          importFile={data.importFile}
-          importHeaders={data.importHeaders}
-          importColumnMap={data.importColumnMap}
-          setImportColumnMap={data.setImportColumnMap}
-          importLoading={data.importLoading}
-          importResult={data.importResult}
-          importError={data.importError}
-          handleImportFileSelect={data.handleImportFileSelect}
-          handleImportSubmit={data.handleImportSubmit}
-          handleDownloadErrors={data.handleDownloadErrors}
-          resetImport={data.resetImport}
-          readOnly={readOnly}
-        />
-      )}
+        {/* Targets tab */}
+        {!isNew && activeTab === "targets" && (
+          <CampaignTargetsTab
+            targets={data.targets}
+            addingTarget={data.addingTarget}
+            setAddingTarget={data.setAddingTarget}
+            targetForm={data.targetForm}
+            setTargetForm={data.setTargetForm}
+            targetError={data.targetError}
+            setTargetError={data.setTargetError}
+            editingTarget={data.editingTarget}
+            setEditingTarget={data.setEditingTarget}
+            editTargetForm={data.editTargetForm}
+            setEditTargetForm={data.setEditTargetForm}
+            handleAddTarget={data.handleAddTarget}
+            handleDeleteTarget={data.handleDeleteTarget}
+            pendingDeleteTarget={data.pendingDeleteTarget}
+            cancelDeleteTarget={data.cancelDeleteTarget}
+            confirmDeleteTarget={data.confirmDeleteTarget}
+            startEditTarget={data.startEditTarget}
+            handleSaveTargetEdit={data.handleSaveTargetEdit}
+            handleDragEnd={data.handleDragEnd}
+            sensors={data.sensors}
+            importOpen={data.importOpen}
+            setImportOpen={data.setImportOpen}
+            importFile={data.importFile}
+            importHeaders={data.importHeaders}
+            importColumnMap={data.importColumnMap}
+            setImportColumnMap={data.setImportColumnMap}
+            importLoading={data.importLoading}
+            importResult={data.importResult}
+            importError={data.importError}
+            handleImportFileSelect={data.handleImportFileSelect}
+            handleImportSubmit={data.handleImportSubmit}
+            handleDownloadErrors={data.handleDownloadErrors}
+            resetImport={data.resetImport}
+            readOnly={readOnly}
+          />
+        )}
 
-      {/* Audio tab */}
-      {!isNew && activeTab === "audio" && (
-        <CampaignAudioTab
-          campaignId={id!}
-          campaignStatus={data.status}
-          audioLoading={data.audioLoading}
-          audioByKey={data.audioByKey}
-          onRefresh={data.refreshAudio}
-          readOnly={readOnly}
-        />
-      )}
+        {/* Audio tab */}
+        {!isNew && activeTab === "audio" && (
+          <CampaignAudioTab
+            campaignId={id!}
+            campaignStatus={data.status}
+            audioLoading={data.audioLoading}
+            audioByKey={data.audioByKey}
+            onRefresh={data.refreshAudio}
+            readOnly={readOnly}
+          />
+        )}
 
-      {/* Embed tab */}
-      {!isNew && activeTab === "embed" && (
-        <CampaignEmbedTab
-          campaignId={id!}
-          embedApiUrl={data.embedApiUrl}
-          setEmbedApiUrl={data.setEmbedApiUrl}
-          copiedSnippet={data.copiedSnippet}
-          onCopy={data.copySnippet}
-        />
-      )}
+        {/* Embed tab */}
+        {!isNew && activeTab === "embed" && (
+          <CampaignEmbedTab
+            campaignId={id!}
+            embedApiUrl={data.embedApiUrl}
+            setEmbedApiUrl={data.setEmbedApiUrl}
+            copiedSnippet={data.copiedSnippet}
+            onCopy={data.copySnippet}
+          />
+        )}
 
-      {/* Stats tab */}
-      {!isNew && activeTab === "stats" && (
-        <CampaignStatsTab
-          campaignStats={data.campaignStats}
-          qualityData={data.qualityData}
-          chartData={data.chartData}
-          statsLoading={data.statsLoading}
-          statsError={data.statsError}
-          statsStartDate={data.statsStartDate}
-          setStatsStartDate={data.setStatsStartDate}
-          statsEndDate={data.statsEndDate}
-          setStatsEndDate={data.setStatsEndDate}
-          statsGranularity={data.statsGranularity}
-          setStatsGranularity={data.setStatsGranularity}
-          onViewCallLog={() => navigate(`/campaigns/${id}/calls`)}
-        />
-      )}
+        {/* Stats tab */}
+        {!isNew && activeTab === "stats" && (
+          <CampaignStatsTab
+            campaignStats={data.campaignStats}
+            qualityData={data.qualityData}
+            chartData={data.chartData}
+            statsLoading={data.statsLoading}
+            statsError={data.statsError}
+            statsStartDate={data.statsStartDate}
+            setStatsStartDate={data.setStatsStartDate}
+            statsEndDate={data.statsEndDate}
+            setStatsEndDate={data.setStatsEndDate}
+            statsGranularity={data.statsGranularity}
+            setStatsGranularity={data.setStatsGranularity}
+            onViewCallLog={() => navigate(`/campaigns/${id}/calls`)}
+          />
+        )}
+      </div>
 
       {/* Test Call modal — rendered at top level so it overlays everything */}
       <TestCallModal

@@ -7,6 +7,7 @@ import {
   FALLBACK_BADGE_COLOR,
 } from "@/lib/constants";
 import { formatDateTime } from "@/lib/formatters";
+import { PAGE_HEADING } from "@/lib/styles";
 
 interface CallSessionRow {
   id: string;
@@ -147,7 +148,7 @@ export default function CallLog() {
           ← {campaign?.name ?? "Campaign"}
         </button>
         <span className="text-brand-grey-dark">/</span>
-        <h1 className="text-xl font-semibold tracking-tight">Call Log</h1>
+        <h1 className={PAGE_HEADING}>Call Log</h1>
       </div>
 
       {/* Filters */}

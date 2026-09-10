@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Play } from "lucide-react";
 import client from "@/api/client";
-import { INPUT_CLASS } from "@/lib/styles";
+import { FOCUS_RING, INPUT_CLASS } from "@/lib/styles";
 import type { AudioRecording } from "@/types/campaign";
 
 type Tab = "record" | "upload" | "tts";
@@ -309,7 +309,7 @@ export function AudioSlotCard({
                 tabIndex={activeTab === t.key ? 0 : -1}
                 onClick={() => setActiveTab(t.key)}
                 disabled={t.key === "record" && iosLt16}
-                className={`px-3 py-2 text-xs font-medium border-b-2 min-h-[44px] transition-colors disabled:opacity-40 ${
+                className={`px-3 py-2 text-xs font-medium border-b-2 min-h-[44px] transition-colors disabled:opacity-40 ${FOCUS_RING} ${
                   activeTab === t.key
                     ? "border-brand-orange text-brand-orange"
                     : "border-transparent text-brand-grey-dark hover:text-brand-black"
@@ -342,7 +342,7 @@ export function AudioSlotCard({
                   <button
                     onClick={startRecording}
                     aria-label="Start recording"
-                    className="flex h-[50px] w-[50px] items-center justify-center rounded-full bg-brand-orange text-white shadow-[0_3px_12px_rgba(242,84,45,0.4)] hover:opacity-90 transition-opacity"
+                    className={`flex h-[50px] w-[50px] items-center justify-center rounded-full bg-brand-orange text-white shadow-[0_3px_12px_rgba(242,84,45,0.4)] hover:opacity-90 transition-opacity ${FOCUS_RING}`}
                     title="Tap to start recording"
                   >
                     <Mic size={20} aria-hidden="true" />
@@ -370,7 +370,7 @@ export function AudioSlotCard({
                   <button
                     onClick={stopRecording}
                     aria-label="Stop recording"
-                    className="px-4 py-1.5 bg-brand-grey-dark text-white rounded-[7px] text-xs font-medium"
+                    className={`px-4 py-1.5 bg-brand-grey-dark text-white rounded-[7px] text-xs font-medium ${FOCUS_RING}`}
                   >
                     Stop recording
                   </button>
@@ -397,13 +397,13 @@ export function AudioSlotCard({
                     <button
                       onClick={saveRecording}
                       disabled={recordSaving}
-                      className="px-4 py-1.5 bg-brand-orange text-white rounded-[7px] text-xs font-medium disabled:opacity-50"
+                      className={`px-4 py-1.5 bg-brand-orange text-white rounded-[7px] text-xs font-medium disabled:opacity-50 ${FOCUS_RING}`}
                     >
                       {recordSaving ? "Saving…" : "Save recording"}
                     </button>
                     <button
                       onClick={discardRecording}
-                      className="px-4 py-1.5 border border-brand-border text-brand-grey-dark rounded-[7px] text-xs"
+                      className={`px-4 py-1.5 border border-brand-border text-brand-grey-dark rounded-[7px] text-xs ${FOCUS_RING}`}
                     >
                       Discard
                     </button>
@@ -441,7 +441,7 @@ export function AudioSlotCard({
               if (file) handleFileUpload(file);
             }}
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+            className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${FOCUS_RING} ${
               uploadDragOver
                 ? "border-brand-orange bg-[rgba(242,84,45,0.04)]"
                 : "border-brand-border hover:border-brand-orange/50"
@@ -512,7 +512,7 @@ export function AudioSlotCard({
                     key={chip}
                     type="button"
                     onClick={() => insertChip(chip)}
-                    className="border border-brand-border rounded px-1.5 py-0.5 text-[11px] text-brand-grey-dark bg-page-bg hover:border-brand-grey-light transition-colors"
+                    className={`border border-brand-border rounded px-1.5 py-0.5 text-[11px] text-brand-grey-dark bg-page-bg hover:border-brand-grey-light transition-colors ${FOCUS_RING}`}
                   >
                     {chip}
                   </button>
@@ -525,7 +525,7 @@ export function AudioSlotCard({
             <button
               onClick={saveTts}
               disabled={ttsSaving || !ttsInput.trim()}
-              className="px-4 py-1.5 bg-brand-orange text-white rounded-[7px] text-xs font-medium disabled:opacity-50"
+              className={`px-4 py-1.5 bg-brand-orange text-white rounded-[7px] text-xs font-medium disabled:opacity-50 ${FOCUS_RING}`}
             >
               {ttsSaving ? "Saving…" : "Save as audio"}
             </button>
@@ -601,7 +601,7 @@ export function AudioSlotCard({
                     disabled={isLive}
                     aria-disabled={isLive}
                     title={isLive ? "Pause the campaign to change audio" : undefined}
-                    className="text-brand-orange hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                    className={`text-brand-orange hover:underline disabled:opacity-40 disabled:cursor-not-allowed rounded ${FOCUS_RING}`}
                   >
                     Make active
                   </button>

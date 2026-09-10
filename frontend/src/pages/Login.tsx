@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { INPUT_CLASS } from "@/lib/styles";
+import { FOCUS_RING, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 
 export default function Login() {
   const { login } = useAuth();
@@ -26,7 +27,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-page-bg">
       <div className="w-full max-w-sm space-y-6 rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] border border-brand-border p-8">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-brand-black">Powerline</h1>
+          <h1 className={PAGE_HEADING}>Powerline</h1>
           <p className="text-sm text-brand-grey-dark">Sign in to your account</p>
         </div>
 
@@ -71,6 +72,15 @@ export default function Login() {
           >
             {isLoading ? "Signing in…" : "Sign in"}
           </button>
+
+          <div className="flex justify-center">
+            <Link
+              to="/reset-password"
+              className={`flex min-h-[44px] items-center rounded px-2 text-sm text-brand-grey-dark hover:underline ${FOCUS_RING}`}
+            >
+              Forgot password?
+            </Link>
+          </div>
         </form>
       </div>
     </div>

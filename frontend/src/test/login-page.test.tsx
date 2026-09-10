@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 const mocks = vi.hoisted(() => ({
   login: vi.fn(),
@@ -16,6 +17,14 @@ vi.mock("@/contexts/AuthContext", () => ({
 
 import Login from "@/pages/Login";
 
+function renderLogin() {
+  return render(
+    <MemoryRouter>
+      <Login />
+    </MemoryRouter>
+  );
+}
+
 beforeEach(() => {
   mocks.login.mockReset();
 });
@@ -24,7 +33,7 @@ describe("Login", () => {
   it("submits email and password to login()", async () => {
     mocks.login.mockResolvedValueOnce(undefined);
 
-    render(<Login />);
+    renderLogin();
 
     fireEvent.change(screen.getByLabelText("Email"), {
       target: { value: "ada@example.com" },
@@ -42,7 +51,7 @@ describe("Login", () => {
   it("shows an error message when login is rejected", async () => {
     mocks.login.mockRejectedValueOnce(new Error("nope"));
 
-    render(<Login />);
+    renderLogin();
 
     fireEvent.change(screen.getByLabelText("Email"), {
       target: { value: "ada@example.com" },
@@ -57,6 +66,14 @@ describe("Login", () => {
     ).toBeInTheDocument();
   });
 
+  it("links to the password reset page", () => {
+    renderLogin();
+
+    expect(
+      screen.getByRole("link", { name: "Forgot password?" })
+    ).toHaveAttribute("href", "/reset-password");
+  });
+
   it("disables the submit button while submitting", async () => {
     let resolveLogin: () => void;
     mocks.login.mockReturnValueOnce(
@@ -65,7 +82,7 @@ describe("Login", () => {
       })
     );
 
-    render(<Login />);
+    renderLogin();
 
     fireEvent.change(screen.getByLabelText("Email"), {
       target: { value: "ada@example.com" },

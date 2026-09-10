@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Link, Outlet } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -10,6 +10,8 @@ import {
   Menu,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useDialogBehaviour } from "@/hooks/useDialogBehaviour";
+import { FOCUS_RING } from "@/lib/styles";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -81,6 +83,20 @@ function AvatarChip() {
 
 export default function DashboardShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerWasOpen = useRef(false);
+
+  useDialogBehaviour({
+    open: drawerOpen,
+    onClose: () => setDrawerOpen(false),
+    containerRef: drawerRef,
+  });
+
+  useEffect(() => {
+    if (drawerWasOpen.current && !drawerOpen) menuButtonRef.current?.focus();
+    drawerWasOpen.current = drawerOpen;
+  }, [drawerOpen]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
@@ -106,8 +122,10 @@ export default function DashboardShell() {
         {/* Mobile header */}
         <div className="flex md:hidden h-12 items-center px-4 justify-between">
           <button
+            ref={menuButtonRef}
             onClick={() => setDrawerOpen(true)}
-            className="text-brand-grey-dark p-1"
+            aria-expanded={drawerOpen}
+            className={`text-brand-grey-dark p-1 rounded ${FOCUS_RING}`}
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
@@ -155,6 +173,11 @@ export default function DashboardShell() {
           onClick={() => setDrawerOpen(false)}
         />
         <aside
+          ref={drawerRef}
+          role={drawerOpen ? "dialog" : undefined}
+          aria-modal={drawerOpen ? true : undefined}
+          aria-label={drawerOpen ? "Navigation" : undefined}
+          inert={!drawerOpen}
           className={cn(
             "fixed inset-y-0 left-0 z-50 w-[220px] bg-white flex flex-col transition-transform duration-[280ms] ease-[cubic-bezier(0.4,0,0.2,1)] md:hidden",
             drawerOpen ? "translate-x-0" : "-translate-x-full"

@@ -116,6 +116,14 @@ All notable changes to this project will be documented in this file.
 - **`_to_response` wrappers in the audio, admin and phone-number routers** — every route declares `response_model=` and every response model sets `from_attributes=True`, so the routes return ORM objects and FastAPI does the conversion. Response bodies are unchanged.
 - **`PhoneFallbackClient` class in the embed** — replaced by a plain `submitPhoneFallback()` function with the same state transitions; `renderAudioCheck` no longer takes the two arguments it never read.
 
+### Fixed (live design review, high impact)
+- **Campaign tabs reachable at 375px** — the five-tab strip scrolls horizontally with proximity snapping, a hidden scrollbar and a right-edge fade that appears only while the strip overflows; the tabs are a real `role="tablist"` with `aria-selected`, roving `tabIndex`, arrow/Home/End navigation and 44px touch targets.
+- **Password reset reachable from the UI** — a "Forgot password?" link under Sign in opens a public `/reset-password` page: email, then 8-digit code plus a new password, with the 400 detail, the 422 policy messages and the rate-limit message rendered in `brand-grey-dark` and a Sign in link on success.
+- **Visible focus ring on the audio picker** — the shared `FOCUS_RING` token covers the media tabs, mic start/stop, upload drop zone, Save/Discard, "Make active" and the TTS variable chips.
+- **Page titles back on one scale** — the Login and Call Log headings use `PAGE_HEADING` (22px/700) like every other page.
+- **Mobile nav drawer is a modal dialog** — it shares `Modal`'s focus trap through a new `useDialogBehaviour` hook: `role="dialog" aria-modal="true"`, focus lands on the first nav link, Escape/scrim/nav activation close it, focus returns to the hamburger, and the hamburger reports `aria-expanded`.
+- **Embed End Call button on palette** — the Tailwind-red fill is replaced by a brand-orange outline treatment with an orange-tint hover, black focus ring and a phone-off icon; no red hex remains in the embed.
+
 ### Changed (design system)
 - **Accessible modal dialogs** — a reusable `Modal` component with `role="dialog"`, `aria-modal`, Escape and backdrop dismissal, focus move-in/restore, and a Tab focus trap; adopted by the Test Call modal, the Users invite modal, and both delete confirmations.
 - **Native `confirm()` replaced** — removing a campaign target or a blocklist entry opens an in-app confirmation dialog with Cancel and Remove instead of the browser prompt.

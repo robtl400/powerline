@@ -5,6 +5,7 @@ import {
   iconMic,
   iconPhone,
   iconPhoneIncoming,
+  iconPhoneOff,
   iconVolumeOff,
 } from "./icons.js";
 
@@ -209,7 +210,7 @@ export function renderConnected(
     ${tpBlock}
     <div class="pl-actions pl-mt-16">
       <button class="pl-btn pl-btn-secondary" data-pl-action="skip">Skip</button>
-      <button class="pl-btn pl-btn-danger" data-pl-action="end">End Call</button>
+      <button class="pl-btn pl-btn-danger" data-pl-action="end">${iconPhoneOff(18)}<span>End Call</span></button>
     </div>
   </div>`;
 }
@@ -219,7 +220,7 @@ export function renderConnectedGeneric(elapsed: number): string {
     <p class="pl-heading">Connected</p>
     <p class="pl-timer"><span data-pl-timer>${formatElapsed(elapsed)}</span></p>
     <div class="pl-actions pl-mt-16">
-      <button class="pl-btn pl-btn-danger" data-pl-action="end">End Call</button>
+      <button class="pl-btn pl-btn-danger" data-pl-action="end">${iconPhoneOff(18)}<span>End Call</span></button>
     </div>
   </div>`;
 }

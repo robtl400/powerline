@@ -62,6 +62,8 @@ Font: **DM Sans** (Google Fonts — already loaded)
 
 ## Spacing & Shape
 
+- **Focus ring:** every interactive element carries `FOCUS_RING` from `styles.ts` — `focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black focus-visible:ring-offset-2`
+- **Minimum touch target:** `44px` on tabs, drawer controls and standalone text links
 - **Border radius:** `8px` for inputs, chips, and small elements; `10px` for cards and modals
 - **Card shadow:** `0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)`
 - **Sidebar width:** `220px` (both desktop sidebar and mobile drawer)
@@ -136,6 +138,7 @@ Use the **exact same SVG** as desktop — `preserveAspectRatio="none"` handles s
 - Backdrop: `rgba(0,0,0,0.20)` — tap outside to close
 - Same nav items and active state as desktop sidebar
 - Pinned footer: user email (`brand-grey-dark`) + logout link
+- **Modal semantics:** `role="dialog" aria-modal="true" aria-label="Navigation"`, focus moves to the first nav link on open, Tab is trapped inside, Escape / backdrop tap / nav activation close it, and focus returns to the hamburger — which carries `aria-expanded`. Shares `useDialogBehaviour` with `Modal`; the drawer is `inert` while closed
 - **Animation:** drawer uses `transform: translateX(-100%)` → `translateX(0)`, `transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1)` (Material standard easing). Backdrop fades in `opacity: 0 → 1` over `200ms ease`. Close reverses both.
 
 ### Mobile Campaign Cards (Dashboard/Campaigns)
@@ -144,6 +147,12 @@ Use the **exact same SVG** as desktop — `preserveAspectRatio="none"` handles s
 - Tap navigates to `/campaigns/:id`
 - Progress bar: orange fill for live, `#D1D3D9` for paused/draft
 - Empty state: show `0` calls, `0%` completion — do not hide
+
+### Campaign Tab Strip (`/campaigns/:id`)
+- `role="tablist"` with five `role="tab"` buttons (`aria-selected`, `aria-controls`), roving `tabIndex`, arrow / `Home` / `End` key navigation
+- Strip scrolls horizontally: `overflow-x: auto`, `-webkit-overflow-scrolling: touch`, `scroll-snap-type: x proximity`, `snap-start` per tab, scrollbar hidden (`scrollbar-width: none` + `::-webkit-scrollbar`)
+- Right-edge fade gradient renders only while the strip is scrollable — tracked by a scroll listener and `ResizeObserver` on a `data-overflow` attribute
+- Tab minimum touch target: `min-height: 44px`
 
 ### Mobile Defaults (all other pages)
 - Tables: full-width with `overflow-x: auto`
@@ -309,10 +318,12 @@ For table-level mutations (invite sent, item deleted, etc.), use a non-blocking 
 
 ## Page Inventory
 
-All 7 pages must conform to this design system:
+All pages must conform to this design system:
 
 | Route | Key requirements |
 |---|---|
+| `/login` | Centred white card; `PAGE_HEADING` h1; "Forgot password?" text link (`brand-grey-dark`, underline on hover, 44px tap area) below the Sign in button |
+| `/reset-password` | Public. Same card as `/login`. Step 1 email → code sent; step 2 8-digit code (`inputMode="numeric"`, `autoComplete="one-time-code"`) + new password with the policy as helper text; errors in `brand-grey-dark`; success shows a "Sign in" link |
 | `/dashboard` | Stat cards 4-col desktop / 2-col mobile; campaign table with correct status chips; no green |
 | `/campaigns` | Status filter tabs; campaign list; correct status chips |
 | `/campaigns/:id` | 5-tab edit view; PhoneInput in Targets; AudioSlotCard in Audio; "Make active" gated |

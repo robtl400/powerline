@@ -78,9 +78,13 @@ export function injectStyles(): void {
       color: #53565B;
     }
     .pl-btn-danger {
-      background: #dc2626;
-      color: #fff;
+      background: #ffffff;
+      border: 1px solid #F2542D;
+      color: #F2542D;
+      min-height: 44px;
     }
+    .pl-btn-danger:hover { background: rgba(242,84,45,0.08); opacity: 1; }
+    .pl-btn-danger:focus-visible { outline: 2px solid #111111; outline-offset: 2px; }
     .pl-btn-ghost {
       background: transparent;
       color: #53565B;

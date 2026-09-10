@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchCallCount, fetchCampaign, fetchReps, isRepsError } from "./api.js";
 import { renderIdle } from "./ui/templates.js";
+import { injectStyles } from "./ui/styles.js";
 import { WebRTCClient } from "./webrtc.js";
 import { PowerlineWidget } from "./widget.js";
 import type { CampaignPublic, ConnectedData, WidgetState } from "./types.js";
@@ -159,6 +160,23 @@ describe("PowerlineWidget connected screen", () => {
     expect(container.innerHTML).toContain("Rep Example");
     expect(container.innerHTML).toContain("U.S. Representative");
     expect(container.innerHTML).toContain("Call 1 of 2");
+  });
+
+  it("renders the End Call button with an icon instead of a red fill", () => {
+    onStateChange("connected", {
+      target: {
+        id: "rep",
+        name: "Rep Example",
+        title: "U.S. Representative",
+        location: "",
+      },
+      targetIndex: 0,
+      totalTargets: 2,
+    } satisfies ConnectedData);
+
+    const endButton = container.querySelector('[data-pl-action="end"]');
+    expect(endButton).not.toBeNull();
+    expect(endButton?.innerHTML).toContain("<svg");
   });
 
   it("replaces the mic screen with a generic card when the target is unknown", () => {
@@ -383,6 +401,16 @@ describe("PowerlineWidget rep lookup", () => {
       container.querySelector<HTMLElement>("#pl-zip-error")!.textContent
     ).toBe("Invalid or expired representative selection");
     expect(container.innerHTML).not.toContain("Something went wrong");
+  });
+});
+
+describe("injected styles", () => {
+  it("contains no red hex values", () => {
+    document.getElementById("pl-widget-styles")?.remove();
+    injectStyles();
+
+    const styleEl = document.getElementById("pl-widget-styles");
+    expect(styleEl?.textContent ?? "").not.toMatch(/#(dc2626|ef4444|b91c1c|f87171)/i);
   });
 });
 
