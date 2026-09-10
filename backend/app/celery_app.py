@@ -7,7 +7,7 @@ celery_app = Celery(
     "powerline",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["app.tasks.insights"],
+    include=["app.tasks.insights", "app.tasks.cleanup"],
 )
 
 celery_app.conf.update(
@@ -25,5 +25,10 @@ celery_app.conf.beat_schedule = {
     "fetch-voice-insights-every-15min": {
         "task": "app.tasks.insights.fetch_voice_insights",
         "schedule": crontab(minute="*/15"),
+    },
+    # Drop rep-lookup targets that no campaign references any more.
+    "cleanup-rep-targets-daily": {
+        "task": "app.tasks.cleanup.cleanup_rep_targets",
+        "schedule": crontab(hour="4", minute="20"),
     },
 }

@@ -114,7 +114,7 @@ export default function Blocklist() {
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 rounded-md bg-destructive/10 text-destructive text-sm">
+        <div className="mb-4 px-4 py-3 rounded-md border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
           {error}
         </div>
       )}
@@ -124,7 +124,7 @@ export default function Blocklist() {
         <div className="rounded-md border border-border p-4 mb-6 space-y-3 bg-muted/20">
           <p className="text-sm font-medium">New blocklist entry</p>
           {formError && (
-            <p className="text-xs text-destructive">{formError}</p>
+            <p className="text-xs text-brand-grey-dark">{formError}</p>
           )}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -230,7 +230,7 @@ export default function Blocklist() {
                     <td className="px-4 py-2 text-right">
                       <button
                         onClick={() => handleDelete(entry)}
-                        className="text-destructive text-sm hover:underline"
+                        className="text-brand-grey-dark text-sm hover:underline"
                       >
                         Remove
                       </button>

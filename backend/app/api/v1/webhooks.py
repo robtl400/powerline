@@ -12,6 +12,7 @@ status-callback is called asynchronously by Twilio for parent call events.
 """
 from __future__ import annotations
 
+import hashlib
 import uuid
 
 import structlog
@@ -43,6 +44,9 @@ log = structlog.get_logger()
 router = APIRouter(tags=["webhooks"])
 
 _MAX_GATHER_ATTEMPTS = 2
+
+# Dial outcomes where the supporter never reached the target.
+_UNREACHED_STATUSES = frozenset({"busy", "no_answer", "failed", "canceled"})
 
 
 def _hangup_xml() -> Response:
@@ -144,7 +148,6 @@ async def voice_app(
             "voice_app_identity_mismatch",
             session_id=session_id,
             call_sid=call_sid,
-            from_=form.get("From", ""),
         )
         return _hangup_xml()
 
@@ -176,6 +179,10 @@ async def voice_app(
     # Identifier for rate-limiting and blocklist: prefer stored phone hash,
     # fall back to the From number Twilio provides.
     identifier = state.get("caller_phone_hash") or form.get("From", "")
+    # The fallback identifier is a raw From number, which must never be logged.
+    identifier_hash = state.get("caller_phone_hash") or (
+        hashlib.sha256(identifier.encode()).hexdigest() if identifier else ""
+    )
 
     # Rate limit check — raises 429 if exceeded.
     redis = get_redis()
@@ -196,7 +203,7 @@ async def voice_app(
         if bl_result.scalar_one_or_none():
             log.warning(
                 "blocklist_hit",
-                identifier=identifier[:12],
+                phone_hash=identifier_hash[:12],
                 ip=client_ip,
                 session_id=session_id,
                 call_sid=call_sid,
@@ -451,7 +458,14 @@ async def call_complete(
 
     if next_idx < len(target_ids):
         calls_left = len(target_ids) - next_idx
-        between_audio = await get_audio_config("msg_between_calls", campaign_id, db)
+        # A target that never picked up gets the "we'll move on" message instead
+        # of the neutral between-calls one.
+        slot = (
+            "msg_target_busy"
+            if call_status in _UNREACHED_STATUSES
+            else "msg_between_calls"
+        )
+        between_audio = await get_audio_config(slot, campaign_id, db)
         context = {"calls_left": str(calls_left)}
         redirect_url = f"/webhooks/twilio/dial-target?session_id={session_id}"
         twiml = build_between_targets(between_audio, context, redirect_url)

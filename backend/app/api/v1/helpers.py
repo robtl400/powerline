@@ -2,15 +2,47 @@
 from __future__ import annotations
 
 import uuid
+from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
 from app.services.civic_service import resolve_rep_token
+
+UPLOAD_CHUNK_BYTES = 64 * 1024
+
+
+def local_timezone() -> ZoneInfo:
+    """The reporting timezone that defines a calendar day for dashboards and filters.
+
+    Read at call time rather than at import so a settings change takes effect
+    without a reload.
+    """
+    return ZoneInfo(settings.TIMEZONE)
+
+
+async def read_upload_limited(file: UploadFile, limit: int) -> bytes | None:
+    """Read an upload in 64 KiB chunks, returning None once it exceeds `limit`.
+
+    Reading stops at the first chunk that pushes the running total past the
+    limit, so an oversized upload never occupies more than limit + one chunk
+    of memory and the caller can answer without buffering the whole body.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > limit:
+            return None
+        chunks.append(chunk)
 
 
 async def get_campaign_or_404(campaign_id: uuid.UUID, db: AsyncSession) -> Campaign:
@@ -55,7 +87,8 @@ async def resolve_target_ids(
     """Return target UUIDs for the call flow state.
 
     When rep is given (rep-lookup path), creates a transient Target row from
-    the server-stored rep record, marked with external_id="rep_lookup", and
+    the server-stored rep record, marked with external_id="rep_lookup" and
+    target_metadata {"transient": True} so the cleanup task can find it, and
     puts it first, ahead of the campaign's configured targets in their
     configured order. Without a rep the configured targets stand alone.
     """
@@ -76,6 +109,7 @@ async def resolve_target_ids(
         phone_number=rep["phone"],
         location=(rep.get("level") or "").capitalize(),
         external_id="rep_lookup",
+        target_metadata={"transient": True},
     )
     db.add(target)
     await db.flush()

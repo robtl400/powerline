@@ -6,6 +6,7 @@ import { fetchCallCount, fetchCampaign, fetchReps, isRepsError } from "./api.js"
 import { PhoneFallbackClient } from "./phone-fallback.js";
 import { injectStyles } from "./ui/styles.js";
 import {
+  formatElapsed,
   renderAudioCheck,
   renderComplete,
   renderConnected,
@@ -155,7 +156,11 @@ export class PowerlineWidget {
 
   private _onTimerTick = (elapsed: number): void => {
     this.elapsed = elapsed;
-    if (this.state === "connected") {
+    if (this.state !== "connected") return;
+    const timerEl = this.container.querySelector<HTMLElement>("[data-pl-timer]");
+    if (timerEl) {
+      timerEl.textContent = formatElapsed(elapsed);
+    } else {
       this._renderConnected();
     }
   };
@@ -319,6 +324,19 @@ export class PowerlineWidget {
         this.webrtc?.end();
         this.phoneFallback = null;
         break;
+
+      case "copy-link": {
+        if (!el) break;
+        const button = el;
+        void navigator.clipboard
+          ?.writeText(globalThis.location?.href ?? "")
+          .catch(() => {});
+        button.textContent = "Copied!";
+        setTimeout(() => {
+          button.textContent = "Copy Link";
+        }, 2000);
+        break;
+      }
 
       default:
         break;

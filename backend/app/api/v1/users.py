@@ -3,14 +3,15 @@ import secrets
 import uuid
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
 from app.models.user import User
+from app.redis_client import get_redis
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
-from app.services.auth import hash_password
+from app.services.auth import hash_password, revoke_user_sessions
 from app.services.sms import send_sms
 
 log = structlog.get_logger()
@@ -38,8 +39,15 @@ async def get_me(current_user: CurrentUser) -> User:
 
 
 @router.get("", response_model=list[UserResponse])
-async def list_users(db: DB, _: AdminUser) -> list[User]:
-    result = await db.execute(select(User).order_by(User.created_at))
+async def list_users(
+    db: DB,
+    _: AdminUser,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
+) -> list[User]:
+    result = await db.execute(
+        select(User).order_by(User.created_at).offset(skip).limit(limit)
+    )
     return list(result.scalars().all())
 
 
@@ -105,9 +113,20 @@ async def update_user(
                 detail="Cannot deactivate or demote the last active admin",
             )
 
+    # A user who loses access or changes role must not keep working with the
+    # tokens they already hold.
+    ends_sessions = changes.get("is_active") is False or (
+        "role" in changes and changes["role"] is not None and changes["role"] != user.role
+    )
+
     for field, value in changes.items():
         setattr(user, field, value)
 
     await db.commit()
     await db.refresh(user)
+
+    if ends_sessions:
+        await revoke_user_sessions(get_redis(), str(user.id))
+        log.info("user_sessions_revoked", user_id=str(user.id))
+
     return user

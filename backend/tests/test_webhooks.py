@@ -263,3 +263,62 @@ async def test_busy_status_still_maps_to_failed(
         select(CallSession.status).where(CallSession.id == session.id)
     )
     assert result.scalar_one() == "failed"
+
+
+# ---------------------------------------------------------------------------
+# call-complete: unreached targets get the busy message
+# ---------------------------------------------------------------------------
+
+
+async def _two_target_state(session_id: uuid.UUID, target_id: uuid.UUID, call_sid: str) -> None:
+    state = await load_call_state(str(session_id))
+    state["target_ids"] = [str(target_id), str(target_id)]
+    state["current_target_index"] = 0
+    state["call_sid"] = call_sid
+    await save_call_state(session_id, state)
+
+
+@pytest.mark.parametrize("dial_status", ["busy", "no-answer", "failed", "canceled"])
+async def test_call_complete_plays_busy_message_when_targets_remain(
+    client: AsyncClient,
+    flow: tuple[Campaign, Target, CallSession, str],
+    dial_status: str,
+) -> None:
+    """An unreached target hands off with msg_target_busy, not msg_between_calls."""
+    _, target, session, call_sid = flow
+    await _two_target_state(session.id, target.id, call_sid)
+
+    resp = await client.post(
+        f"/webhooks/twilio/call-complete?session_id={session.id}",
+        data={
+            "CallSid": call_sid,
+            "DialCallSid": f"CAleg{uuid.uuid4().hex[:16]}",
+            "DialCallStatus": dial_status,
+            "DialCallDuration": "0",
+        },
+    )
+    assert resp.status_code == 200
+    assert "That representative is unavailable" in resp.text
+    assert "more calls" not in resp.text
+    assert "dial-target" in resp.text
+
+
+async def test_call_complete_plays_between_message_after_a_connected_target(
+    client: AsyncClient,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    _, target, session, call_sid = flow
+    await _two_target_state(session.id, target.id, call_sid)
+
+    resp = await client.post(
+        f"/webhooks/twilio/call-complete?session_id={session.id}",
+        data={
+            "CallSid": call_sid,
+            "DialCallSid": f"CAleg{uuid.uuid4().hex[:16]}",
+            "DialCallStatus": "completed",
+            "DialCallDuration": "42",
+        },
+    )
+    assert resp.status_code == 200
+    assert "more calls" in resp.text
+    assert "That representative is unavailable" not in resp.text

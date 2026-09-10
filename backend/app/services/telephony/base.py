@@ -1,8 +1,7 @@
 """Abstract telephony provider interface and shared return types.
 
-Define return dataclasses here (not in provider files) to prevent circular
-imports when the lookup service or TwiML builder imports them alongside
-the provider Protocol.
+Define return dataclasses here (not in provider files) so callers can import
+them alongside the provider Protocol without a circular import.
 """
 from __future__ import annotations
 
@@ -36,8 +35,6 @@ class LookupResult:
 @runtime_checkable
 class TelephonyProvider(Protocol):
     def create_call(self, to: str, from_: str, url: str, **kwargs: Any) -> CallResult: ...
-
-    def generate_access_token(self, identity: str, grants: list[Any]) -> str: ...
 
     def list_phone_numbers(self) -> list[PhoneNumberInfo]: ...
 

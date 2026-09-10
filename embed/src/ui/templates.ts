@@ -6,7 +6,8 @@ function esc(s: string | null | undefined): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function progressPips(current: number, total: number): string {
@@ -179,7 +180,7 @@ export function renderAudioCheck(campaignId: string, baseUrl: string): string {
   </div>`;
 }
 
-function formatElapsed(elapsed: number): string {
+export function formatElapsed(elapsed: number): string {
   const mm = Math.floor(elapsed / 60).toString().padStart(2, "0");
   const ss = (elapsed % 60).toString().padStart(2, "0");
   return `${mm}:${ss}`;
@@ -201,7 +202,7 @@ export function renderConnected(
     <p class="pl-target-name">${esc(target.name)}</p>
     <p class="pl-target-meta">${esc(target.title)}${target.location ? ` &middot; ${esc(target.location)}` : ""}</p>
     <p class="pl-status">Call ${targetIndex + 1} of ${totalTargets}</p>
-    <p class="pl-timer">⏱ ${formatElapsed(elapsed)}</p>
+    <p class="pl-timer">⏱ <span data-pl-timer>${formatElapsed(elapsed)}</span></p>
     ${tpBlock}
     <div class="pl-actions" style="margin-top:16px">
       <button class="pl-btn pl-btn-secondary" data-pl-action="skip">Skip</button>
@@ -213,7 +214,7 @@ export function renderConnected(
 export function renderConnectedGeneric(elapsed: number): string {
   return `<div class="pl-card" style="text-align:center">
     <p class="pl-heading">Connected</p>
-    <p class="pl-timer">⏱ ${formatElapsed(elapsed)}</p>
+    <p class="pl-timer">⏱ <span data-pl-timer>${formatElapsed(elapsed)}</span></p>
     <div class="pl-actions" style="margin-top:16px">
       <button class="pl-btn pl-btn-danger" data-pl-action="end">End Call</button>
     </div>
@@ -252,7 +253,6 @@ export function renderComplete(callCount: number, totalCallers?: number): string
       <button
         class="pl-share-btn"
         data-pl-action="copy-link"
-        onclick="navigator.clipboard.writeText(location.href).catch(()=>{});this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Link',2000)"
       >Copy Link</button>
     </div>
   </div>`;

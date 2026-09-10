@@ -1,16 +1,6 @@
 // Shared color-class mappings for status badges.
 // Any new status/type values should be added here so all pages stay in sync.
 
-// Status chip inline styles (used via style={} for rgba values Tailwind can't express)
-export const CAMPAIGN_STATUS_CHIP: Record<string, { color: string; background: string; border: string }> = {
-  live:     { color: "#F2542D", background: "rgba(242,84,45,0.10)",  border: "rgba(242,84,45,0.25)" },
-  completed:{ color: "#B05357", background: "rgba(176,83,87,0.10)",  border: "rgba(176,83,87,0.20)" },
-  paused:   { color: "#92918F", background: "#F4F5F7",               border: "#E4E6EC" },
-  draft:    { color: "#92918F", background: "#F9FAFB",               border: "#E4E6EC" },
-  failed:   { color: "#53565B", background: "#F3F4F6",               border: "#D1D3D9" },
-  archived: { color: "#92918F", background: "#F4F5F7",               border: "#E4E6EC" },
-};
-
 // Tailwind class-based mappings kept for simpler badge use
 export const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
   draft:    "bg-[#F9FAFB] text-[#92918F] border border-[#E4E6EC]",
@@ -34,10 +24,19 @@ export const CONNECTION_TYPE_COLORS: Record<string, string> = {
   inbound_phone:  "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
 };
 
+// Twilio trust_status values as they arrive from the API
 export const TRUST_STATUS_COLORS: Record<string, string> = {
-  verified: "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
-  pending:  "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
-  unknown:  "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  "twilio-approved": "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
+  "pending-review":  "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  "in-review":       "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  unknown:           "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+};
+
+export const TRUST_STATUS_LABELS: Record<string, string> = {
+  "twilio-approved": "Verified",
+  "pending-review":  "Pending",
+  "in-review":       "Pending",
+  unknown:           "Unknown",
 };
 
 export const FALLBACK_BADGE_COLOR = "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]";

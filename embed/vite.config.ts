@@ -14,7 +14,7 @@ export default defineConfig({
     rollupOptions: {
       external: [],
     },
-    // Keep the bundle readable enough for debugging in dev.
-    minify: false,
+    minify: true,
+    sourcemap: true,
   },
 });

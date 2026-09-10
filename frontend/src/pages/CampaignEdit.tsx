@@ -52,7 +52,7 @@ export default function CampaignEdit() {
       </div>
 
       {data.error && (
-        <div className="mb-4 px-4 py-3 rounded-md bg-destructive/10 text-destructive text-sm">
+        <div className="mb-4 px-4 py-3 rounded-md border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
           {data.error}
         </div>
       )}

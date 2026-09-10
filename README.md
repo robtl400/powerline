@@ -91,11 +91,12 @@ docker compose exec backend python -m app.cli create-admin \
 
 | Service | URL |
 |---------|-----|
-| Admin frontend | http://localhost:3000 |
-| API (Swagger docs) | http://localhost:8000/docs |
-| Health check | http://localhost:8000/api/v1/health |
+| App (through Caddy) | http://localhost |
+| Vite dev server | http://localhost:3000 |
+| API (Swagger docs) | http://localhost/docs |
+| Health check | http://localhost/api/v1/health |
 
-Caddy fronts the whole stack on port 80 and proxies `/api/*`, `/webhooks/*`, `/static/*`, `/docs*`, and `/openapi.json` to the backend; everything else goes to the frontend.
+Caddy fronts the whole stack on port 80 and proxies `/api/*`, `/webhooks/*`, `/static/*`, `/docs*`, and `/openapi.json` to the backend; everything else goes to the frontend. The backend does not publish a host port of its own — reach it through Caddy, or run commands inside the container with `docker compose exec backend ...`.
 
 ---
 
@@ -188,18 +189,105 @@ export function PowerlineWidget({ campaignId }: { campaignId: string }) {
 
 ## Production Deployment
 
+`docker-compose.prod.yml` is a standalone stack: Postgres, Redis, the API, a Celery worker and beat,
+a one-shot frontend build, and Caddy terminating TLS. Only Caddy publishes ports.
+
+### 1. Point a domain at the host
+
+`DOMAIN` must already resolve to the machine — Caddy requests a certificate on first boot and
+Let's Encrypt validates over ports 80 and 443, so open both.
+
+### 2. Fill in the environment
+
+```bash
+cp .env.example .env
+```
+
+Set at minimum:
+
+| Variable | Value |
+|----------|-------|
+| `ENVIRONMENT` | `production` |
+| `DOMAIN` | the hostname Caddy serves |
+| `SECRET_KEY` | `openssl rand -hex 32` |
+| `POSTGRES_PASSWORD` | a generated password |
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:PASSWORD@postgres:5432/powerline` |
+| `REDIS_PASSWORD` | a generated password |
+| `REDIS_URL` | `redis://redis:6379/0` |
+| `PUBLIC_BASE_URL` | `https://DOMAIN` |
+| `ADMIN_CORS_ORIGINS` | `https://DOMAIN` (or empty for same-origin only) |
+| `TWILIO_*` | real credentials — startup refuses to run without them |
+
+### 3. Build and start
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+### 4. Set TRUSTED_PROXIES
+
+Every rate limit keys on the client IP, which arrives via `X-Forwarded-For` from Caddy. That header
+is ignored unless the peer is listed in `TRUSTED_PROXIES`, so until it is set the whole internet
+shares one rate-limit bucket under Caddy's address:
+
+```bash
+docker network inspect powerline_default -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+# put that CIDR in .env as TRUSTED_PROXIES, then:
+docker compose -f docker-compose.prod.yml up -d backend
+```
+
+### 5. Run migrations
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
+```
+
+### 6. Create the first admin
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend python -m app.cli create-admin \
+  --email admin@example.com \
+  --phone +15551234567 \
+  --password 'a-strong-password'
+```
+
+### 7. Point Twilio at the domain
+
+Set the TwiML App's Voice Request URL to `https://DOMAIN/webhooks/twilio/voice-app` and the Status
+Callback to `https://DOMAIN/webhooks/twilio/status-callback`.
+
+### 8. Verify
+
+```bash
+curl https://DOMAIN/api/v1/health
+```
+
+Then sign in at `https://DOMAIN`. Interactive docs are off in production unless `DOCS_ENABLED=true`.
+
+### Redeploying
+
+`docker compose -f docker-compose.prod.yml up -d --build` rebuilds and restarts. The frontend build
+runs as a one-shot container that republishes `/srv` into the volume Caddy serves, so a frontend
+change needs no Caddy restart.
+
 ### Environment variables to set
 
 | Variable | Required | Notes |
 |----------|----------|-------|
 | `DATABASE_URL` | Yes | Use `postgresql+asyncpg://` scheme |
 | `REDIS_URL` | Yes | Used by Celery + call state |
+| `REDIS_PASSWORD` | Yes (prod) | Redis starts with `--requirepass`; the app appends it unless `REDIS_URL` already carries credentials |
+| `DOMAIN` | Yes (prod) | Hostname Caddy serves and gets a certificate for |
+| `POSTGRES_PASSWORD` | Yes (prod) | Password for the bundled Postgres container |
 | `ENVIRONMENT` | Yes | `production` (default) or `development`; `development` relaxes webhook signature checks only when `TWILIO_AUTH_TOKEN` is unset |
 | `SECRET_KEY` | Yes | `openssl rand -hex 32` |
-| `TRUSTED_PROXIES` | Recommended | Comma-separated IPs/CIDRs of your reverse proxies. `X-Forwarded-For` is ignored unless the peer is listed, so set it when running behind Caddy/ALB — otherwise every request is rate limited under the proxy's IP |
+| `TRUSTED_PROXIES` | Yes (prod) | Comma-separated IPs/CIDRs of your reverse proxies. `X-Forwarded-For` is ignored unless the peer is listed, so set it when running behind Caddy/ALB — otherwise every request is rate limited under the proxy's IP |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Optional | Access-token lifetime (default 30) |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | Optional | Refresh-token lifetime (default 7) |
 | `DEFAULT_RATE_LIMIT` | Optional | Calls per hour per phone/IP when a campaign has no `rate_limit` (default 5) |
-| `REPS_RATE_LIMIT` | Optional | Rep lookups per hour per client IP (default 20); the per-campaign ceiling is 25× this |
+| `REPS_RATE_LIMIT` | Optional | Rep lookups per hour per client IP (default 20); the per-campaign ceiling is 25x this |
 | `AUTH_RATE_LIMIT` | Optional | Login / password-reset attempts per hour per identifier (default 10) |
+| `DOCS_ENABLED` | Optional | Forces `/docs`, `/redoc`, `/openapi.json` on or off; unset means on in development, off in production |
 | `PUBLIC_BASE_URL` | Yes | Must be reachable by Twilio |
 | `TWILIO_ACCOUNT_SID` | Yes | |
 | `TWILIO_AUTH_TOKEN` | Yes | |
@@ -207,7 +295,8 @@ export function PowerlineWidget({ campaignId }: { campaignId: string }) {
 | `TWILIO_FROM_NUMBER` | Yes | |
 | `TWILIO_API_KEY_SID` | Yes (WebRTC) | |
 | `TWILIO_API_KEY_SECRET` | Yes (WebRTC) | |
-| `CORS_ORIGINS` | Recommended | Set to your frontend domain in prod |
+| `CORS_ORIGINS` | Recommended | Public embed API only; `*` is expected because the widget runs on third-party sites |
+| `ADMIN_CORS_ORIGINS` | Recommended | Admin API only; empty means same-origin, which is right when Caddy serves the dashboard and API on one domain |
 | `CLOUDINARY_*` | Optional | For audio file uploads |
 | `GOOGLE_CIVIC_API_KEY` | Optional | Federal rep lookup (Senate & House); leave empty to disable |
 | `OPENSTATES_API_KEY` | Optional | State legislator lookup; leave empty to disable |
@@ -222,14 +311,28 @@ apply, in order: the blocklist (phone hash and client IP), the per-caller and pe
 limits, and the campaign's `call_maximum` ceiling. Set `TRUSTED_PROXIES` so those limits key on the
 real client IP.
 
+### Sessions and tokens
+
+`POST /auth/login` returns an access token and a refresh token. Refresh tokens are single-use:
+`POST /auth/refresh` consumes the one it is given and returns a **new** access *and* refresh token,
+so a client must store both from every refresh response. Replaying a spent refresh token is a 401.
+
+`POST /auth/logout` takes `{"refresh_token": "..."}` and retires that token. It always answers 204,
+including for tokens that are expired, malformed, or already gone.
+
+Deactivating a user, changing their role, or completing a password reset ends every session that
+user holds — outstanding access tokens stop working immediately rather than lasting out their
+expiry.
+
 ### CORS
 
-For the admin frontend, restrict CORS to your domain:
-```
-CORS_ORIGINS=https://admin.example.com
-```
+The two surfaces get different policies, split by path:
 
-For the embed widget, the API must accept requests from any origin (`*`). If you run separate API instances (one for admin, one for the public embed API), you can set stricter CORS on the admin instance.
+- **Public embed endpoints** (`/api/v1/campaigns/{id}/public`, `/count`, `/reps`,
+  `/api/v1/calls/create`, `/api/v1/tokens/voice`, `/static/*`) use `CORS_ORIGINS`, normally `*` —
+  the widget runs on sites you do not control.
+- **Everything else** is admin surface and uses `ADMIN_CORS_ORIGINS`. Empty means no CORS headers
+  at all, which is the correct setting when Caddy serves the dashboard and the API on one domain.
 
 ---
 
@@ -278,7 +381,15 @@ docker compose logs celery-beat
 
 # Trigger Voice Insights task manually (for testing)
 docker compose exec celery-worker celery -A app.celery_app call app.tasks.insights.fetch_voice_insights
+
+# Trigger the rep-target cleanup manually
+docker compose exec celery-worker celery -A app.celery_app call app.tasks.cleanup.cleanup_rep_targets
 ```
+
+Both tasks take a Redis lock (`lock:voice_insights`, `lock:cleanup_rep_targets`) so a run that
+overruns its schedule is skipped rather than doubled. The lock and query logic is covered by
+`tests/test_tasks.py`; the task bodies need a live Twilio account and are verified by running the
+two commands above and reading `docker compose logs celery-worker`.
 
 ---
 

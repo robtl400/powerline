@@ -15,6 +15,7 @@ unlimited mode and no bypass.
 """
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
 
@@ -64,7 +65,8 @@ async def check_rate_limit(
         log.warning(
             "rate_limit_exceeded",
             scope=scope,
-            identifier=identifier[:12],  # truncate for privacy in logs
+            # An identifier may be a raw phone number, so only a digest is logged.
+            identifier_digest=hashlib.sha256(identifier.encode()).hexdigest()[:12],
             count=count,
             limit=effective_limit,
         )

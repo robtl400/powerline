@@ -19,10 +19,23 @@ from app.models.user import User
 
 _FAKE_URL = "https://res.cloudinary.com/test/audio/upload/test.mp3"
 
+# Leading bytes the upload endpoint sniffs for, one per accepted container.
+_HEADERS: dict[str, bytes] = {
+    "audio/mpeg": b"ID3\x04\x00\x00\x00\x00\x00\x00",
+    "audio/wav": b"RIFF\x24\x00\x00\x00WAVEfmt ",
+    "audio/x-wav": b"RIFF\x24\x00\x00\x00WAVEfmt ",
+    "audio/webm": b"\x1a\x45\xdf\xa3\x01\x00\x00\x00",
+    "audio/mp4": b"\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00",
+}
+
+
+def _audio_bytes(content_type: str) -> bytes:
+    return _HEADERS.get(content_type, _HEADERS["audio/mpeg"]) + b"FAKE_AUDIO_DATA"
+
 
 def _audio_file(content_type: str, filename: str = "test.mp3") -> dict:
     return {
-        "file": (filename, io.BytesIO(b"FAKE_AUDIO_DATA"), content_type),
+        "file": (filename, io.BytesIO(_audio_bytes(content_type)), content_type),
     }
 
 
@@ -104,6 +117,22 @@ async def test_upload_rejected_mime_type(
     assert resp.status_code == 422
 
 
+async def test_upload_rejects_content_not_matching_audio_header(
+    client: AsyncClient,
+    campaign: Campaign,
+    admin_headers: dict,
+) -> None:
+    """An accepted MIME type with a non-audio payload is rejected on its bytes."""
+    resp = await client.post(
+        "/api/v1/audio/upload",
+        data={"key": "msg_intro", "campaign_id": str(campaign.id)},
+        files={"file": ("test.mp3", io.BytesIO(b"%PDF-1.7 not audio at all"), "audio/mpeg")},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422
+    assert "does not match an accepted audio format" in resp.json()["detail"]
+
+
 # ---------------------------------------------------------------------------
 # Activate: live campaign guard
 # ---------------------------------------------------------------------------
@@ -163,7 +192,7 @@ async def test_upload_file_too_large(
     campaign: Campaign,
     admin_headers: dict,
 ) -> None:
-    large_data = b"x" * (10 * 1024 * 1024 + 1)
+    large_data = _audio_bytes("audio/mpeg") + b"x" * (10 * 1024 * 1024)
     resp = await client.post(
         "/api/v1/audio/upload",
         data={"key": "msg_intro", "campaign_id": str(campaign.id)},

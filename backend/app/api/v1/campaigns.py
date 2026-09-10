@@ -2,19 +2,19 @@ import csv
 import io
 import json
 import logging
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DB, AdminUser, CurrentUser
-from app.api.v1.helpers import get_campaign_or_404
+from app.api.v1.helpers import get_campaign_or_404, read_upload_limited
 from app.models.audio import AudioRecording
+from app.models.call import Call
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.models.campaign_phone_number import CampaignPhoneNumber
@@ -30,11 +30,14 @@ from app.schemas.campaign import (
     CampaignDetailResponse,
     CampaignPublicResponse,
     CampaignResponse,
+    CampaignStatus,
     CampaignUpdate,
     TargetPublicInfo,
 )
 from app.schemas.target import ImportResult, ImportRowError, ReorderRequest, TargetCreate, TargetInCampaign, TargetUpdate
 from app.schemas.target import normalize_phone
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -127,7 +130,9 @@ async def _get_target_in_campaign_or_404(
 async def list_campaigns(
     _: CurrentUser,
     db: DB,
-    status: str | None = Query(default=None),
+    status: CampaignStatus | None = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, le=500),
 ) -> list[CampaignResponse]:
     count_sq = (
         select(
@@ -143,7 +148,7 @@ async def list_campaigns(
     )
     if status:
         stmt = stmt.where(Campaign.status == status)
-    stmt = stmt.order_by(Campaign.created_at.desc())
+    stmt = stmt.order_by(Campaign.created_at.desc()).offset(skip).limit(limit)
 
     rows = await db.execute(stmt)
     return [
@@ -191,33 +196,20 @@ async def get_campaign_call_count(
     cutoff_24h = now - timedelta(hours=24)
     cutoff_7d = now - timedelta(days=7)
 
-    total_result = await db.execute(
-        select(func.count(CallSession.id)).where(
-            CallSession.campaign_id == campaign_id,
-            CallSession.status == "completed",
+    counts = (
+        await db.execute(
+            select(
+                func.count(CallSession.id).label("total"),
+                func.count(case((CallSession.created_at >= cutoff_24h, 1))).label("last_24h"),
+                func.count(case((CallSession.created_at >= cutoff_7d, 1))).label("last_7d"),
+            ).where(
+                CallSession.campaign_id == campaign_id,
+                CallSession.status == "completed",
+            )
         )
-    )
-    total = total_result.scalar_one()
+    ).one()
 
-    last_24h_result = await db.execute(
-        select(func.count(CallSession.id)).where(
-            CallSession.campaign_id == campaign_id,
-            CallSession.status == "completed",
-            CallSession.created_at >= cutoff_24h,
-        )
-    )
-    last_24h = last_24h_result.scalar_one()
-
-    last_7d_result = await db.execute(
-        select(func.count(CallSession.id)).where(
-            CallSession.campaign_id == campaign_id,
-            CallSession.status == "completed",
-            CallSession.created_at >= cutoff_7d,
-        )
-    )
-    last_7d = last_7d_result.scalar_one()
-
-    payload = {"total": total, "last_24h": last_24h, "last_7d": last_7d}
+    payload = {"total": counts.total, "last_24h": counts.last_24h, "last_7d": counts.last_7d}
     await redis.set(cache_key, json.dumps(payload), ex=600)
     return CallCountResponse(**payload)
 
@@ -458,6 +450,15 @@ _KNOWN_FIELDS = {"name", "title", "phone_number", "location", "external_id"}
 _REQUIRED_FIELDS = {"name", "title", "phone_number", "location"}
 _MAX_CSV_BYTES = 5 * 1024 * 1024  # 5 MB
 
+# Releases the import lock only when it still holds this request's token, so a
+# slow import cannot delete the lock a later request has already taken over.
+_RELEASE_LOCK_LUA = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+end
+return 0
+"""
+
 
 async def _do_import(
     campaign_id: uuid.UUID,
@@ -466,9 +467,9 @@ async def _do_import(
     redis: object,
 ) -> ImportResult:
     """Core import logic — called inside the per-campaign Redis lock."""
-    content = await file.read()
+    content = await read_upload_limited(file, _MAX_CSV_BYTES)
 
-    if len(content) > _MAX_CSV_BYTES:
+    if content is None:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds 5 MB limit")
 
     if not content:
@@ -623,7 +624,8 @@ async def import_targets(
     # duplicate targets when the same external_id appears in overlapping requests.
     redis = get_redis()
     lock_key = f"import_lock:{campaign_id}"
-    locked = await redis.set(lock_key, "1", nx=True, ex=60)
+    token = secrets.token_hex(8)
+    locked = await redis.set(lock_key, token, nx=True, ex=300)
     if not locked:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -633,7 +635,7 @@ async def import_targets(
     try:
         return await _do_import(campaign_id, file, db, redis)
     finally:
-        await redis.delete(lock_key)
+        await redis.eval(_RELEASE_LOCK_LUA, 1, lock_key, token)
 
 
 @router.get("/{campaign_id}/targets/import-errors")
@@ -728,10 +730,26 @@ async def remove_target(
     _: AdminUser,
     db: DB,
 ) -> None:
+    """Detach a target from a campaign, deleting the row only when nothing else needs it.
+
+    A target still attached to another campaign, or referenced by a logged Call,
+    is kept so call history keeps resolving to a named official.
+    """
     target, ct = await _get_target_in_campaign_or_404(campaign_id, target_id, db)
 
     await db.delete(ct)
-    await db.delete(target)
+    await db.flush()
+
+    other_campaigns = await db.scalar(
+        select(func.count())
+        .select_from(CampaignTarget)
+        .where(CampaignTarget.target_id == target_id)
+    )
+    logged_calls = await db.scalar(
+        select(func.count()).select_from(Call).where(Call.target_id == target_id)
+    )
+    if not other_campaigns and not logged_calls:
+        await db.delete(target)
 
     campaign = await get_campaign_or_404(campaign_id, db)
     campaign.updated_at = datetime.now(timezone.utc)

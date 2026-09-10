@@ -18,9 +18,6 @@ def get_provider() -> TwilioProvider:
         _provider = TwilioProvider(
             account_sid=settings.TWILIO_ACCOUNT_SID,
             auth_token=settings.TWILIO_AUTH_TOKEN,
-            api_key_sid=settings.TWILIO_API_KEY_SID,
-            api_key_secret=settings.TWILIO_API_KEY_SECRET,
-            twiml_app_sid=settings.TWILIO_TWIML_APP_SID,
         )
     return _provider
 

@@ -29,6 +29,8 @@ RUN mkdir -p app && touch app/__init__.py && \
 # Copy actual source (overwrites the stub)
 COPY backend/ .
 
+COPY VERSION /app/VERSION
+
 # The embed bundle is served from /static — see EMBED_DIST_DIR in app/main.py
 COPY --from=embed-build /embed/dist /app/embed-dist
 

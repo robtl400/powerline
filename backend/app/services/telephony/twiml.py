@@ -2,7 +2,7 @@
 
 These functions return XML strings ready to serve as TwiML responses.
 They do not define any webhook endpoints — those live in the call flow
-router (Session 5).
+router (app/api/v1/webhooks.py).
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from twilio.twiml.voice_response import Dial, VoiceResponse
 
 @dataclasses.dataclass
 class AudioConfig:
-    file_url: str | None = None   # served from S3; if set, use <Play>
+    file_url: str | None = None   # served from Cloudinary; if set, use <Play>
     tts_text: str | None = None   # template with {{var}} placeholders; use <Say>
     voice: str = "alice"          # Twilio TTS voice name
 
@@ -42,40 +42,6 @@ def _add_audio(response: VoiceResponse, audio: AudioConfig, context: dict) -> No
     elif audio.tts_text:
         rendered = _render_text(audio.tts_text, context)
         response.say(rendered, voice=audio.voice)
-
-
-def build_greeting(audio: AudioConfig, context: dict) -> str:
-    """TwiML for the campaign intro greeting played to the caller before connecting."""
-    r = VoiceResponse()
-    _add_audio(r, audio, context)
-    return str(r)
-
-
-def build_hold_music(audio: AudioConfig) -> str:
-    """TwiML for hold music played while Powerline dials the target."""
-    r = VoiceResponse()
-    _add_audio(r, audio, {})
-    return str(r)
-
-
-def build_dial_target(target_phone: str, caller_id: str, timeout: int = 30) -> str:
-    """TwiML to <Dial> a target legislator or official.
-
-    caller_id must be a Twilio-verified number — using an unverified number
-    causes Twilio error 21214 and the call will not connect.
-    """
-    r = VoiceResponse()
-    dial = Dial(caller_id=caller_id, timeout=timeout)
-    dial.number(target_phone)
-    r.append(dial)
-    return str(r)
-
-
-def build_voicemail(audio: AudioConfig, context: dict) -> str:
-    """TwiML for a voicemail drop when the target does not answer."""
-    r = VoiceResponse()
-    _add_audio(r, audio, context)
-    return str(r)
 
 
 def build_gather_intro(

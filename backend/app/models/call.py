@@ -23,17 +23,20 @@ class Call(Base):
         UUID(as_uuid=True),
         ForeignKey("call_sessions.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     # Nullable FKs so Call records survive campaign/target deletion.
     campaign_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("campaigns.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     target_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("targets.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     twilio_call_sid: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     status: Mapped[str] = mapped_column(
@@ -52,7 +55,7 @@ class Call(Base):
         default="queued",
     )
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Populated by Session 10 Voice Insights task.
+    # Populated by the Voice Insights Celery task (app/tasks/insights.py).
     quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     quality_details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 

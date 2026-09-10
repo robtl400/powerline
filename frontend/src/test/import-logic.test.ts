@@ -1,11 +1,10 @@
 /**
- * Tests for CSV import column-mapping and CSV-rebuild logic.
- *
- * These functions live in useCampaignData.ts but are tested here in isolation
- * against representative inputs from real-world target CSVs.
+ * Tests for CSV import column-mapping and header-rewrite logic against
+ * representative inputs from real-world target CSVs.
  */
 
 import { describe, it, expect } from "vitest";
+import { parseCsvHeader, remapCsvHeaders } from "@/lib/csv";
 
 // ── Replicated constants from useCampaignData (keep in sync) ─────────────────
 
@@ -34,44 +33,6 @@ function autoMapHeaders(headers: string[]): Record<string, string> {
   }
   return map;
 }
-
-/**
- * Rebuild CSV with canonical column names based on the column map.
- * Extracted from handleImportSubmit in useCampaignData.ts.
- */
-function remapCsvHeaders(csvText: string, columnMap: Record<string, string>): string {
-  const lines = csvText.replace(/^\uFEFF/, "").split(/\r?\n/);
-  const originalHeaders = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
-
-  const colToField: Record<number, string> = {};
-  for (const [field, origHeader] of Object.entries(columnMap)) {
-    const idx = originalHeaders.indexOf(origHeader);
-    if (idx !== -1) colToField[idx] = field;
-  }
-
-  const newHeader = originalHeaders.map((_, i) => colToField[i] ?? originalHeaders[i]).join(",");
-  return [newHeader, ...lines.slice(1)].join("\n");
-}
-
-// ── normalizePhone tests ──────────────────────────────────────────────────────
-
-describe("normalizePhone", () => {
-  it("normalizes bare 10-digit number", () => {
-    expect(normalizePhone("2025550142")).toBe("+12025550142");
-  });
-
-  it("normalizes E.164 +12025550142 unchanged", () => {
-    expect(normalizePhone("+12025550142")).toBe("+12025550142");
-  });
-
-  it("throws for 9-digit number", () => {
-    expect(() => normalizePhone("202555014")).toThrow();
-  });
-
-  it("throws for 11-digit non-US number", () => {
-    expect(() => normalizePhone("44202555014")).toThrow();
-  });
-});
 
 // ── autoMapHeaders ────────────────────────────────────────────────────────────
 
@@ -119,16 +80,6 @@ describe("autoMapHeaders", () => {
   });
 });
 
-// ── normalizePhone ────────────────────────────────────────────────────────────
-// Mirrors CSV phone normalization that should happen before import submission.
-
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  throw new Error(`Invalid phone number: ${raw}`);
-}
-
 // ── remapCsvHeaders ───────────────────────────────────────────────────────────
 
 describe("remapCsvHeaders", () => {
@@ -161,5 +112,82 @@ describe("remapCsvHeaders", () => {
     const result = remapCsvHeaders(csv, map);
     expect(result.startsWith("\uFEFF")).toBe(false);
     expect(result.split("\n")[0]).toBe("name,title,phone_number,location");
+  });
+
+  it("renames a quoted header that contains a comma", () => {
+    const csv =
+      '"Name, Full",Title,"Phone, Primary",Location\nRep Smith,Senator,+12025551001,CA\n';
+    const map = {
+      name: "Name, Full",
+      title: "Title",
+      phone_number: "Phone, Primary",
+      location: "Location",
+    };
+    const result = remapCsvHeaders(csv, map);
+    expect(result.split("\n")[0]).toBe("name,title,phone_number,location");
+  });
+
+  it("re-quotes an unmapped header that contains a comma", () => {
+    const csv = 'Name,Title,Phone,"Notes, extra"\nRep,Senator,+12025551001,none\n';
+    const map = { name: "Name", title: "Title", phone_number: "Phone" };
+    const result = remapCsvHeaders(csv, map);
+    expect(result.split("\n")[0]).toBe('name,title,phone_number,"Notes, extra"');
+  });
+
+  it("leaves a body with quoted newlines byte-for-byte intact", () => {
+    const body =
+      'Rep Smith,Senator,+12025551001,"CA\nDistrict 12"\r\nRep Jones,"Rep, Jr.",+12025551002,"He said ""hi"""\n';
+    const csv = "Name,Title,Phone,Location\n" + body;
+    const map = { name: "Name", title: "Title", phone_number: "Phone", location: "Location" };
+    const result = remapCsvHeaders(csv, map);
+    expect(result).toBe("name,title,phone_number,location\n" + body);
+  });
+
+  it("preserves CRLF line endings", () => {
+    const csv = "Name,Title,Phone,Location\r\nRep,Senator,+12025551001,CA\r\n";
+    const map = { name: "Name", title: "Title", phone_number: "Phone", location: "Location" };
+    const result = remapCsvHeaders(csv, map);
+    expect(result).toBe("name,title,phone_number,location\r\nRep,Senator,+12025551001,CA\r\n");
+  });
+});
+
+// \u2500\u2500 parseCsvHeader \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+describe("parseCsvHeader", () => {
+  it("splits a plain header row", () => {
+    expect(parseCsvHeader("name,title,phone_number").fields).toEqual([
+      "name",
+      "title",
+      "phone_number",
+    ]);
+  });
+
+  it("keeps commas inside quoted fields", () => {
+    expect(parseCsvHeader('"Name, Full",Title,"Phone, Primary"').fields).toEqual([
+      "Name, Full",
+      "Title",
+      "Phone, Primary",
+    ]);
+  });
+
+  it("unescapes doubled quotes", () => {
+    expect(parseCsvHeader('"He said ""hi""",Title').fields).toEqual(['He said "hi"', "Title"]);
+  });
+
+  it("trims whitespace around unquoted fields", () => {
+    expect(parseCsvHeader(" name , title ").fields).toEqual(["name", "title"]);
+  });
+
+  it("stops at the first unquoted line terminator", () => {
+    const text = 'name,"loc\nation"\nrow1,row2';
+    const { fields, endIndex } = parseCsvHeader(text);
+    expect(fields).toEqual(["name", "loc\nation"]);
+    expect(text.slice(endIndex)).toBe("\nrow1,row2");
+  });
+
+  it("handles a header-only file with no line terminator", () => {
+    const { fields, endIndex } = parseCsvHeader("name,title");
+    expect(fields).toEqual(["name", "title"]);
+    expect(endIndex).toBe("name,title".length);
   });
 });

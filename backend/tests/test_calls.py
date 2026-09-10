@@ -16,6 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.call import Call
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
@@ -330,3 +331,55 @@ async def test_call_complete_writes_failure_statuses(
         f"DialCallStatus '{dial_status}' should map to Call.status '{expected_db_status}', "
         f"got '{call.status}'"
     )
+
+
+@pytest.mark.parametrize("line_type", ["landline", "voip", "nonFixedVoip", "tollFree", None])
+async def test_lookup_require_mobile_rejects_non_mobile_lines(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_target: tuple[Campaign, Target],
+    mock_twilio_create_call: MagicMock,
+    monkeypatch,
+    line_type: str | None,
+) -> None:
+    """Only a line Twilio calls "mobile" passes when a campaign demands one."""
+    campaign, _ = campaign_with_target
+    campaign.lookup_validate = True
+    campaign.lookup_require_mobile = True
+    await db.commit()
+
+    monkeypatch.setattr(settings, "TWILIO_ACCOUNT_SID", "ACtest")
+    mock_twilio_create_call.validate_phone.return_value = MagicMock(
+        is_valid=True, line_type=line_type
+    )
+
+    resp = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": "+12025550171"},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "Landline numbers cannot receive automated calls" in resp.json()["detail"]
+
+
+async def test_lookup_require_mobile_allows_mobile(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_target: tuple[Campaign, Target],
+    mock_twilio_create_call: MagicMock,
+    monkeypatch,
+) -> None:
+    campaign, _ = campaign_with_target
+    campaign.lookup_validate = True
+    campaign.lookup_require_mobile = True
+    await db.commit()
+
+    monkeypatch.setattr(settings, "TWILIO_ACCOUNT_SID", "ACtest")
+    mock_twilio_create_call.validate_phone.return_value = MagicMock(
+        is_valid=True, line_type="mobile"
+    )
+
+    resp = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": "+12025550181"},
+    )
+    assert resp.status_code == 200, resp.text

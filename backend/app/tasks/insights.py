@@ -2,37 +2,52 @@
 
 Runs every 15 minutes via Celery Beat to fetch call quality scores from the
 Twilio Voice Insights API for recently completed calls.
-
-Uses a synchronous SQLAlchemy engine (psycopg2) because Celery workers run in
-a sync context. The DATABASE_URL from settings uses '+asyncpg'; we swap it for
-'+psycopg2' here.
 """
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine, select, update
+from sqlalchemy import Select, select, update
 from sqlalchemy.orm import Session
 
 from app.celery_app import celery_app
 from app.config import settings
+from app.tasks.db import get_engine, get_redis
+from app.tasks.lock import task_lock
 
 log = logging.getLogger(__name__)
 
 # How far back to look for un-scored completed calls.
 _LOOKBACK_HOURS = 24
 
+# Beat fires every 15 minutes; the lock outlives a normal run but expires well
+# before the next-but-one tick, so a crashed worker cannot wedge the schedule.
+_LOCK_KEY = "lock:voice_insights"
+_LOCK_TTL = 840
 
-def _get_sync_engine():
-    """Build a synchronous SQLAlchemy engine from the async DATABASE_URL."""
-    sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2").replace(
-        "postgresql+asyncpg", "postgresql+psycopg2"
+# Twilio rate-limits the Insights API, so keep the fan-out modest.
+_MAX_WORKERS = 4
+
+
+def candidate_calls_query(cutoff: datetime) -> Select:
+    """Select completed calls that have never been through Insights.
+
+    Keyed on quality_details rather than quality_score: Twilio returns no score
+    for calls it has not finished processing, and a row that came back scoreless
+    still has its processing state recorded, so it is not fetched again on
+    every cycle.
+    """
+    from app.models.call_session import CallSession  # noqa: F401 — registers mapper
+    from app.models.call import Call
+
+    return select(Call.id, Call.twilio_call_sid).where(
+        Call.status == "completed",
+        Call.quality_details.is_(None),
+        Call.created_at >= cutoff,
+        Call.twilio_call_sid != "",
     )
-    # Remove asyncpg-specific options that psycopg2 doesn't understand
-    if "postgresql://" in sync_url and "+psycopg2" not in sync_url:
-        sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://")
-    return create_engine(sync_url, pool_pre_ping=True)
 
 
 def _fetch_summary(call_sid: str) -> dict | None:
@@ -66,43 +81,28 @@ def _fetch_summary(call_sid: str) -> dict | None:
         return None
 
 
-@celery_app.task(name="app.tasks.insights.fetch_voice_insights", bind=True, max_retries=0)
-def fetch_voice_insights(self) -> dict:
-    """Fetch Voice Insights quality scores for recent completed calls.
-
-    Skipped entirely in dev when Twilio credentials are absent.
-    """
-    if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_AUTH_TOKEN:
-        log.info("voice_insights_skipped: no Twilio credentials")
-        return {"skipped": True, "reason": "no_twilio_credentials"}
-
+def _run() -> dict:
     # Import models in dependency order — CallSession must be registered with
     # SQLAlchemy's mapper before Call, because Call.session uses relationship("CallSession").
     from app.models.call_session import CallSession  # noqa: F401 — registers mapper
     from app.models.call import Call
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=_LOOKBACK_HOURS)
-
-    engine = _get_sync_engine()
     updated = 0
     errors = 0
 
-    with Session(engine) as db:
-        # Find completed calls in the last 24h without a quality score
-        result = db.execute(
-            select(Call.id, Call.twilio_call_sid).where(
-                Call.status == "completed",
-                Call.quality_score.is_(None),
-                Call.created_at >= cutoff,
-                Call.twilio_call_sid != "",
-            )
-        )
-        rows = result.all()
+    with Session(get_engine()) as db:
+        rows = db.execute(candidate_calls_query(cutoff)).all()
 
         log.info("voice_insights_task_start", extra={"candidate_calls": len(rows)})
 
-        for call_id, call_sid in rows:
-            data = _fetch_summary(call_sid)
+        if rows:
+            with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+                summaries = list(pool.map(_fetch_summary, [sid for _, sid in rows]))
+        else:
+            summaries = []
+
+        for (call_id, _), data in zip(rows, summaries):
             if data is None:
                 errors += 1
                 continue
@@ -121,3 +121,20 @@ def fetch_voice_insights(self) -> dict:
 
     log.info("voice_insights_task_done", extra={"updated": updated, "errors": errors})
     return {"updated": updated, "errors": errors}
+
+
+@celery_app.task(name="app.tasks.insights.fetch_voice_insights", bind=True, max_retries=0)
+def fetch_voice_insights(self) -> dict:
+    """Fetch Voice Insights quality scores for recent completed calls.
+
+    Skipped entirely in dev when Twilio credentials are absent.
+    """
+    if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_AUTH_TOKEN:
+        log.info("voice_insights_skipped: no Twilio credentials")
+        return {"skipped": True, "reason": "no_twilio_credentials"}
+
+    with task_lock(get_redis(), _LOCK_KEY, _LOCK_TTL) as acquired:
+        if not acquired:
+            log.info("voice_insights_skipped: another run holds the lock")
+            return {"skipped": True, "reason": "locked"}
+        return _run()

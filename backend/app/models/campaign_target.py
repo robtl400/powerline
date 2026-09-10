@@ -19,5 +19,6 @@ class CampaignTarget(Base):
         UUID(as_uuid=True),
         ForeignKey("targets.id", ondelete="CASCADE"),
         primary_key=True,
+        index=True,
     )
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

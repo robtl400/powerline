@@ -39,6 +39,11 @@ describe("toE164", () => {
   it("converts raw 10-digit string", () => {
     expect(toE164("2025551234")).toBe("+12025551234");
   });
+
+  it("returns empty string when the input has no digits", () => {
+    expect(toE164("")).toBe("");
+    expect(toE164("()- ")).toBe("");
+  });
 });
 
 describe("validatePhone", () => {

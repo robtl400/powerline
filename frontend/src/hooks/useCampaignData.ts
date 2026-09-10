@@ -11,6 +11,7 @@ import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import client from "@/api/client";
 import { getErrorDetail } from "@/lib/api-error";
 import { AUDIO_SLOTS, VALID_TRANSITIONS } from "@/lib/constants";
+import { parseCsvHeader, remapCsvHeaders } from "@/lib/csv";
 import {
   type AudioRecording,
   type CampaignChecklist,
@@ -342,9 +343,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = (e.target?.result as string) ?? "";
-      // Strip BOM and get first line
-      const firstLine = text.replace(/^\uFEFF/, "").split(/\r?\n/)[0] ?? "";
-      const headers = firstLine.split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+      const { fields: headers } = parseCsvHeader(text.replace(/^\uFEFF/, ""));
       setImportHeaders(headers);
 
       // Auto-map headers to canonical field names
@@ -378,20 +377,9 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
       const anyRenamed = mappedHeaders.some((f) => importColumnMap[f] !== f);
       if (anyRenamed) {
         const text = await importFile.text();
-        const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
-        const originalHeaders = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
-
-        // Build index map: original header index → canonical field name
-        const colToField: Record<number, string> = {};
-        for (const [field, origHeader] of Object.entries(importColumnMap)) {
-          const idx = originalHeaders.indexOf(origHeader);
-          if (idx !== -1) colToField[idx] = field;
-        }
-
-        // Rebuild CSV with canonical headers
-        const newHeader = originalHeaders.map((_, i) => colToField[i] ?? originalHeaders[i]).join(",");
-        const newLines = [newHeader, ...lines.slice(1)].join("\n");
-        fileToUpload = new Blob([newLines], { type: "text/csv" });
+        fileToUpload = new Blob([remapCsvHeaders(text, importColumnMap)], {
+          type: "text/csv",
+        });
       }
 
       const formData = new FormData();

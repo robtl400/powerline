@@ -2,7 +2,7 @@ import asyncio
 import uuid
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,9 +95,11 @@ async def sync_phone_numbers(
 async def list_phone_numbers(
     _: CurrentUser,
     db: DB,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
 ) -> list[PhoneNumberResponse]:
     result = await db.execute(
-        select(PhoneNumber).order_by(PhoneNumber.created_at.desc())
+        select(PhoneNumber).order_by(PhoneNumber.created_at.desc()).offset(skip).limit(limit)
     )
     return [_to_response(pn) for pn in result.scalars().all()]
 

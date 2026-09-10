@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -10,6 +10,14 @@ from app.db import Base
 
 class Campaign(Base):
     __tablename__ = "campaigns"
+    __table_args__ = (
+        Index(
+            "ux_campaigns_name_active",
+            "name",
+            unique=True,
+            postgresql_where=text("status <> 'archived'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -25,12 +33,13 @@ class Campaign(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
-    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), unique=False, nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         Enum("draft", "paused", "live", "archived", name="campaign_status"),
         nullable=False,
         default="draft",
+        index=True,
     )
     campaign_type: Mapped[str] = mapped_column(
         Enum("custom", name="campaign_type"),

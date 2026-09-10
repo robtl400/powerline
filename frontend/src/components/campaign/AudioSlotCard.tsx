@@ -51,11 +51,13 @@ export function AudioSlotCard({
   const chunksRef = useRef<Blob[]>([]);
   const [waveHeights, setWaveHeights] = useState<number[]>([40, 40, 40, 40, 40, 40, 40, 40]);
   const animFrameRef = useRef<number | null>(null);
+  const lastWaveDrawRef = useRef(0);
 
   // ── Upload tab state ──────────────────────────────────────────────────────
   const [uploadDragOver, setUploadDragOver] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── TTS tab state ─────────────────────────────────────────────────────────
@@ -105,15 +107,20 @@ export function AudioSlotCard({
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyser);
 
-      // Animate waveform
+      // Animate waveform, capped at ~15 fps
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      lastWaveDrawRef.current = 0;
       function drawFrame() {
-        analyser.getByteFrequencyData(dataArray);
-        const heights = Array.from({ length: 8 }, (_, i) => {
-          const val = dataArray[Math.floor(i * dataArray.length / 8)] / 255;
-          return 20 + Math.round(val * 40);
-        });
-        setWaveHeights(heights);
+        const now = performance.now();
+        if (now - lastWaveDrawRef.current >= 66) {
+          lastWaveDrawRef.current = now;
+          analyser.getByteFrequencyData(dataArray);
+          const heights = Array.from({ length: 8 }, (_, i) => {
+            const val = dataArray[Math.floor(i * dataArray.length / 8)] / 255;
+            return 20 + Math.round(val * 40);
+          });
+          setWaveHeights(heights);
+        }
         animFrameRef.current = requestAnimationFrame(drawFrame);
       }
       drawFrame();
@@ -194,13 +201,20 @@ export function AudioSlotCard({
       return;
     }
     setUploading(true);
+    setUploadProgress(0);
     let uploadedId: string | null = null;
     const formData = new FormData();
     formData.append("key", slotKey);
     formData.append("campaign_id", campaignId);
     formData.append("file", file);
     try {
-      const res = await client.post<AudioRecording>("/audio/upload", formData);
+      const res = await client.post<AudioRecording>("/audio/upload", formData, {
+        onUploadProgress: (e) => {
+          const total = e.total ?? file.size;
+          if (!total) return;
+          setUploadProgress(Math.min(100, Math.round((e.loaded / total) * 100)));
+        },
+      });
       uploadedId = res.data.id;
       await client.patch(`/audio/${uploadedId}/activate`);
       onRefresh();
@@ -212,6 +226,7 @@ export function AudioSlotCard({
       );
     } finally {
       setUploading(false);
+      setUploadProgress(0);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
@@ -451,8 +466,18 @@ export function AudioSlotCard({
             />
           </div>
           {uploading && (
-            <div className="h-1.5 rounded-full bg-brand-border overflow-hidden">
-              <div className="h-full bg-brand-orange animate-pulse w-1/2" />
+            <div
+              role="progressbar"
+              aria-label="Upload progress"
+              aria-valuenow={uploadProgress}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="h-1.5 rounded-full bg-brand-border overflow-hidden"
+            >
+              <div
+                className="h-full bg-brand-orange transition-[width] duration-150"
+                style={{ width: `${uploadProgress}%` }}
+              />
             </div>
           )}
           {uploadError && (

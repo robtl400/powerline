@@ -6,8 +6,6 @@ Callers in async contexts must wrap calls with asyncio.get_running_loop().run_in
 from __future__ import annotations
 
 import structlog
-from twilio.jwt.access_token import AccessToken
-from twilio.jwt.access_token.grants import VoiceGrant
 from twilio.request_validator import RequestValidator
 from twilio.rest import Client
 
@@ -17,44 +15,13 @@ log = structlog.get_logger()
 
 
 class TwilioProvider:
-    def __init__(
-        self,
-        account_sid: str,
-        auth_token: str,
-        api_key_sid: str,
-        api_key_secret: str,
-        twiml_app_sid: str,
-    ) -> None:
+    def __init__(self, account_sid: str, auth_token: str) -> None:
         self._client = Client(account_sid, auth_token)
         self._auth_token = auth_token
-        self._api_key_sid = api_key_sid
-        self._api_key_secret = api_key_secret
-        self._twiml_app_sid = twiml_app_sid
 
     def create_call(self, to: str, from_: str, url: str, **kwargs) -> CallResult:
         call = self._client.calls.create(to=to, from_=from_, url=url, **kwargs)
         return CallResult(sid=call.sid, status=call.status)
-
-    def generate_access_token(self, identity: str, grants: list) -> str:
-        """Generate a JWT for browser/mobile WebRTC clients.
-
-        Uses API Key credentials (SK...), NOT the main auth token.
-        AccessToken TTL is 3600s — Twilio's recommended default for WebRTC sessions.
-        """
-        token = AccessToken(
-            self._client.account_sid,
-            self._api_key_sid,
-            self._api_key_secret,
-            identity=identity,
-            ttl=3600,
-        )
-        for grant in grants:
-            token.add_grant(grant)
-        return token.to_jwt()
-
-    def generate_voice_grant(self) -> VoiceGrant:
-        """Convenience method to create a VoiceGrant for the configured TwiML App."""
-        return VoiceGrant(outgoing_application_sid=self._twiml_app_sid)
 
     def list_phone_numbers(self) -> list[PhoneNumberInfo]:
         numbers = self._client.incoming_phone_numbers.list()

@@ -17,7 +17,11 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 3000,
-    allowedHosts: ["caylee-implacable-lostly.ngrok-free.dev"],
+    // Comma-separated hostnames allowed to reach the dev server, e.g. a tunnel domain.
+    allowedHosts: (process.env.VITE_ALLOWED_HOSTS ?? "")
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean),
     proxy: {
       "/api": {
         // Inside Docker: backend resolves via service name.

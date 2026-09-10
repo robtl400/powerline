@@ -18,11 +18,19 @@ REP_TOKEN_TTL = 3600  # 1 hour — matches the widget's usable selection window
 _router = LevelRouter()
 
 
+def _configured_levels(embed_config: dict) -> list[str]:
+    """The levels LevelRouter will actually fan out to, in a stable order."""
+    return sorted(embed_config.get("target_levels", ["federal"]))
+
+
 async def lookup_reps(zip_code: str, campaign_id: str, embed_config: dict) -> list[dict]:
     """
     Cache-first representative lookup.
 
     Returns a list of dicts with keys: name, title, phone, level.
+
+    The configured levels are part of the cache key, so a campaign that changes
+    target_levels reads a fresh lookup instead of the previous level set's reps.
 
     Raises:
         MissingApiKeyError: propagated from providers → endpoint maps to 503
@@ -30,7 +38,8 @@ async def lookup_reps(zip_code: str, campaign_id: str, embed_config: dict) -> li
         Exception: any other API failure → endpoint maps to 503
     """
     redis = get_redis()
-    cache_key = f"reps:{zip_code}:{campaign_id}"
+    levels = "+".join(_configured_levels(embed_config))
+    cache_key = f"reps:{zip_code}:{campaign_id}:{levels}"
 
     cached = await redis.get(cache_key)
     if cached:

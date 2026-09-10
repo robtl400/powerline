@@ -32,7 +32,7 @@ async def test_login_unknown_email(client: AsyncClient) -> None:
     assert resp.status_code == 401
 
 
-async def test_refresh_returns_new_access_token(
+async def test_refresh_returns_a_new_token_pair(
     client: AsyncClient, admin_user: User
 ) -> None:
     login = await client.post(
@@ -43,7 +43,9 @@ async def test_refresh_returns_new_access_token(
 
     resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
     assert resp.status_code == 200
-    assert "access_token" in resp.json()
+    data = resp.json()
+    assert "access_token" in data
+    assert data["refresh_token"] != refresh_token
 
 
 async def test_refresh_rejects_access_token(

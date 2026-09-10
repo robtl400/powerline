@@ -1,6 +1,7 @@
 """Tests for the CSV target import endpoint."""
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
@@ -11,6 +12,7 @@ from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
 from app.models.user import User
+from app.schemas.target import ImportResult
 
 
 def _csv_file(content: str, filename: str = "targets.csv", ct: str = "text/csv") -> dict:
@@ -255,3 +257,38 @@ async def test_import_errors_download_no_prior_import(
         headers=admin_headers,
     )
     assert resp.status_code == 404
+
+
+async def test_import_lock_release_leaves_a_foreign_lock_alone(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, redis
+) -> None:
+    """A finishing import only deletes the lock it still owns."""
+    lock_key = f"import_lock:{campaign.id}"
+
+    async def _steal_lock(*args, **kwargs) -> ImportResult:
+        await redis.set(lock_key, "another-request", ex=300)
+        return ImportResult(imported=0, updated=0, errors=[])
+
+    with patch("app.api.v1.campaigns._do_import", side_effect=_steal_lock):
+        resp = await client.post(
+            f"/api/v1/campaigns/{campaign.id}/targets/import",
+            files=_csv_file(VALID_CSV),
+            headers=admin_headers,
+        )
+    assert resp.status_code == 200
+    assert await redis.get(lock_key) == "another-request"
+
+    await redis.delete(lock_key)
+
+
+async def test_import_lock_is_released_when_still_owned(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, redis
+) -> None:
+    lock_key = f"import_lock:{campaign.id}"
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets/import",
+        files=_csv_file(VALID_CSV),
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    assert await redis.get(lock_key) is None

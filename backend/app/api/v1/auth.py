@@ -25,10 +25,13 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.services.auth import (
+    consume_refresh_jti,
     create_access_token,
-    create_refresh_token,
     decode_token,
     hash_password,
+    issue_refresh_token,
+    refresh_key,
+    revoke_user_sessions,
     verify_password,
 )
 from app.services.rate_limiter import check_rate_limit
@@ -84,12 +87,17 @@ async def login(
     user_id = str(user.id)
     return TokenResponse(
         access_token=create_access_token(user_id),
-        refresh_token=create_refresh_token(user_id),
+        refresh_token=await issue_refresh_token(redis, user_id),
     )
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
 async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> AccessTokenResponse:
+    """Exchange a refresh token for a new pair, retiring the token that was used.
+
+    Each refresh token is registered in Redis and consumed on use, so replaying
+    one — from a stolen copy, or after logout — is rejected.
+    """
     invalid = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
     )
@@ -99,6 +107,7 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> A
         if payload.get("type") != "refresh":
             raise ValueError("wrong token type")
         user_id = uuid.UUID(payload["sub"])
+        jti = str(payload["jti"])
     except (jwt.InvalidTokenError, KeyError, ValueError):
         raise invalid
 
@@ -107,7 +116,32 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> A
     if not user or not user.is_active:
         raise invalid
 
-    return AccessTokenResponse(access_token=create_access_token(str(user.id)))
+    redis = get_redis()
+    if not await consume_refresh_jti(redis, str(user.id), jti):
+        log.warning("refresh_token_replayed", user_id=str(user.id))
+        raise invalid
+
+    return AccessTokenResponse(
+        access_token=create_access_token(str(user.id)),
+        refresh_token=await issue_refresh_token(redis, str(user.id)),
+    )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(body: RefreshRequest) -> None:
+    """Retire one refresh token. Always 204 — a bad token is already useless."""
+    try:
+        payload = decode_token(body.refresh_token)
+    except jwt.InvalidTokenError:
+        return
+
+    if payload.get("type") != "refresh":
+        return
+
+    user_id = payload.get("sub")
+    jti = payload.get("jti")
+    if user_id and jti:
+        await get_redis().delete(refresh_key(str(user_id), str(jti)))
 
 
 @router.post("/reset-request", status_code=status.HTTP_204_NO_CONTENT)
@@ -197,3 +231,4 @@ async def reset_confirm(
     await db.commit()
 
     await redis.delete(key)
+    await revoke_user_sessions(redis, str(user.id))

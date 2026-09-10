@@ -48,7 +48,7 @@ export function injectStyles(): void {
     .pl-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
     .pl-btn-primary {
-      background: #2563eb;
+      background: #F2542D;
       color: #fff;
       width: 100%;
     }
@@ -80,8 +80,8 @@ export function injectStyles(): void {
       border-radius: 2px;
       background: #e5e7eb;
     }
-    .pl-progress-pip.done { background: #16a34a; }
-    .pl-progress-pip.active { background: #2563eb; }
+    .pl-progress-pip.done { background: #B05357; }
+    .pl-progress-pip.active { background: #F2542D; }
 
     /* ── Target info ──────────────────────────────────────────────────── */
     .pl-target-name { font-size: 18px; font-weight: 700; margin: 0 0 2px; }
@@ -114,7 +114,7 @@ export function injectStyles(): void {
     .pl-spinner {
       width: 28px; height: 28px;
       border: 3px solid #e5e7eb;
-      border-top-color: #2563eb;
+      border-top-color: #F2542D;
       border-radius: 50%;
       animation: pl-spin 0.8s linear infinite;
       margin: 16px auto;
@@ -123,7 +123,7 @@ export function injectStyles(): void {
     /* ── Talking points ───────────────────────────────────────────────── */
     .pl-talking-points {
       background: #f8fafc;
-      border-left: 3px solid #2563eb;
+      border-left: 3px solid #F2542D;
       border-radius: 0 8px 8px 0;
       padding: 12px 14px;
       font-size: 13px;
@@ -145,7 +145,7 @@ export function injectStyles(): void {
       outline: none;
       transition: border-color 0.15s;
     }
-    .pl-input:focus { border-color: #2563eb; }
+    .pl-input:focus { border-color: #F2542D; }
 
     /* ── Mic-denied / warning callout ─────────────────────────────────── */
     .pl-callout-warning {

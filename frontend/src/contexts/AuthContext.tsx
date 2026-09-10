@@ -15,7 +15,7 @@ interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -56,7 +56,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate("/dashboard");
   }
 
-  function logout() {
+  async function logout() {
+    const refreshToken = localStorage.getItem("refresh_token");
+    if (refreshToken) {
+      await client
+        .post("/auth/logout", { refresh_token: refreshToken })
+        .catch(() => {});
+    }
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
     setUser(null);

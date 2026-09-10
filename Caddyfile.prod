@@ -1,0 +1,26 @@
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	@backend path /api/* /webhooks/* /static/* /docs* /openapi.json
+	handle @backend {
+		reverse_proxy backend:8000 {
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	handle {
+		header {
+			X-Frame-Options DENY
+			Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; frame-src 'self'"
+		}
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

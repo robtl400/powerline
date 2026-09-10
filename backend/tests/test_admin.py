@@ -2,8 +2,17 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from httpx import AsyncClient
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.models.call_session import CallSession
+from app.models.campaign import Campaign
 
 BLOCK_PHONE = "+12025550611"
 BLOCK_PHONE_E164_HASH = hashlib.sha256(BLOCK_PHONE.encode()).hexdigest()
@@ -154,3 +163,52 @@ async def test_staff_cannot_write_blocklist(
 async def test_blocklist_requires_auth(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/admin/blocklist")
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Dashboard: calendar days follow the configured timezone
+# ---------------------------------------------------------------------------
+
+
+async def _daily_series(client: AsyncClient, admin_headers: dict) -> dict[str, int]:
+    resp = await client.get("/api/v1/admin/dashboard", headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    return {row["date"]: row["count"] for row in resp.json()["calls_last_7_days"]}
+
+
+async def test_dashboard_days_follow_configured_timezone(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_headers: dict,
+    monkeypatch,
+) -> None:
+    """An 03:00 UTC session lands on the previous calendar day in Los Angeles."""
+    monkeypatch.setattr(settings, "TIMEZONE", "America/Los_Angeles")
+
+    stamp = (datetime.now(UTC) - timedelta(days=2)).replace(
+        hour=3, minute=0, second=0, microsecond=0
+    )
+    utc_day = stamp.date()
+    local_day = stamp.astimezone(ZoneInfo("America/Los_Angeles")).date()
+    assert local_day == utc_day - timedelta(days=1)
+
+    before = await _daily_series(client, admin_headers)
+
+    session = CallSession(
+        campaign_id=campaign.id,
+        connection_type="webrtc",
+        twilio_call_sid=f"CAtz{uuid.uuid4().hex[:20]}",
+        status="completed",
+        created_at=stamp,
+    )
+    db.add(session)
+    await db.commit()
+
+    after = await _daily_series(client, admin_headers)
+
+    assert after[local_day.isoformat()] == before[local_day.isoformat()] + 1
+    assert after[utc_day.isoformat()] == before[utc_day.isoformat()]
+
+    await db.execute(delete(CallSession).where(CallSession.id == session.id))
+    await db.commit()

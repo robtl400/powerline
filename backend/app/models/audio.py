@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,6 +32,24 @@ AUDIO_KEYS = frozenset({
 
 class AudioRecording(Base):
     __tablename__ = "audio_recordings"
+    __table_args__ = (
+        UniqueConstraint(
+            "campaign_id", "key", "version", name="uq_audio_recordings_campaign_key_version"
+        ),
+        Index(
+            "ux_audio_recordings_active",
+            "campaign_id",
+            "key",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
+        Index(
+            "ix_audio_recordings_campaign_key_active",
+            "campaign_id",
+            "key",
+            "is_active",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -43,8 +71,6 @@ class AudioRecording(Base):
     tts_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     description: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    # No unique constraint on (campaign_id, key) — multiple versions are allowed.
-    # The activate endpoint enforces at most one is_active=True per (campaign_id, key).
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     campaign = relationship("Campaign", foreign_keys=[campaign_id])

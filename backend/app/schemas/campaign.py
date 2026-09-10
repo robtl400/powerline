@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field
 
 from app.schemas.target import TargetInCampaign
 
@@ -12,13 +13,17 @@ VALID_TRANSITIONS: dict[str, list[str]] = {
     "archived": [],
 }
 
+CampaignType = Literal["custom"]
+CampaignStatus = Literal["draft", "paused", "live", "archived"]
+TargetOrdering = Literal["in_order", "shuffle"]
+
 
 class CampaignCreate(BaseModel):
     name: str
     description: str | None = None
-    campaign_type: str = "custom"
-    language: str = "en-US"
-    target_ordering: str = "in_order"
+    campaign_type: CampaignType = "custom"
+    language: str = Field(default="en-US", max_length=5)
+    target_ordering: TargetOrdering = "in_order"
     call_maximum: int | None = None
     rate_limit: int | None = None
     allow_call_in: bool = False
@@ -33,9 +38,9 @@ class CampaignCreate(BaseModel):
 class CampaignUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    campaign_type: str | None = None
-    language: str | None = None
-    target_ordering: str | None = None
+    campaign_type: CampaignType | None = None
+    language: str | None = Field(default=None, max_length=5)
+    target_ordering: TargetOrdering | None = None
     call_maximum: int | None = None
     rate_limit: int | None = None
     allow_call_in: bool | None = None
@@ -45,14 +50,7 @@ class CampaignUpdate(BaseModel):
     lookup_require_mobile: bool | None = None
     embed_config: dict | None = None
     talking_points: str | None = None
-    status: str | None = None
-
-    @field_validator("status")
-    @classmethod
-    def validate_status(cls, v: str | None) -> str | None:
-        if v is not None and v not in ("draft", "paused", "live", "archived"):
-            raise ValueError(f"Invalid status: {v}")
-        return v
+    status: CampaignStatus | None = None
 
 
 class CampaignResponse(BaseModel):

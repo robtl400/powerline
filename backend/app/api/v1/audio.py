@@ -15,9 +15,11 @@ import uuid
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
+from app.api.v1.helpers import read_upload_limited
 from app.models.audio import AUDIO_KEYS, AudioRecording
 from app.models.campaign import Campaign
 from app.schemas.audio import AudioRecordingCreate, AudioRecordingResponse
@@ -28,10 +30,31 @@ router_campaign_audio = APIRouter(prefix="/campaigns", tags=["audio"])
 
 _ALLOWED_CONTENT_TYPES = {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/webm", "audio/mp4"}
 _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+_MAX_VERSION_ATTEMPTS = 3
+_CONTENT_MISMATCH = "File content does not match an accepted audio format"
 
 
 def _to_response(r: AudioRecording) -> AudioRecordingResponse:
     return AudioRecordingResponse.model_validate(r)
+
+
+def _looks_like_audio(head: bytes) -> bool:
+    """True when the leading bytes match MP3, WAV, WebM or MP4/M4A.
+
+    A declared content type is caller-supplied and proves nothing, so the file's
+    own header decides whether it reaches storage.
+    """
+    if head[:3] == b"ID3":
+        return True
+    if len(head) >= 2 and head[0] == 0xFF and head[1] in (0xFB, 0xF3, 0xF2):
+        return True
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return True
+    if head[:4] == b"\x1a\x45\xdf\xa3":
+        return True
+    if head[4:8] == b"ftyp":
+        return True
+    return False
 
 
 async def _next_version(
@@ -44,6 +67,41 @@ async def _next_version(
         )
     )
     return result.scalar_one() + 1
+
+
+async def _insert_versioned(
+    db: AsyncSession,
+    campaign_id: uuid.UUID | None,
+    key: str,
+    **fields,
+) -> AudioRecording:
+    """Insert a recording at the next free version for its slot.
+
+    Two concurrent uploads can pick the same version number; the slot's unique
+    constraint catches that and the losing insert re-reads the maximum and
+    retries.
+    """
+    for _ in range(_MAX_VERSION_ATTEMPTS):
+        recording = AudioRecording(
+            campaign_id=campaign_id,
+            key=key,
+            version=await _next_version(db, campaign_id, key),
+            is_active=False,
+            **fields,
+        )
+        db.add(recording)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            continue
+        await db.refresh(recording)
+        return recording
+
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Another version was created at the same time. Please try again.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -74,9 +132,14 @@ async def upload_audio(
             detail=f"Invalid audio key. Valid keys: {sorted(AUDIO_KEYS)}",
         )
 
-    file_bytes = await file.read()
-    if len(file_bytes) > _MAX_FILE_BYTES:
+    file_bytes = await read_upload_limited(file, _MAX_FILE_BYTES)
+    if file_bytes is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="File too large. Maximum size is 10 MB.")
+
+    if not _looks_like_audio(file_bytes[:16]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_CONTENT_MISMATCH
+        )
 
     ext_map = {"mpeg": "mp3", "wav": "wav", "x-wav": "wav", "webm": "webm", "mp4": "m4a"}
     subtype = (file.content_type or "").split("/")[-1]
@@ -85,18 +148,9 @@ async def upload_audio(
 
     url = await upload_audio_to_cloudinary(file_bytes, filename, file.content_type or "audio/mpeg")
 
-    next_version = await _next_version(db, campaign_id, key)
-    recording = AudioRecording(
-        campaign_id=campaign_id,
-        key=key,
-        version=next_version,
-        file_url=url,
-        description=description,
-        is_active=False,
+    recording = await _insert_versioned(
+        db, campaign_id, key, file_url=url, description=description
     )
-    db.add(recording)
-    await db.commit()
-    await db.refresh(recording)
     return _to_response(recording)
 
 
@@ -112,8 +166,9 @@ async def activate_audio(
 ) -> AudioRecordingResponse:
     """Set this version as the active one for its (campaign_id, key) slot.
 
-    Atomically deactivates all other versions for the same slot within a
-    single transaction.
+    The slot's rows are locked for the duration, so two concurrent activations
+    serialize instead of racing the partial unique index that allows only one
+    active version per slot.
     """
     result = await db.execute(
         select(AudioRecording).where(AudioRecording.id == audio_id)
@@ -134,14 +189,14 @@ async def activate_audio(
                 detail="Pause the campaign before changing audio",
             )
 
-    # Deactivate all other versions for this (campaign_id, key) pair.
+    slot = (
+        AudioRecording.campaign_id == recording.campaign_id,
+        AudioRecording.key == recording.key,
+    )
+    await db.execute(select(AudioRecording.id).where(*slot).with_for_update())
     await db.execute(
         update(AudioRecording)
-        .where(
-            AudioRecording.campaign_id == recording.campaign_id,
-            AudioRecording.key == recording.key,
-            AudioRecording.id != audio_id,
-        )
+        .where(*slot, AudioRecording.id != audio_id)
         .values(is_active=False)
     )
     recording.is_active = True
@@ -197,16 +252,7 @@ async def create_audio(
             detail=f"Invalid audio key. Valid keys: {sorted(AUDIO_KEYS)}",
         )
 
-    next_version = await _next_version(db, campaign_id, body.key)
-    recording = AudioRecording(
-        campaign_id=campaign_id,
-        key=body.key,
-        version=next_version,
-        tts_text=body.tts_text,
-        description=body.description,
-        is_active=False,
+    recording = await _insert_versioned(
+        db, campaign_id, body.key, tts_text=body.tts_text, description=body.description
     )
-    db.add(recording)
-    await db.commit()
-    await db.refresh(recording)
     return _to_response(recording)

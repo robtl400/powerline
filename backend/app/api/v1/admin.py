@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
+from app.api.v1.helpers import local_timezone
 from app.models.blocklist import BlocklistEntry
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
@@ -37,9 +38,14 @@ async def get_dashboard(
     _: CurrentUser,
     db: DB,
 ) -> DashboardResponse:
-    """Return global call activity summary for the admin dashboard."""
+    """Return global call activity summary for the admin dashboard.
+
+    Calendar days are the configured reporting timezone's days, not UTC's, so
+    an evening call in a western timezone counts toward the day it happened on.
+    """
+    tz = local_timezone()
     now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = now.astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = now - timedelta(days=7)
     month_start = now - timedelta(days=30)
 
@@ -73,8 +79,8 @@ async def get_dashboard(
     phone_count = ct_map.get("outbound_phone", 0) + ct_map.get("inbound_phone", 0)
 
     # Daily call volumes for the last 7 calendar days
-    seven_days_ago = today_start - timedelta(days=6)  # 7 days inclusive of today
-    date_trunc = func.date_trunc("day", CallSession.created_at)
+    seven_days_ago = today_start - timedelta(days=6)
+    date_trunc = func.date_trunc("day", func.timezone(tz.key, CallSession.created_at))
     daily_result = await db.execute(
         select(date_trunc.label("day"), func.count().label("count"))
         .where(CallSession.created_at >= seven_days_ago)

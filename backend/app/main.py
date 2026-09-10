@@ -6,12 +6,14 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api.v1 import auth, calls, campaigns, health, phone_numbers, reps, tokens, users, webhooks
 from app.api.v1.admin import router as admin_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.audio import router_audio, router_campaign_audio
 from app.config import settings
+from app.version import __version__
 
 log = structlog.get_logger()
 
@@ -19,6 +21,73 @@ _PLACEHOLDER_SECRET_KEYS = {
     "dev-secret-key-change-in-production",
     "change-me-in-production-use-openssl-rand-hex-32",
 }
+
+# Endpoints the embed widget calls from third-party sites. Everything else —
+# including the admin routes that share the /api/v1/campaigns/ prefix — is
+# admin surface, so campaign paths are matched by exact suffix rather than by
+# the coarse prefixes in settings.PUBLIC_API_PATH_PREFIXES.
+_PUBLIC_EXACT_PATHS = ("/api/v1/calls/create", "/api/v1/tokens/voice")
+_PUBLIC_PREFIXES = ("/static/",)
+_PUBLIC_CAMPAIGN_SUFFIXES = ("/public", "/count", "/reps")
+
+
+def is_public_path(path: str) -> bool:
+    if path in _PUBLIC_EXACT_PATHS or path.startswith(_PUBLIC_PREFIXES):
+        return True
+    return path.startswith("/api/v1/campaigns/") and path.endswith(
+        _PUBLIC_CAMPAIGN_SUFFIXES
+    )
+
+
+def _origin_list(raw: str) -> list[str]:
+    if raw.strip() == "*":
+        return ["*"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+class PathScopedCORSMiddleware:
+    """Apply one CORS policy to the public embed API and another to the admin API.
+
+    The embed widget runs on sites we do not control, so the public endpoints
+    answer any origin. The admin API is restricted to ADMIN_CORS_ORIGINS, and
+    when that is empty it emits no CORS headers at all.
+    """
+
+    def __init__(self, app: ASGIApp, public_origins: list[str], admin_origins: list[str]) -> None:
+        self._plain = app
+        self._public = CORSMiddleware(
+            app,
+            allow_origins=public_origins,
+            allow_credentials=False,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        self._admin: ASGIApp = (
+            CORSMiddleware(
+                app,
+                allow_origins=admin_origins,
+                allow_credentials=False,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+            if admin_origins
+            else app
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._plain(scope, receive, send)
+            return
+
+        handler = self._public if is_public_path(scope["path"]) else self._admin
+        await handler(scope, receive, send)
+
+
+def docs_enabled() -> bool:
+    """Interactive docs are on when forced on, or by default in development."""
+    return settings.DOCS_ENABLED is True or (
+        settings.DOCS_ENABLED is None and settings.is_development
+    )
 
 
 def _validate_startup_config() -> None:
@@ -57,7 +126,7 @@ def _validate_startup_config() -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log.info(
         "powerline_api_starting",
-        version="2.0.0-dev",
+        version=__version__,
         environment=settings.ENVIRONMENT,
     )
     _validate_startup_config()
@@ -69,27 +138,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def create_app() -> FastAPI:
+    docs = docs_enabled()
     app = FastAPI(
         title="Powerline API",
-        version="2.0.0-dev",
+        version=__version__,
         description="Civic activism call campaign platform",
         lifespan=lifespan,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
     )
 
-    # CORS — allow_origins from env (defaults to "*").
-    # JWT auth uses Authorization headers (not cookies) so credentials not needed.
-    # The embed widget runs on third-party sites, so "*" is correct for the public API.
-    cors_origins = (
-        [o.strip() for o in settings.CORS_ORIGINS.split(",")]
-        if settings.CORS_ORIGINS != "*"
-        else ["*"]
-    )
+    # JWT auth uses Authorization headers (not cookies), so credentials are
+    # never needed and the two policies can both run without them.
     app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        PathScopedCORSMiddleware,
+        public_origins=_origin_list(settings.CORS_ORIGINS),
+        admin_origins=_origin_list(settings.ADMIN_CORS_ORIGINS),
     )
 
     # Twilio webhooks — registered before /api/v1 routes, no auth prefix.

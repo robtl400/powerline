@@ -9,13 +9,28 @@ class Settings(BaseSettings):
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_PASSWORD: str = ""
 
     # Deployment environment: "development" | "production".
     # Defaults to production so an unconfigured deploy fails closed.
     ENVIRONMENT: str = "production"
 
+    # IANA timezone name used to resolve "today" and day boundaries in the
+    # dashboard and analytics (e.g. "America/New_York").
+    TIMEZONE: str = "UTC"
+
+    # Interactive API docs (/docs, /redoc). None = enabled only in development.
+    DOCS_ENABLED: bool | None = None
+
     # Security — no default; startup fails when unset.
     SECRET_KEY: str
+
+    # Lifetime of a password-reset code, in seconds.
+    RESET_CODE_TTL_SECONDS: int = 600
+
+    # JWT lifetimes.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Comma-separated IPs/CIDRs of reverse proxies whose X-Forwarded-For
     # header may be trusted. Empty = never trust the header.
@@ -53,10 +68,23 @@ class Settings(BaseSettings):
     GOOGLE_CIVIC_API_KEY: str = ""
     OPENSTATES_API_KEY: str = ""
 
-    # CORS — comma-separated list of allowed origins, or "*" for all.
-    # Use "*" for development and the embed widget (runs on third-party sites).
-    # In production, restrict to your frontend domain: "https://app.example.com"
+    # CORS policy for the PUBLIC embed endpoints only — comma-separated list of
+    # allowed origins, or "*" for all. The embed widget runs on third-party
+    # sites, so "*" is the expected value even in production.
     CORS_ORIGINS: str = "*"
+
+    # CORS policy for the admin API — comma-separated origins allowed to call it.
+    # Empty = same-origin only.
+    ADMIN_CORS_ORIGINS: str = ""
+
+    # Path prefixes served as the public (embed-facing) API; everything else is
+    # treated as admin surface.
+    PUBLIC_API_PATH_PREFIXES: tuple[str, ...] = (
+        "/api/v1/campaigns/",
+        "/api/v1/calls/",
+        "/api/v1/tokens/",
+        "/static/",
+    )
 
     @property
     def is_development(self) -> bool:

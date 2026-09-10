@@ -95,7 +95,7 @@ async def test_api_error_with_stale_cache_returns_cached_data(
 
     redis = get_redis()
     await redis.set(
-        f"reps:12345:{live_campaign.id}",
+        f"reps:12345:{live_campaign.id}:federal",
         json.dumps(stale),
         ex=86400,
     )
@@ -104,6 +104,46 @@ async def test_api_error_with_stale_cache_returns_cached_data(
     resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=12345")
     assert resp.status_code == 200
     assert resp.json()["reps"][0]["name"] == "Stale Rep"
+
+
+@pytest.mark.asyncio
+async def test_cache_key_tracks_configured_levels(
+    client: AsyncClient,
+    db: AsyncSession,
+    live_campaign: Campaign,
+    redis,
+) -> None:
+    """Changing target_levels reads a different cache slot, not the old level set's reps."""
+    federal_only = [
+        {
+            "name": "Federal Only",
+            "title": "U.S. Senator",
+            "phone": "+12025550300",
+            "level": "federal",
+        }
+    ]
+    federal_key = f"reps:54321:{live_campaign.id}:federal"
+    both_key = f"reps:54321:{live_campaign.id}:federal+state"
+    await redis.delete(federal_key, both_key)
+    await redis.set(federal_key, json.dumps(federal_only), ex=86400)
+
+    resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=54321")
+    assert resp.status_code == 200
+    assert resp.json()["reps"][0]["name"] == "Federal Only"
+
+    live_campaign.embed_config = {"target_levels": ["federal", "state"]}
+    await db.commit()
+
+    with patch("app.services.civic_service._router.lookup", new_callable=AsyncMock) as lookup:
+        lookup.return_value = []
+        resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=54321")
+
+    assert resp.status_code == 200
+    assert resp.json()["reps"] == []
+    assert await redis.get(both_key) == "[]"
+    assert json.loads(await redis.get(federal_key))[0]["name"] == "Federal Only"
+
+    await redis.delete(federal_key, both_key)
 
 
 @pytest.mark.asyncio

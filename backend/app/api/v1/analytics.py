@@ -11,6 +11,7 @@ import csv
 import io
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -18,7 +19,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, CurrentUser
-from app.api.v1.helpers import get_campaign_or_404
+from app.api.v1.helpers import get_campaign_or_404, local_timezone
 from app.models.call import Call
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
@@ -34,6 +35,9 @@ from app.schemas.analytics import (
 
 router = APIRouter(prefix="/campaigns", tags=["analytics"])
 
+SessionStatus = Literal["initiated", "in_progress", "completed", "failed"]
+ConnectionType = Literal["webrtc", "outbound_phone", "inbound_phone"]
+
 
 # ---------------------------------------------------------------------------
 # GET /{id}/calls/export  — must be registered BEFORE /{id}/calls
@@ -44,8 +48,8 @@ async def export_calls_csv(
     campaign_id: uuid.UUID,
     _: CurrentUser,
     db: DB,
-    status: str | None = Query(default=None),
-    connection_type: str | None = Query(default=None),
+    status: SessionStatus | None = Query(default=None),
+    connection_type: ConnectionType | None = Query(default=None),
     start: str | None = Query(default=None, description="ISO date, e.g. 2026-01-01"),
     end: str | None = Query(default=None, description="ISO date, e.g. 2026-03-01"),
 ) -> StreamingResponse:
@@ -120,7 +124,9 @@ async def calls_by_date(
     start_dt = _parse_date(start) if start else (now - timedelta(days=30))
     end_dt = _parse_date(end, end_of_day=True) if end else now
 
-    trunc = func.date_trunc(granularity, CallSession.created_at)
+    trunc = func.date_trunc(
+        granularity, func.timezone(local_timezone().key, CallSession.created_at)
+    )
     result = await db.execute(
         select(trunc.label("period"), func.count().label("count"))
         .where(
@@ -234,8 +240,8 @@ async def list_campaign_calls(
     db: DB,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, le=200),
-    status: str | None = Query(default=None),
-    connection_type: str | None = Query(default=None),
+    status: SessionStatus | None = Query(default=None),
+    connection_type: ConnectionType | None = Query(default=None),
     start: str | None = Query(default=None),
     end: str | None = Query(default=None),
 ) -> CallSessionPage:
@@ -345,16 +351,21 @@ async def campaign_quality(
 # ---------------------------------------------------------------------------
 
 def _parse_date(value: str, end_of_day: bool = False) -> datetime:
-    """Parse an ISO date string (YYYY-MM-DD) to UTC datetime."""
+    """Parse an ISO date or datetime into an aware datetime.
+
+    A value with no offset is read in the configured reporting timezone, so a
+    bare date is local midnight and its end_of_day is local 23:59:59.999.
+    """
     try:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        if end_of_day and "T" not in value:
-            dt = dt.replace(hour=23, minute=59, second=59)
-        return dt
     except ValueError:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid date format: {value}")
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=local_timezone())
+    if end_of_day and "T" not in value:
+        dt = dt.replace(hour=23, minute=59, second=59, microsecond=999000)
+    return dt
 
 
 def _apply_session_filters(stmt, status, connection_type, start, end):

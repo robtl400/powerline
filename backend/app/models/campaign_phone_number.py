@@ -21,4 +21,5 @@ class CampaignPhoneNumber(Base):
         UUID(as_uuid=True),
         ForeignKey("phone_numbers.id", ondelete="CASCADE"),
         primary_key=True,
+        index=True,
     )

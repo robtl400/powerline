@@ -12,7 +12,7 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 
 from app.api.deps import DB
 from app.api.v1.helpers import resolve_rep_or_422, resolve_target_ids
@@ -94,13 +94,13 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
         try:
             lookup = await loop.run_in_executor(None, provider.validate_phone, phone)
         except Exception:
-            log.exception("lookup_failed", phone=phone[:6])
+            log.exception("lookup_failed", phone_hash=phone_hash[:12])
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not validate phone number")
 
         if not lookup.is_valid:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid phone number")
 
-        if campaign.lookup_require_mobile and lookup.line_type == "landline":
+        if campaign.lookup_require_mobile and lookup.line_type != "mobile":
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
@@ -174,9 +174,14 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
                 ),
             )
         except Exception:
-            # Roll back the session so the caller can retry — state already in Redis
-            # will expire naturally. Session row left as "initiated" for audit trail.
+            # The CallSession row is already committed, so mark it failed rather
+            # than leave it sitting at "initiated" forever. The Redis call state
+            # expires on its own; the caller is free to retry.
             log.exception("twilio_create_call_failed", session_id=str(session_id))
+            await db.execute(
+                update(CallSession).where(CallSession.id == session_id).values(status="failed")
+            )
+            await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to place call — please try again"
             )

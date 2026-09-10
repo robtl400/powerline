@@ -18,6 +18,7 @@ export function formatPhoneInput(raw: string): string {
 
 export function toE164(formatted: string): string {
   const digits = formatted.replace(/\D/g, "").slice(0, 10);
+  if (digits.length === 0) return "";
   return `+1${digits}`;
 }
 

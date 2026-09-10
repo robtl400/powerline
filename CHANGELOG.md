@@ -58,6 +58,51 @@ All notable changes to this project will be documented in this file.
 - **Dead between-targets screen removed** — the backend advances targets server-side without notifying the browser, so `renderBetweenTargets` and the `between_targets` state are gone.
 - **Trimmed Docker build context** — a new `.dockerignore` keeps host `node_modules`, build output, and `.env` out of image builds.
 
+### Security (sessions and edge)
+- **Refresh tokens rotate and are single-use** — every refresh token carries a `jti` registered in Redis and is consumed on use; `POST /auth/refresh` returns a new access *and* refresh token, and replaying a spent one is a 401.
+- **`POST /auth/logout` retires a refresh token** — always answers 204, including for expired, malformed, or already-revoked tokens.
+- **Deactivation, role changes, and password resets end sessions immediately** — all of a user's refresh tokens are dropped and a per-user session floor retires outstanding access tokens instead of letting them run to expiry.
+- **CORS is split by path** — public embed endpoints answer any origin; everything else uses `ADMIN_CORS_ORIGINS`, which emits no CORS headers when empty. Admin routes sharing the `/api/v1/campaigns/` prefix are no longer treated as public.
+- **Interactive docs are off in production** — `/docs`, `/redoc`, and `/openapi.json` require `DOCS_ENABLED=true` outside development.
+- **Redis authentication is honored** — `REDIS_PASSWORD` is applied unless `REDIS_URL` already carries credentials; the production stack starts Redis with `--requirepass` and `--maxmemory-policy noeviction`.
+- **Security headers at the edge** — HSTS, `X-Content-Type-Options`, `Referrer-Policy` on all responses, plus `X-Frame-Options: DENY` and a CSP on the admin SPA.
+- **Raw phone numbers are out of the logs** — the lookup, blocklist, rate-limit and SMS paths log a hash prefix or nothing at all.
+- **Audio uploads are verified by their bytes** — the declared MIME type is no longer trusted; MP3, WAV, WebM and MP4/M4A headers must match. CSV and audio uploads are read in 64 KiB chunks and rejected the moment they pass the limit.
+- **The CSV import lock can no longer be stolen** — each import holds a token and releases only the lock it still owns.
+
+### Fixed (data integrity and UI)
+- **Enum inputs return 422, not 500** — campaign type, ordering, language and status, plus the analytics status and connection-type filters, are validated as literals instead of reaching the database as bad enum values.
+- **Mobile-only campaigns reject every non-mobile line** — VoIP, non-fixed VoIP, toll-free and unknown line types are refused alongside landlines, matching the setting's own description.
+- **The "target unavailable" message actually plays** — a busy, unanswered, failed or cancelled target hands off with `msg_target_busy` before dialing the next one.
+- **Removing a target no longer erases call history** — the target row is deleted only when no other campaign lists it and no logged call points at it.
+- **Failed callbacks stop leaving dangling sessions** — when Twilio refuses the outbound call the session is marked failed instead of sitting at "initiated" forever.
+- **Representative lookups cache per level set** — the configured target levels are part of the cache key, so changing them no longer serves the previous set's representatives for a day.
+- **One active recording per audio slot, guaranteed** — a unique constraint on version and a partial unique index on the active row, with activation serialized by a row lock and version collisions retried.
+- **Dashboards and date filters follow `TIMEZONE`** — day boundaries, the seven-day series and bare start/end dates are local days rather than UTC days.
+- **Refresh-token rotation handled in the admin client** — the rotated token is stored, queued requests are marked retried before replay so a second 401 cannot loop, and both tokens are cleared once before redirecting to login. Logout posts the refresh token to `/auth/logout`.
+- **Clearing a phone field yields an empty value** — `toE164` returns an empty string when the input has no digits instead of a bare `+1`.
+- **Quote-aware CSV header remapping** — target import parses the header row per RFC 4180 and rewrites only the header line, so quoted newlines and CRLF endings in the body reach the backend byte-for-byte.
+- **Phone-number trust badges show real statuses** — keyed on `twilio-approved`, `pending-review`, `in-review` and displayed as Verified / Pending / Unknown.
+- **Audio upload shows real progress** — driven by axios upload progress instead of an indeterminate half-width pulse; the recording waveform is capped at ~15 fps.
+- **Embed call timer stops re-rendering the whole card** — a single timer node updates each second; the card re-renders only on state changes.
+
+### Changed (schema, tasks, deployment)
+- **Campaign names are unique among active campaigns** — archived campaigns release their name via a partial unique index.
+- **Foreign keys carry indexes** — calls, campaign targets and campaign phone numbers are indexed on the columns they join by; `Campaign.status` matches its existing index.
+- **Listings paginate** — `GET /campaigns`, `GET /users` and `GET /phone-numbers` accept `skip`/`limit` (default 200, max 500); responses are still lists. The public call-count endpoint answers in one query instead of three.
+- **Migrations compare server defaults** — schema drift in column defaults now shows up in `alembic check`, and database URLs containing `%` no longer break Alembic's config parsing. Migration `007_audio_integrity_indexes`.
+- **Token lifetimes come from configuration** — `ACCESS_TOKEN_EXPIRE_MINUTES` and `REFRESH_TOKEN_EXPIRE_DAYS`.
+- **Voice Insights no longer overlaps or leaks connections** — the run holds a Redis lock, reuses one engine per worker, fetches summaries through a bounded 4-thread pool, and selects on `quality_details IS NULL` so a fetched-but-unscored call is not refetched every cycle.
+- **New daily `cleanup_rep_targets` task** — deletes rep-lookup targets older than 30 days that no campaign references; call history survives via the `SET NULL` FK.
+- **Production deployment stack** — standalone `docker-compose.prod.yml` and `Caddyfile.prod` with automatic TLS, unpublished datastores, and a documented walkthrough in the README. The dev stack no longer publishes the backend port; reach it through Caddy on port 80.
+- **Version is read from the `VERSION` file** — API, health endpoint, pyproject and both package.json files report 2.0.4.0.
+- **Error styling moved onto brand tokens** — blocklist, campaign edit, and campaign targets errors use brand-grey-dark on page-bg in place of the destructive red tokens; the embed palette uses brand orange and gum instead of blue and green.
+- **Dev-server hostnames are configurable** — `VITE_ALLOWED_HOSTS` replaces the hardcoded tunnel hostname.
+- **Embed bundle is minified with source maps**, Copy Link works without inline script, and HTML escaping covers single quotes.
+
+### Removed
+- **Dead telephony code** — `LookupService`, the provider's `generate_access_token`/`generate_voice_grant`, the unused TwiML builders, the unused `CAMPAIGN_STATUS_CHIP` export, and import-logic tests for a `normalizePhone` that never existed in production code.
+
 ## [2.0.3.0] - 2026-03-21
 
 ### Added

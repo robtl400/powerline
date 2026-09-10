@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import client from "@/api/client";
-import { TRUST_STATUS_COLORS, FALLBACK_BADGE_COLOR } from "@/lib/constants";
+import { TRUST_STATUS_COLORS, TRUST_STATUS_LABELS, FALLBACK_BADGE_COLOR } from "@/lib/constants";
 import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 
 interface PhoneNumber {
@@ -141,7 +141,7 @@ export default function PhoneNumbers() {
                     <span
                       className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium capitalize ${TRUST_STATUS_COLORS[pn.trust_status] ?? FALLBACK_BADGE_COLOR}`}
                     >
-                      {pn.trust_status}
+                      {TRUST_STATUS_LABELS[pn.trust_status] || pn.trust_status || "Unknown"}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">

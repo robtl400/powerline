@@ -164,7 +164,7 @@ export function CampaignTargetsTab({
       )}
 
       {targetError && (
-        <div className="mb-3 px-3 py-2 rounded bg-destructive/10 text-destructive text-sm">
+        <div className="mb-3 px-3 py-2 rounded border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
           {targetError}
         </div>
       )}
@@ -357,7 +357,7 @@ export function CampaignTargetsTab({
                   <span>, <span className="font-medium">{importResult.updated} updated</span></span>
                 )}
                 {importResult.errors.length > 0 && (
-                  <span>, <span className="font-medium text-destructive">{importResult.errors.length} error{importResult.errors.length !== 1 ? "s" : ""}</span></span>
+                  <span>, <span className="font-medium text-brand-grey-dark">{importResult.errors.length} error{importResult.errors.length !== 1 ? "s" : ""}</span></span>
                 )}
               </div>
 
@@ -374,7 +374,7 @@ export function CampaignTargetsTab({
                       {importResult.errors.map((e) => (
                         <div key={e.row} className="px-3 py-1.5 flex gap-3">
                           <span className="text-muted-foreground shrink-0">Row {e.row}</span>
-                          <span className="text-destructive">{e.error}</span>
+                          <span className="text-brand-grey-dark">{e.error}</span>
                         </div>
                       ))}
                     </div>
@@ -455,7 +455,7 @@ export function CampaignTargetsTab({
                             <label className="text-xs text-muted-foreground">
                               {FIELD_LABELS[field]}
                               {REQUIRED_FIELDS.includes(field as typeof REQUIRED_FIELDS[number]) && (
-                                <span className="text-destructive ml-0.5">*</span>
+                                <span className="text-brand-grey-dark ml-0.5">*</span>
                               )}
                             </label>
                             <select
@@ -479,7 +479,7 @@ export function CampaignTargetsTab({
                   )}
 
                   {importError && (
-                    <div className="px-3 py-2 rounded bg-destructive/10 text-destructive text-sm">
+                    <div className="px-3 py-2 rounded border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
                       {importError}
                     </div>
                   )}
