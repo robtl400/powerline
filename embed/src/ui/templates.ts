@@ -1,4 +1,12 @@
 import type { CampaignPublic, RepInfo, TargetPublicInfo } from "../types.js";
+import {
+  iconBan,
+  iconCheck,
+  iconMic,
+  iconPhone,
+  iconPhoneIncoming,
+  iconVolumeOff,
+} from "./icons.js";
 
 function esc(s: string | null | undefined): string {
   if (!s) return "";
@@ -21,10 +29,7 @@ function progressPips(current: number, total: number): string {
 export function renderIdle(campaign: CampaignPublic): string {
   const hasRepLookup = (campaign.target_levels?.length ?? 0) > 0;
   const zipInput = hasRepLookup
-    ? `<label
-         for="pl-zip-input"
-         style="display:block;font-size:12px;color:#6b7280;margin-bottom:4px"
-       >Your ZIP code</label>
+    ? `<label for="pl-zip-input" class="pl-label">Your ZIP code</label>
        <input
          class="pl-input"
          id="pl-zip-input"
@@ -38,21 +43,21 @@ export function renderIdle(campaign: CampaignPublic): string {
        />
        <div
          id="pl-zip-error"
+         class="pl-error-text"
          role="alert"
          aria-live="polite"
-         style="font-size:12px;color:#dc2626;min-height:18px;margin-bottom:8px"
        ></div>`
     : "";
 
   const zipGroup = hasRepLookup
-    ? `<p class="pl-subtext" style="margin-bottom:8px">
+    ? `<p class="pl-help">
          We'll find your elected representatives based on your ZIP code.
        </p>
        ${zipInput}`
     : "";
 
   const phoneLink = campaign.allow_phone_callback
-    ? `<div style="text-align:center;margin-top:12px">
+    ? `<div class="pl-actions-row">
          <button class="pl-btn pl-btn-ghost" data-pl-action="show-phone">
            Prefer a phone call?
          </button>
@@ -64,14 +69,14 @@ export function renderIdle(campaign: CampaignPublic): string {
     ${campaign.description ? `<p class="pl-subtext">${esc(campaign.description)}</p>` : ""}
     ${zipGroup}
     <button class="pl-btn pl-btn-primary" data-pl-action="call-now">
-      📞 Call Now
+      ${iconPhone(18)}<span>Call Now</span>
     </button>
     ${phoneLink}
   </div>`;
 }
 
 export function renderLookingUpReps(): string {
-  return `<div class="pl-card" style="text-align:center">
+  return `<div class="pl-card pl-center">
     <div class="pl-spinner"></div>
     <p class="pl-status">Finding your representatives…</p>
   </div>`;
@@ -81,12 +86,12 @@ export function renderRepSelection(
   reps: RepInfo[],
   message?: string | null
 ): string {
-  const notice = `<p class="pl-subtext" style="margin-bottom:12px">${esc(message ?? "Select a representative to connect your call.")}</p>`;
+  const notice = `<p class="pl-subtext pl-mb-12">${esc(message ?? "Select a representative to connect your call.")}</p>`;
 
   let items: string;
 
   if (reps.length === 0) {
-    items = `<p class="pl-subtext" style="margin:12px 0">
+    items = `<p class="pl-subtext pl-my-12">
       We couldn't match your ZIP to any representatives.
       Try the Back button to re-enter your ZIP, or use the phone option below.
     </p>`;
@@ -106,20 +111,19 @@ export function renderRepSelection(
     const sections = [...order, ...Object.keys(groups).filter((l) => !order.includes(l))]
       .filter((l) => groups[l]?.length)
       .map((level) => {
-        const header = `<p style="font-size:11px;font-weight:600;letter-spacing:0.07em;color:#9ca3af;text-transform:uppercase;margin:8px 0 6px">${esc(levelLabel[level] ?? level)}</p>`;
+        const header = `<p class="pl-rep-level">${esc(levelLabel[level] ?? level)}</p>`;
         const buttons = groups[level]
           .map(
             (r) => `
           <button
-            class="pl-btn"
-            style="width:100%;text-align:left;margin-bottom:8px;padding:10px 12px;min-height:44px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;display:flex;flex-direction:column;justify-content:center"
+            class="pl-btn pl-rep-btn"
             data-pl-action="select-rep"
             data-pl-rep-token="${esc(r.rep_token)}"
             data-pl-name="${esc(r.name)}"
             data-pl-title="${esc(r.title)}"
           >
-            <strong style="display:block;font-size:14px">📞 Call ${esc(r.name)}</strong>
-            <span style="font-size:12px;color:#6b7280">${esc(r.title)}</span>
+            <strong class="pl-rep-name">${iconPhone(16)}Call ${esc(r.name)}</strong>
+            <span class="pl-rep-title">${esc(r.title)}</span>
           </button>`
           )
           .join("");
@@ -133,23 +137,23 @@ export function renderRepSelection(
   return `<div class="pl-card">
     <p class="pl-heading">Choose who to call</p>
     ${notice}
-    <div style="max-height:280px;overflow-y:auto;margin-top:4px">${items}</div>
-    <div style="text-align:center;margin-top:12px">
+    <div class="pl-rep-list">${items}</div>
+    <div class="pl-actions-row">
       <button class="pl-btn pl-btn-ghost" data-pl-action="back-to-idle">&larr; Back</button>
     </div>
   </div>`;
 }
 
 export function renderLoading(message = "Connecting…"): string {
-  return `<div class="pl-card" style="text-align:center">
+  return `<div class="pl-card pl-center">
     <div class="pl-spinner"></div>
     <p class="pl-status">${esc(message)}</p>
   </div>`;
 }
 
 export function renderMicPermission(): string {
-  return `<div class="pl-card" style="text-align:center">
-    <p style="font-size:32px;margin:0 0 8px">🎙️</p>
+  return `<div class="pl-card pl-center">
+    <p class="pl-icon-lg">${iconMic(32)}</p>
     <p class="pl-heading">Microphone Access</p>
     <p class="pl-subtext">
       Your browser will ask for microphone permission. Please click <strong>Allow</strong>
@@ -159,18 +163,18 @@ export function renderMicPermission(): string {
 }
 
 export function renderAudioCheck(): string {
-  return `<div class="pl-card" style="text-align:center">
-    <p style="font-size:32px;margin:0 0 8px">🔇</p>
+  return `<div class="pl-card pl-center">
+    <p class="pl-icon-lg">${iconVolumeOff(32)}</p>
     <p class="pl-heading">Can't hear anything?</p>
-    <ul style="text-align:left;font-size:13px;color:#374151;margin:0 0 16px;padding-left:20px;line-height:1.8">
+    <ul class="pl-list">
       <li>Make sure your speakers or headphones are not muted</li>
       <li>Check that the correct audio output device is selected</li>
       <li>Try refreshing the page and clicking Call Now again</li>
     </ul>
-    <button class="pl-btn pl-btn-primary" data-pl-action="dismiss-audio-check" style="margin-bottom:10px">
+    <button class="pl-btn pl-btn-primary pl-mt-10" data-pl-action="dismiss-audio-check">
       I can hear it — go back
     </button>
-    <button class="pl-btn pl-btn-secondary" data-pl-action="retry-webrtc" style="margin-bottom:10px">
+    <button class="pl-btn pl-btn-secondary pl-mt-10" data-pl-action="retry-webrtc">
       Try Again
     </button>
     <button class="pl-btn pl-btn-ghost" data-pl-action="show-phone">
@@ -201,9 +205,9 @@ export function renderConnected(
     <p class="pl-target-name">${esc(target.name)}</p>
     <p class="pl-target-meta">${esc(target.title)}${target.location ? ` &middot; ${esc(target.location)}` : ""}</p>
     <p class="pl-status">Call ${targetIndex + 1} of ${totalTargets}</p>
-    <p class="pl-timer">⏱ <span data-pl-timer>${formatElapsed(elapsed)}</span></p>
+    <p class="pl-timer"><span data-pl-timer>${formatElapsed(elapsed)}</span></p>
     ${tpBlock}
-    <div class="pl-actions" style="margin-top:16px">
+    <div class="pl-actions pl-mt-16">
       <button class="pl-btn pl-btn-secondary" data-pl-action="skip">Skip</button>
       <button class="pl-btn pl-btn-danger" data-pl-action="end">End Call</button>
     </div>
@@ -211,10 +215,10 @@ export function renderConnected(
 }
 
 export function renderConnectedGeneric(elapsed: number): string {
-  return `<div class="pl-card" style="text-align:center">
+  return `<div class="pl-card pl-center">
     <p class="pl-heading">Connected</p>
-    <p class="pl-timer">⏱ <span data-pl-timer>${formatElapsed(elapsed)}</span></p>
-    <div class="pl-actions" style="margin-top:16px">
+    <p class="pl-timer"><span data-pl-timer>${formatElapsed(elapsed)}</span></p>
+    <div class="pl-actions pl-mt-16">
       <button class="pl-btn pl-btn-danger" data-pl-action="end">End Call</button>
     </div>
   </div>`;
@@ -224,7 +228,7 @@ export function renderComplete(callCount: number, totalCallers?: number): string
   const plural = callCount === 1 ? "call" : "calls";
 
   const callerBadge = totalCallers != null && totalCallers > 0
-    ? `<p class="pl-subtext" style="margin-top:4px">
+    ? `<p class="pl-subtext pl-mt-4">
         You're among <strong>${totalCallers.toLocaleString()}</strong> people making calls.
        </p>`
     : "";
@@ -235,14 +239,14 @@ export function renderComplete(callCount: number, totalCallers?: number): string
   const shareUrl = encodeURIComponent(globalThis.location?.href ?? "");
   const twitterUrl = `https://twitter.com/intent/tweet?text=${shareText}&url=${shareUrl}`;
 
-  return `<div class="pl-card" style="text-align:center">
-    <div class="pl-complete-icon">✅</div>
+  return `<div class="pl-card pl-center">
+    <div class="pl-complete-icon">${iconCheck(40)}</div>
     <p class="pl-heading">Thank you!</p>
     <p class="pl-subtext">
       You made ${callCount} ${plural}. Your voice matters — keep it up!
     </p>
     ${callerBadge}
-    <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+    <div class="pl-share-row">
       <a
         class="pl-share-btn"
         href="${twitterUrl}"
@@ -259,12 +263,12 @@ export function renderComplete(callCount: number, totalCallers?: number): string
 
 export function renderError(message: string, showRetry = true): string {
   const retry = showRetry
-    ? `<button class="pl-btn pl-btn-secondary" data-pl-action="retry" style="margin-top:12px">
+    ? `<button class="pl-btn pl-btn-secondary pl-mt-12" data-pl-action="retry">
          Try Again
        </button>`
     : "";
   return `<div class="pl-card">
-    <p class="pl-heading" style="color:#dc2626">Something went wrong</p>
+    <p class="pl-heading pl-error-heading">Something went wrong</p>
     <p class="pl-error">${esc(message)}</p>
     ${retry}
   </div>`;
@@ -274,7 +278,7 @@ export function renderPhoneInput(campaign: CampaignPublic, message?: string): st
   let notice = "";
   if (message === "mic_denied") {
     notice = `<div class="pl-callout-warning">
-        🚫 Microphone access was denied — no problem! Enter your number below and we'll call you.
+        ${iconBan(16)} Microphone access was denied — no problem! Enter your number below and we'll call you.
        </div>`;
   } else if (message) {
     notice = `<div class="pl-callout-warning">${esc(message)}</div>`;
@@ -294,9 +298,9 @@ export function renderPhoneInput(campaign: CampaignPublic, message?: string): st
       autocomplete="tel"
     />
     <button class="pl-btn pl-btn-primary" data-pl-action="submit-phone">
-      📞 Call Me
+      ${iconPhone(18)}<span>Call Me</span>
     </button>
-    <div style="text-align:center;margin-top:10px">
+    <div class="pl-actions-row">
       <button class="pl-btn pl-btn-ghost" data-pl-action="back-to-idle">
         ← Back
       </button>
@@ -305,8 +309,8 @@ export function renderPhoneInput(campaign: CampaignPublic, message?: string): st
 }
 
 export function renderPhonePending(): string {
-  return `<div class="pl-card" style="text-align:center">
-    <p style="font-size:32px;margin:0 0 8px">📲</p>
+  return `<div class="pl-card pl-center">
+    <p class="pl-icon-lg">${iconPhoneIncoming(32)}</p>
     <p class="pl-heading">We're calling you!</p>
     <p class="pl-subtext">
       You should receive a call shortly. Stay on the line and we'll walk you through each call.

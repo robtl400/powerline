@@ -27,7 +27,7 @@ export default function CampaignEdit() {
 
   if (isNew) return <CampaignWizard />;
 
-  if (data.loading) return <p className="text-muted-foreground">Loading…</p>;
+  if (data.loading) return <p className="text-brand-grey-dark">Loading…</p>;
 
   return (
     <div className="max-w-3xl">
@@ -35,7 +35,7 @@ export default function CampaignEdit() {
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={() => navigate("/campaigns")}
-          className="text-muted-foreground hover:text-foreground text-sm"
+          className="text-brand-grey-dark hover:text-brand-black text-sm"
         >
           ← Campaigns
         </button>
@@ -59,15 +59,15 @@ export default function CampaignEdit() {
 
       {/* Tab bar — edit mode only */}
       {!isNew && (
-        <div className="flex gap-1 border-b border-border mb-6">
+        <div className="flex gap-1 border-b border-brand-border mb-6">
           {(["settings", "targets", "audio", "embed", "stats"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${
                 activeTab === tab
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
+                  ? "border-brand-orange text-brand-black"
+                  : "border-transparent text-brand-grey-dark hover:text-brand-black"
               }`}
             >
               {tab}
@@ -119,6 +119,9 @@ export default function CampaignEdit() {
           setEditTargetForm={data.setEditTargetForm}
           handleAddTarget={data.handleAddTarget}
           handleDeleteTarget={data.handleDeleteTarget}
+          pendingDeleteTarget={data.pendingDeleteTarget}
+          cancelDeleteTarget={data.cancelDeleteTarget}
+          confirmDeleteTarget={data.confirmDeleteTarget}
           startEditTarget={data.startEditTarget}
           handleSaveTargetEdit={data.handleSaveTargetEdit}
           handleDragEnd={data.handleDragEnd}

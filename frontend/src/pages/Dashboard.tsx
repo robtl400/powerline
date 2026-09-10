@@ -40,9 +40,9 @@ interface Campaign {
 function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
     <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
-      <p className="text-xs font-semibold uppercase tracking-[0.07em] text-brand-grey-light">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.07em] text-brand-grey-dark">{label}</p>
       <p className="mt-1 text-3xl font-semibold tabular-nums text-brand-black">{value}</p>
-      {sub && <p className="mt-1 text-[11px] text-brand-grey-light">{sub}</p>}
+      {sub && <p className="mt-1 text-[11px] text-brand-grey-dark">{sub}</p>}
     </div>
   );
 }
@@ -70,7 +70,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48 text-brand-grey-light text-sm">
+      <div className="flex items-center justify-center h-48 text-brand-grey-dark text-sm">
         Loading…
       </div>
     );
@@ -112,11 +112,11 @@ export default function Dashboard() {
 
       {/* 7-day call volume chart */}
       <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
-        <h2 className="mb-4 text-sm font-medium text-brand-grey-light">
+        <h2 className="mb-4 text-sm font-medium text-brand-grey-dark">
           Call Volume — Last 7 Days
         </h2>
         {chartData.every((d) => d.calls === 0) ? (
-          <p className="py-8 text-center text-sm text-brand-grey-light">No calls recorded yet.</p>
+          <p className="py-8 text-center text-sm text-brand-grey-dark">No calls recorded yet.</p>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
@@ -181,7 +181,7 @@ export default function Dashboard() {
             <tbody>
               {campaigns.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-5 py-8 text-center text-sm text-brand-grey-light">
+                  <td colSpan={4} className="px-5 py-8 text-center text-sm text-brand-grey-dark">
                     No live campaigns —{" "}
                     <Link to="/campaigns" className="text-brand-orange hover:underline">View all campaigns</Link>
                   </td>
@@ -193,8 +193,8 @@ export default function Dashboard() {
                     className="border-b last:border-0 hover:bg-page-bg/50 transition-colors"
                   >
                     <td className="px-5 py-3 font-medium">{c.name}</td>
-                    <td className="px-5 py-3 capitalize text-brand-grey-light">{c.campaign_type}</td>
-                    <td className="px-5 py-3 text-brand-grey-light">{c.target_count}</td>
+                    <td className="px-5 py-3 capitalize text-brand-grey-dark">{c.campaign_type}</td>
+                    <td className="px-5 py-3 text-brand-grey-dark">{c.target_count}</td>
                     <td className="px-5 py-3 text-right">
                       <button
                         onClick={() => navigate(`/campaigns/${c.id}/edit`)}

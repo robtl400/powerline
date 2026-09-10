@@ -27,17 +27,17 @@ function StepIndicator({ current }: { current: WizardStep }) {
             <div
               className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
                 s === current
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-brand-orange text-white"
                   : s < current
-                  ? "bg-primary/30 text-primary"
-                  : "bg-muted text-muted-foreground"
+                  ? "bg-brand-orange/30 text-brand-orange"
+                  : "bg-page-bg text-brand-grey-dark"
               }`}
             >
               {s}
             </div>
             <span
               className={`text-sm font-medium ${
-                s === current ? "text-foreground" : "text-muted-foreground"
+                s === current ? "text-brand-black" : "text-brand-grey-dark"
               }`}
             >
               {STEP_LABELS[s]}
@@ -45,7 +45,7 @@ function StepIndicator({ current }: { current: WizardStep }) {
           </div>
           {i < steps.length - 1 && (
             <div
-              className={`w-8 h-px mx-3 ${s < current ? "bg-primary/30" : "bg-border"}`}
+              className={`w-8 h-px mx-3 ${s < current ? "bg-brand-orange/30" : "bg-brand-border"}`}
             />
           )}
         </div>
@@ -96,16 +96,16 @@ function WizardBody({
             audioByKey={data.audioByKey}
             onRefresh={data.refreshAudio}
           />
-          <div className="flex gap-3 mt-8 pt-6 border-t border-border">
+          <div className="flex gap-3 mt-8 pt-6 border-t border-brand-border">
             <button
               onClick={() => onStepChange(3)}
-              className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="px-4 py-2 text-sm text-brand-grey-dark hover:text-brand-black transition-colors"
             >
               Skip
             </button>
             <button
               onClick={() => onStepChange(3)}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+              className="px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
             >
               Continue
             </button>
@@ -131,6 +131,9 @@ function WizardBody({
             setEditTargetForm={data.setEditTargetForm}
             handleAddTarget={data.handleAddTarget}
             handleDeleteTarget={data.handleDeleteTarget}
+            pendingDeleteTarget={data.pendingDeleteTarget}
+            cancelDeleteTarget={data.cancelDeleteTarget}
+            confirmDeleteTarget={data.confirmDeleteTarget}
             startEditTarget={data.startEditTarget}
             handleSaveTargetEdit={data.handleSaveTargetEdit}
             handleDragEnd={data.handleDragEnd}
@@ -149,10 +152,10 @@ function WizardBody({
             handleDownloadErrors={data.handleDownloadErrors}
             resetImport={data.resetImport}
           />
-          <div className="flex gap-3 mt-8 pt-6 border-t border-border">
+          <div className="flex gap-3 mt-8 pt-6 border-t border-brand-border">
             <button
               onClick={() => onStepChange(4)}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+              className="px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
             >
               Continue
             </button>
@@ -169,7 +172,7 @@ function WizardBody({
             copiedSnippet={data.copiedSnippet}
             onCopy={data.copySnippet}
           />
-          <div className="mt-8 pt-6 border-t border-border">
+          <div className="mt-8 pt-6 border-t border-brand-border">
             {!goLiveDone ? (
               <div className="flex flex-col gap-3">
                 <div className="flex gap-3 items-center">
@@ -182,13 +185,13 @@ function WizardBody({
                   </button>
                   <button
                     onClick={() => navigate(`/campaigns/${campaignId}/edit`)}
-                    className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    className="px-4 py-2 text-sm text-brand-grey-dark hover:text-brand-black transition-colors"
                   >
                     Finish (stay draft)
                   </button>
                 </div>
                 {goLiveError && (
-                  <p className="text-sm text-destructive">{goLiveError}</p>
+                  <p className="text-sm text-brand-grey-dark">{goLiveError}</p>
                 )}
               </div>
             ) : (
@@ -196,7 +199,7 @@ function WizardBody({
                 <p className="text-sm text-brand-orange font-medium">Campaign is live!</p>
                 <button
                   onClick={() => navigate(`/campaigns/${campaignId}/edit`)}
-                  className="w-fit px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+                  className="w-fit px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
                 >
                   Finish
                 </button>
@@ -260,7 +263,7 @@ export default function CampaignWizard() {
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={() => navigate("/campaigns")}
-          className="text-muted-foreground hover:text-foreground text-sm"
+          className="text-brand-grey-dark hover:text-brand-black text-sm"
         >
           ← Campaigns
         </button>
@@ -272,8 +275,8 @@ export default function CampaignWizard() {
       {step === 1 && (
         <form onSubmit={handleStep1Continue} className="space-y-6 max-w-lg">
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
-              Name <span className="text-destructive">*</span>
+            <label className="block text-sm font-medium text-brand-black mb-1">
+              Name <span className="text-brand-grey-dark">*</span>
             </label>
             <input
               className={INPUT_CLASS}
@@ -284,11 +287,11 @@ export default function CampaignWizard() {
               autoFocus
             />
             {nameError && (
-              <p className="text-xs text-destructive mt-1">{nameError}</p>
+              <p className="text-xs text-brand-grey-dark mt-1">{nameError}</p>
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">
+            <label className="block text-sm font-medium text-brand-black mb-1">
               Language
             </label>
             <select
@@ -304,7 +307,7 @@ export default function CampaignWizard() {
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               {saving ? "Creating…" : "Continue"}
             </button>

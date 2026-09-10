@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Mic, Play } from "lucide-react";
 import client from "@/api/client";
 import { INPUT_CLASS } from "@/lib/styles";
 import type { AudioRecording } from "@/types/campaign";
@@ -285,12 +286,12 @@ export function AudioSlotCard({
       {/* Header */}
       <div>
         <p className="text-sm font-semibold text-brand-black">{label}</p>
-        <p className="text-xs text-brand-grey-light">{hint}</p>
+        <p className="text-xs text-brand-grey-dark">{hint}</p>
       </div>
 
       {/* First-time hint */}
       {!readOnly && !active && (
-        <p className="text-[11px] text-brand-grey-light mb-3">
+        <p className="text-[11px] text-brand-grey-dark mb-3">
           No audio yet — record, upload, or generate a script below
         </p>
       )}
@@ -341,12 +342,12 @@ export function AudioSlotCard({
                   <button
                     onClick={startRecording}
                     aria-label="Start recording"
-                    className="flex h-[50px] w-[50px] items-center justify-center rounded-full bg-brand-orange text-white shadow-[0_3px_12px_rgba(242,84,45,0.4)] hover:opacity-90 transition-opacity text-xl"
+                    className="flex h-[50px] w-[50px] items-center justify-center rounded-full bg-brand-orange text-white shadow-[0_3px_12px_rgba(242,84,45,0.4)] hover:opacity-90 transition-opacity"
                     title="Tap to start recording"
                   >
-                    🎙
+                    <Mic size={20} aria-hidden="true" />
                   </button>
-                  <p className="text-xs text-brand-grey-light">Tap to start recording</p>
+                  <p className="text-xs text-brand-grey-dark">Tap to start recording</p>
                 </div>
               )}
 
@@ -450,7 +451,7 @@ export function AudioSlotCard({
               Drag &amp; drop an audio file, or{" "}
               <span className="font-medium text-brand-black">click to browse</span>
             </p>
-            <p className="text-xs text-brand-grey-light mt-1">
+            <p className="text-xs text-brand-grey-dark mt-1">
               MP3, WAV, WebM, MP4 — max 10 MB
             </p>
             <input
@@ -511,13 +512,13 @@ export function AudioSlotCard({
                     key={chip}
                     type="button"
                     onClick={() => insertChip(chip)}
-                    className="border border-brand-border rounded px-1.5 py-0.5 text-[11px] text-brand-grey-light bg-page-bg hover:border-brand-grey-light transition-colors"
+                    className="border border-brand-border rounded px-1.5 py-0.5 text-[11px] text-brand-grey-dark bg-page-bg hover:border-brand-grey-light transition-colors"
                   >
                     {chip}
                   </button>
                 ))}
               </div>
-              <span className="text-[11px] text-brand-grey-light">{ttsInput.length} / 500</span>
+              <span className="text-[11px] text-brand-grey-dark">{ttsInput.length} / 500</span>
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -542,9 +543,10 @@ export function AudioSlotCard({
                 href={active.file_url}
                 target="_blank"
                 rel="noreferrer"
-                className="flex-1 truncate text-brand-grey-dark hover:underline"
+                className="flex flex-1 items-center gap-1 truncate text-brand-grey-dark hover:underline"
               >
-                ▶ {active.file_url.split("/").pop()}
+                <Play size={12} aria-hidden="true" className="shrink-0" />
+                {active.file_url.split("/").pop()}
               </a>
             ) : (
               <span className="flex-1 truncate text-brand-grey-dark">{active.tts_text}</span>
@@ -560,7 +562,7 @@ export function AudioSlotCard({
             </span>
           </div>
         ) : (
-          <p className="text-xs text-brand-grey-light italic">No active version — using default TTS.</p>
+          <p className="text-xs text-brand-grey-dark italic">No active version — using default TTS.</p>
         )}
 
         {versions.length > 1 && (
@@ -585,12 +587,12 @@ export function AudioSlotCard({
                   style={
                     v.is_active
                       ? { background: "rgba(176,83,87,0.10)", color: "#B05357" }
-                      : { background: "#F4F5F7", color: "#92918F" }
+                      : { background: "#F4F5F7", color: "#53565B" }
                   }
                 >
                   v{v.version}
                 </span>
-                <span className="flex-1 truncate text-brand-grey-light">
+                <span className="flex-1 truncate text-brand-grey-dark">
                   {v.file_url ? v.file_url.split("/").pop() : v.tts_text}
                 </span>
                 {!readOnly && !v.is_active && (

@@ -18,7 +18,7 @@ export function CampaignAudioTab({
   readOnly?: boolean;
 }) {
   if (audioLoading) {
-    return <p className="text-muted-foreground text-sm">Loading audio…</p>;
+    return <p className="text-brand-grey-dark text-sm">Loading audio…</p>;
   }
 
   return (

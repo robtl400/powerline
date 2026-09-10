@@ -83,14 +83,14 @@ export default function PhoneNumbers() {
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          className="rounded-md bg-brand-orange px-4 py-2 text-sm font-medium text-white hover:bg-brand-orange/90 disabled:opacity-50"
         >
           {syncing ? "Syncing…" : "Sync from Twilio"}
         </button>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {error && <p className="text-sm text-brand-grey-dark">{error}</p>}
+      {loading && <p className="text-sm text-brand-grey-dark">Loading…</p>}
 
       {!loading && !error && (
         <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
@@ -110,7 +110,7 @@ export default function PhoneNumbers() {
                 <tr>
                   <td
                     colSpan={6}
-                    className="px-4 py-8 text-center text-sm text-brand-grey-light"
+                    className="px-4 py-8 text-center text-sm text-brand-grey-dark"
                   >
                     No phone numbers. Click "Sync from Twilio" to import.
                   </td>
@@ -119,7 +119,7 @@ export default function PhoneNumbers() {
               {phoneNumbers.map((pn) => (
                 <tr key={pn.id} className="border-b last:border-0">
                   <td className="px-4 py-3 font-mono text-xs">{pn.number}</td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="px-4 py-3 text-brand-grey-dark">
                     {pn.label || "—"}
                   </td>
                   <td className="px-4 py-3 capitalize">{pn.provider}</td>
@@ -151,7 +151,7 @@ export default function PhoneNumbers() {
                         setSelectedCampaignId("");
                         setAssignError(null);
                       }}
-                      className="text-primary text-sm hover:underline"
+                      className="text-brand-orange text-sm hover:underline"
                     >
                       Assign
                     </button>
@@ -165,7 +165,7 @@ export default function PhoneNumbers() {
 
       {/* Inline assign panel — consistent with CampaignEdit target add/edit pattern */}
       {assignTarget && (
-        <div className="max-w-md rounded-md border border-border bg-muted/20 p-4 space-y-3">
+        <div className="max-w-md rounded-md border border-brand-border bg-page-bg p-4 space-y-3">
           <p className="text-sm font-medium">
             Assign{" "}
             <span className="font-mono">{assignTarget.number}</span> to campaign
@@ -183,19 +183,19 @@ export default function PhoneNumbers() {
             ))}
           </select>
           {assignError && (
-            <p className="text-xs text-destructive">{assignError}</p>
+            <p className="text-xs text-brand-grey-dark">{assignError}</p>
           )}
           <div className="flex gap-2">
             <button
               onClick={handleAssign}
               disabled={!selectedCampaignId || assigning}
-              className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              className="rounded-md bg-brand-orange px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
             >
               {assigning ? "Assigning…" : "Assign"}
             </button>
             <button
               onClick={() => setAssignTarget(null)}
-              className="rounded-md border border-border px-4 py-1.5 text-sm"
+              className="rounded-md border border-brand-border px-4 py-1.5 text-sm"
             >
               Cancel
             </button>

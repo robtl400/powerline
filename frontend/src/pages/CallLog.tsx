@@ -142,18 +142,18 @@ export default function CallLog() {
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate(`/campaigns/${id}/edit`)}
-          className="text-sm text-brand-grey-light hover:text-brand-black"
+          className="text-sm text-brand-grey-dark hover:text-brand-black"
         >
           ← {campaign?.name ?? "Campaign"}
         </button>
-        <span className="text-muted-foreground">/</span>
+        <span className="text-brand-grey-dark">/</span>
         <h1 className="text-xl font-semibold tracking-tight">Call Log</h1>
       </div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3 rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] p-4">
         <div>
-          <label htmlFor="calllog-status" className="block text-xs text-brand-grey-light mb-1">Status</label>
+          <label htmlFor="calllog-status" className="block text-xs text-brand-grey-dark mb-1">Status</label>
           <select
             id="calllog-status"
             className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white min-w-[120px]"
@@ -168,7 +168,7 @@ export default function CallLog() {
           </select>
         </div>
         <div>
-          <label htmlFor="calllog-type" className="block text-xs text-brand-grey-light mb-1">Type</label>
+          <label htmlFor="calllog-type" className="block text-xs text-brand-grey-dark mb-1">Type</label>
           <select
             id="calllog-type"
             className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white min-w-[140px]"
@@ -182,7 +182,7 @@ export default function CallLog() {
           </select>
         </div>
         <div>
-          <label htmlFor="calllog-start" className="block text-xs text-brand-grey-light mb-1">From</label>
+          <label htmlFor="calllog-start" className="block text-xs text-brand-grey-dark mb-1">From</label>
           <input
             id="calllog-start"
             type="date"
@@ -193,7 +193,7 @@ export default function CallLog() {
           />
         </div>
         <div>
-          <label htmlFor="calllog-end" className="block text-xs text-brand-grey-light mb-1">To</label>
+          <label htmlFor="calllog-end" className="block text-xs text-brand-grey-dark mb-1">To</label>
           <input
             id="calllog-end"
             type="date"
@@ -236,13 +236,13 @@ export default function CallLog() {
       {/* Table */}
       <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
         <div className="border-b px-5 py-3 flex items-center justify-between">
-          <p className="text-sm text-brand-grey-light">
+          <p className="text-sm text-brand-grey-dark">
             {page.total} session{page.total !== 1 ? "s" : ""}
           </p>
         </div>
 
         {loading ? (
-          <p className="px-5 py-8 text-center text-sm text-brand-grey-light">Loading…</p>
+          <p className="px-5 py-8 text-center text-sm text-brand-grey-dark">Loading…</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -257,7 +257,7 @@ export default function CallLog() {
             <tbody>
               {page.items.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-brand-grey-light">
+                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-brand-grey-dark">
                     {hasActiveFilters ? (
                       <>No sessions match your filters — <button onClick={clearFilters} className="text-brand-orange hover:underline">Clear filters</button></>
                     ) : "No call sessions yet"}
@@ -266,7 +266,7 @@ export default function CallLog() {
               ) : (
                 page.items.map((row) => (
                   <tr key={row.id} className="border-b last:border-0 hover:bg-page-bg/50 transition-colors">
-                    <td className="px-5 py-3 font-mono text-xs text-brand-grey-light">
+                    <td className="px-5 py-3 font-mono text-xs text-brand-grey-dark">
                       {formatDateTime(row.created_at)}
                     </td>
                     <td className="px-5 py-3">
@@ -282,7 +282,7 @@ export default function CallLog() {
                       />
                     </td>
                     <td className="px-5 py-3 text-right tabular-nums">{row.call_count}</td>
-                    <td className="px-5 py-3 text-right tabular-nums text-brand-grey-light">
+                    <td className="px-5 py-3 text-right tabular-nums text-brand-grey-dark">
                       {row.duration != null ? `${row.duration}s` : "—"}
                     </td>
                   </tr>
@@ -295,11 +295,11 @@ export default function CallLog() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-brand-grey-light">
+        <div className="flex items-center justify-between text-sm text-brand-grey-dark">
           <button
             onClick={() => setSkip(Math.max(0, skip - PAGE_SIZE))}
             disabled={skip === 0}
-            className="px-3 py-1.5 border border-border rounded hover:bg-muted/50 disabled:opacity-40 transition-colors"
+            className="px-3 py-1.5 border border-brand-border rounded hover:bg-page-bg disabled:opacity-40 transition-colors"
           >
             ← Previous
           </button>
@@ -309,7 +309,7 @@ export default function CallLog() {
           <button
             onClick={() => setSkip(skip + PAGE_SIZE)}
             disabled={skip + PAGE_SIZE >= page.total}
-            className="px-3 py-1.5 border border-border rounded hover:bg-muted/50 disabled:opacity-40 transition-colors"
+            className="px-3 py-1.5 border border-brand-border rounded hover:bg-page-bg disabled:opacity-40 transition-colors"
           >
             Next →
           </button>

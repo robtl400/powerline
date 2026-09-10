@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import client from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { getErrorDetail } from "@/lib/api-error";
 import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { Modal } from "@/components/Modal";
 import { PhoneInput } from "@/components/PhoneInput";
 
 interface User {
@@ -37,7 +38,6 @@ export default function Users() {
   const [inviteForm, setInviteForm] = useState<InviteForm>(EMPTY_FORM);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
-  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
@@ -49,16 +49,6 @@ export default function Users() {
       .catch(() => setError("Failed to load users."))
       .finally(() => setIsLoading(false));
   }, []);
-
-  useEffect(() => {
-    if (!inviteOpen) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setInviteOpen(false);
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    nameInputRef.current?.focus();
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [inviteOpen]);
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
@@ -112,83 +102,77 @@ export default function Users() {
       </div>
 
       {/* Invite modal */}
-      {inviteOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="invite-modal-title"
-            className="bg-white rounded-[10px] border border-brand-border p-6 w-full max-w-[min(480px,90vw)] shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]"
-          >
-            <h2 id="invite-modal-title" className="text-base font-semibold mb-4">Invite User</h2>
-            <form onSubmit={handleInvite} className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">Name <span className="text-brand-grey-dark">*</span></label>
-                <input
-                  ref={nameInputRef}
-                  className={INPUT_CLASS}
-                  required
-                  value={inviteForm.name}
-                  onChange={(e) => setInviteForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="Full name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Email <span className="text-brand-grey-dark">*</span></label>
-                <input
-                  className={INPUT_CLASS}
-                  type="email"
-                  required
-                  value={inviteForm.email}
-                  onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="user@example.com"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Phone <span className="text-brand-grey-dark">*</span></label>
-                <PhoneInput
-                  value={inviteForm.phone}
-                  onChange={(v) => setInviteForm((f) => ({ ...f, phone: v }))}
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Role</label>
-                <select
-                  className={INPUT_CLASS}
-                  value={inviteForm.role}
-                  onChange={(e) => setInviteForm((f) => ({ ...f, role: e.target.value }))}
-                >
-                  <option value="staff">Staff</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-              {inviteError && (
-                <p className="text-sm text-brand-grey-dark">{inviteError}</p>
-              )}
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="submit"
-                  disabled={inviting}
-                  className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium disabled:opacity-50"
-                >
-                  {inviting ? "Inviting…" : "Send Invite"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setInviteOpen(false)}
-                  className="px-4 py-2 border border-brand-border rounded-[7px] text-sm"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
+      <Modal
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        titleId="invite-modal-title"
+        title="Invite User"
+      >
+        <form onSubmit={handleInvite} className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Name <span className="text-brand-grey-dark">*</span></label>
+            <input
+              className={INPUT_CLASS}
+              required
+              value={inviteForm.name}
+              onChange={(e) => setInviteForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Full name"
+            />
           </div>
-        </div>
-      )}
+          <div>
+            <label className="block text-sm font-medium mb-1">Email <span className="text-brand-grey-dark">*</span></label>
+            <input
+              className={INPUT_CLASS}
+              type="email"
+              required
+              value={inviteForm.email}
+              onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
+              placeholder="user@example.com"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Phone <span className="text-brand-grey-dark">*</span></label>
+            <PhoneInput
+              value={inviteForm.phone}
+              onChange={(v) => setInviteForm((f) => ({ ...f, phone: v }))}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Role</label>
+            <select
+              className={INPUT_CLASS}
+              value={inviteForm.role}
+              onChange={(e) => setInviteForm((f) => ({ ...f, role: e.target.value }))}
+            >
+              <option value="staff">Staff</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          {inviteError && (
+            <p className="text-sm text-brand-grey-dark">{inviteError}</p>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button
+              type="submit"
+              disabled={inviting}
+              className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium disabled:opacity-50"
+            >
+              {inviting ? "Inviting…" : "Send Invite"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setInviteOpen(false)}
+              className="px-4 py-2 border border-brand-border rounded-[7px] text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
-      {isLoading && <p className="text-sm text-brand-grey-light">Loading…</p>}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {isLoading && <p className="text-sm text-brand-grey-dark">Loading…</p>}
+      {error && <p className="text-sm text-brand-grey-dark">{error}</p>}
 
       {!isLoading && !error && (
         <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
@@ -206,7 +190,7 @@ export default function Users() {
             <tbody>
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={columnCount} className="px-4 py-8 text-center text-brand-grey-light">
+                  <td colSpan={columnCount} className="px-4 py-8 text-center text-brand-grey-dark">
                     No users yet.
                   </td>
                 </tr>
@@ -223,7 +207,7 @@ export default function Users() {
                         value={u.role}
                         disabled={rowBusy[u.id]}
                         onChange={(e) => patchUser(u.id, { role: e.target.value })}
-                        className="rounded-lg border border-brand-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-black disabled:opacity-50"
+                        className="rounded-lg border border-brand-border bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-black disabled:opacity-50"
                       >
                         <option value="admin">Admin</option>
                         <option value="staff">Staff</option>
@@ -237,7 +221,7 @@ export default function Users() {
                       className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium border ${
                         u.is_active
                           ? "bg-[rgba(176,83,87,0.10)] text-[#B05357] border-[rgba(176,83,87,0.20)]"
-                          : "bg-[#F4F5F7] text-[#92918F] border-[#E4E6EC]"
+                          : "bg-[#F4F5F7] text-[#53565B] border-[#E4E6EC]"
                       }`}
                     >
                       {u.is_active ? "Active" : "Inactive"}

@@ -3,6 +3,7 @@ import client from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { getErrorDetail } from "@/lib/api-error";
 import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { Modal } from "@/components/Modal";
 import { PhoneInput, validatePhone } from "@/components/PhoneInput";
 
 interface BlocklistEntry {
@@ -42,6 +43,7 @@ export default function Blocklist() {
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<BlocklistEntry | null>(null);
 
   useEffect(() => {
     client
@@ -87,8 +89,10 @@ export default function Blocklist() {
     }
   }
 
-  async function handleDelete(entry: BlocklistEntry) {
-    if (!confirm(`Remove this blocklist entry (${formatIdentifier(entry)})?`)) return;
+  async function handleDelete() {
+    const entry = pendingDelete;
+    if (!entry) return;
+    setPendingDelete(null);
     try {
       await client.delete(`/admin/blocklist/${entry.id}`);
       setEntries((prev) => prev.filter((e) => e.id !== entry.id));
@@ -97,7 +101,7 @@ export default function Blocklist() {
     }
   }
 
-  if (loading) return <p className="text-muted-foreground">Loading…</p>;
+  if (loading) return <p className="text-brand-grey-dark">Loading…</p>;
 
   return (
     <div className="max-w-3xl">
@@ -106,7 +110,7 @@ export default function Blocklist() {
         {isAdmin && (
           <button
             onClick={() => setShowForm((v) => !v)}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+            className="px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
           >
             {showForm ? "Cancel" : "+ Add Entry"}
           </button>
@@ -121,20 +125,20 @@ export default function Blocklist() {
 
       {/* Add entry form */}
       {isAdmin && showForm && (
-        <div className="rounded-md border border-border p-4 mb-6 space-y-3 bg-muted/20">
+        <div className="rounded-md border border-brand-border p-4 mb-6 space-y-3 bg-page-bg">
           <p className="text-sm font-medium">New blocklist entry</p>
           {formError && (
             <p className="text-xs text-brand-grey-dark">{formError}</p>
           )}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">
+              <label className="block text-xs font-medium text-brand-grey-dark mb-1">
                 Phone Number
               </label>
               <PhoneInput value={phoneNumber} onChange={setPhoneNumber} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">
+              <label className="block text-xs font-medium text-brand-grey-dark mb-1">
                 IP Address
               </label>
               <input
@@ -156,7 +160,7 @@ export default function Blocklist() {
             </button>
             {showHashField && (
               <div className="mt-2">
-                <label className="block text-xs font-medium text-muted-foreground mb-1">
+                <label className="block text-xs font-medium text-brand-grey-dark mb-1">
                   Phone Hash (sha256 hex)
                 </label>
                 <input
@@ -165,14 +169,14 @@ export default function Blocklist() {
                   onChange={(e) => setPhoneHash(e.target.value)}
                   placeholder="64-char hex"
                 />
-                <p className="mt-1 text-[11px] text-brand-grey-light">
+                <p className="mt-1 text-[11px] text-brand-grey-dark">
                   Used only when the phone number field is empty.
                 </p>
               </div>
             )}
           </div>
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
+            <label className="block text-xs font-medium text-brand-grey-dark mb-1">
               Reason (optional)
             </label>
             <input
@@ -186,7 +190,7 @@ export default function Blocklist() {
             <button
               onClick={handleAdd}
               disabled={saving}
-              className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
+              className="px-4 py-1.5 bg-brand-orange text-white rounded-md text-sm font-medium disabled:opacity-50"
             >
               {saving ? "Adding…" : "Add"}
             </button>
@@ -195,7 +199,7 @@ export default function Blocklist() {
                 setShowForm(false);
                 setFormError(null);
               }}
-              className="px-4 py-1.5 border border-border rounded-md text-sm"
+              className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
             >
               Cancel
             </button>
@@ -204,7 +208,7 @@ export default function Blocklist() {
       )}
 
       {entries.length === 0 ? (
-        <p className="text-sm text-brand-grey-light py-8 text-center">No blocked numbers or IP addresses</p>
+        <p className="text-sm text-brand-grey-dark py-8 text-center">No blocked numbers or IP addresses</p>
       ) : (
         <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
           <table className="w-full text-sm">
@@ -218,18 +222,18 @@ export default function Blocklist() {
             </thead>
             <tbody>
               {entries.map((entry) => (
-                <tr key={entry.id} className="border-t border-border bg-background">
+                <tr key={entry.id} className="border-t border-brand-border bg-white">
                   <td className="px-4 py-2 font-mono text-xs">{formatIdentifier(entry)}</td>
-                  <td className="px-4 py-2 text-muted-foreground">
+                  <td className="px-4 py-2 text-brand-grey-dark">
                     {entry.reason ?? <span className="italic">—</span>}
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground text-xs">
+                  <td className="px-4 py-2 text-brand-grey-dark text-xs">
                     {new Date(entry.created_at).toLocaleDateString()}
                   </td>
                   {isAdmin && (
                     <td className="px-4 py-2 text-right">
                       <button
-                        onClick={() => handleDelete(entry)}
+                        onClick={() => setPendingDelete(entry)}
                         className="text-brand-grey-dark text-sm hover:underline"
                       >
                         Remove
@@ -242,6 +246,31 @@ export default function Blocklist() {
           </table>
         </div>
       )}
+
+      <Modal
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        titleId="delete-blocklist-entry-title"
+        title="Remove blocklist entry"
+      >
+        <p className="text-sm text-brand-grey-dark mb-4">
+          {pendingDelete ? formatIdentifier(pendingDelete) : ""} will no longer be blocked.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setPendingDelete(null)}
+            className="px-4 py-2 border border-brand-border rounded-[7px] text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleDelete}
+            className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium"
+          >
+            Remove
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

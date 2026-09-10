@@ -56,6 +56,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
   const [targetError, setTargetError] = useState<string | null>(null);
   const [editingTarget, setEditingTarget] = useState<Target | null>(null);
   const [editTargetForm, setEditTargetForm] = useState<TargetForm>(emptyTargetForm());
+  const [pendingDeleteTarget, setPendingDeleteTarget] = useState<Target | null>(null);
 
   // ── CSV Import ─────────────────────────────────────────────────────────────
   const [importOpen, setImportOpen] = useState(false);
@@ -273,11 +274,20 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     }
   }
 
-  async function handleDeleteTarget(targetId: string) {
-    if (!id) return;
-    if (!confirm("Remove this target from the campaign?")) return;
-    await client.delete(`/campaigns/${id}/targets/${targetId}`);
-    setTargets((prev) => prev.filter((t) => t.id !== targetId));
+  function handleDeleteTarget(targetId: string) {
+    setPendingDeleteTarget(targets.find((t) => t.id === targetId) ?? null);
+  }
+
+  function cancelDeleteTarget() {
+    setPendingDeleteTarget(null);
+  }
+
+  async function confirmDeleteTarget() {
+    const target = pendingDeleteTarget;
+    if (!id || !target) return;
+    setPendingDeleteTarget(null);
+    await client.delete(`/campaigns/${id}/targets/${target.id}`);
+    setTargets((prev) => prev.filter((t) => t.id !== target.id));
   }
 
   function startEditTarget(target: Target) {
@@ -492,6 +502,9 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     editTargetForm, setEditTargetForm,
     handleAddTarget,
     handleDeleteTarget,
+    pendingDeleteTarget,
+    cancelDeleteTarget,
+    confirmDeleteTarget,
     startEditTarget,
     handleSaveTargetEdit,
     handleDragEnd,

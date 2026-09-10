@@ -9,9 +9,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchCallCount, fetchCampaign, fetchReps, isRepsError } from "./api.js";
+import { renderIdle } from "./ui/templates.js";
 import { WebRTCClient } from "./webrtc.js";
 import { PowerlineWidget } from "./widget.js";
 import type { CampaignPublic, ConnectedData, WidgetState } from "./types.js";
+
+/** Matches any emoji / pictographic character, so the widget never renders one. */
+const EMOJI_RE = /\p{Extended_Pictographic}/u;
 
 vi.mock("@twilio/voice-sdk", () => ({
   Device: vi.fn(),
@@ -379,6 +383,15 @@ describe("PowerlineWidget rep lookup", () => {
       container.querySelector<HTMLElement>("#pl-zip-error")!.textContent
     ).toBe("Invalid or expired representative selection");
     expect(container.innerHTML).not.toContain("Something went wrong");
+  });
+});
+
+describe("renderIdle icons", () => {
+  it("uses inline SVG instead of emoji for the call-to-action", () => {
+    const html = renderIdle(fakeCampaign);
+
+    expect(EMOJI_RE.test(html)).toBe(false);
+    expect(html).toContain("<svg");
   });
 });
 

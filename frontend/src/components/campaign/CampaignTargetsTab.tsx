@@ -11,6 +11,7 @@ import {
 import { INPUT_CLASS } from "@/lib/styles";
 import type { ImportResult, Target, TargetForm } from "@/types/campaign";
 import { SortableTargetRow } from "./SortableTargetRow";
+import { Modal } from "@/components/Modal";
 import { PhoneInput } from "@/components/PhoneInput";
 
 const REQUIRED_FIELDS = ["name", "title", "phone_number", "location"] as const;
@@ -39,6 +40,9 @@ export function CampaignTargetsTab({
   setEditTargetForm,
   handleAddTarget,
   handleDeleteTarget,
+  pendingDeleteTarget,
+  cancelDeleteTarget,
+  confirmDeleteTarget,
   startEditTarget,
   handleSaveTargetEdit,
   handleDragEnd,
@@ -74,6 +78,9 @@ export function CampaignTargetsTab({
   setEditTargetForm: (fn: (prev: TargetForm) => TargetForm) => void;
   handleAddTarget: () => void;
   handleDeleteTarget: (id: string) => void;
+  pendingDeleteTarget: Target | null;
+  cancelDeleteTarget: () => void;
+  confirmDeleteTarget: () => void;
   startEditTarget: (t: Target) => void;
   handleSaveTargetEdit: () => void;
   handleDragEnd: (event: DragEndEvent) => void;
@@ -122,9 +129,9 @@ export function CampaignTargetsTab({
   return (
     <section>
       {onTargetLevelsChange && (
-        <div className="mb-6 p-4 border border-border rounded-lg">
+        <div className="mb-6 p-4 border border-brand-border rounded-lg">
           <h3 className="text-sm font-medium mb-1">Who to call</h3>
-          <p className="text-xs text-muted-foreground mb-3">
+          <p className="text-xs text-brand-grey-dark mb-3">
             Select which levels of government to route supporter calls to via ZIP code lookup.
             When enabled, representative calls run in addition to any manually-configured
             targets below.
@@ -133,7 +140,7 @@ export function CampaignTargetsTab({
             <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-border text-primary accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                className="h-4 w-4 rounded border-brand-border text-brand-orange accent-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black cursor-pointer"
                 checked={targetLevels.includes("federal")}
                 onChange={() => toggleLevel("federal")}
               />
@@ -142,20 +149,20 @@ export function CampaignTargetsTab({
             <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-border text-primary accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                className="h-4 w-4 rounded border-brand-border text-brand-orange accent-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black cursor-pointer"
                 checked={targetLevels.includes("state")}
                 onChange={() => toggleLevel("state")}
               />
               State legislators
             </label>
-            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-not-allowed select-none">
+            <label className="flex items-center gap-2 text-sm text-brand-grey-dark cursor-not-allowed select-none">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-border cursor-not-allowed"
+                className="h-4 w-4 rounded border-brand-border cursor-not-allowed"
                 disabled
               />
               Local{" "}
-              <span className="ml-1 text-xs font-medium bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
+              <span className="ml-1 text-xs font-medium bg-page-bg text-brand-grey-dark px-2 py-0.5 rounded-full">
                 coming soon
               </span>
             </label>
@@ -179,15 +186,15 @@ export function CampaignTargetsTab({
             items={targets.map((t) => t.id)}
             strategy={verticalListSortingStrategy}
           >
-            <div className="rounded-md border border-border overflow-hidden mb-4">
+            <div className="rounded-md border border-brand-border overflow-hidden mb-4">
               <table className="w-full text-sm">
-                <thead className="bg-muted/50">
+                <thead className="bg-page-bg">
                   <tr>
                     <th className="w-8 px-3 py-2" />
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Title</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Phone</th>
-                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Location</th>
+                    <th className="text-left px-3 py-2 font-medium text-brand-grey-dark">Name</th>
+                    <th className="text-left px-3 py-2 font-medium text-brand-grey-dark">Title</th>
+                    <th className="text-left px-3 py-2 font-medium text-brand-grey-dark">Phone</th>
+                    <th className="text-left px-3 py-2 font-medium text-brand-grey-dark">Location</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
@@ -209,14 +216,14 @@ export function CampaignTargetsTab({
       )}
 
       {targets.length === 0 && (
-        <p className="text-muted-foreground text-sm mb-4">No targets yet.</p>
+        <p className="text-brand-grey-dark text-sm mb-4">No targets yet.</p>
       )}
 
       {/* Edit target inline */}
       {!readOnly && editingTarget && (
-        <div className="rounded-md border border-border p-4 mb-4 bg-muted/20 space-y-3">
+        <div className="rounded-md border border-brand-border p-4 mb-4 bg-page-bg space-y-3">
           <p className="text-sm font-medium">Edit target</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <input
               className={INPUT_CLASS}
               placeholder="Name *"
@@ -250,13 +257,13 @@ export function CampaignTargetsTab({
           <div className="flex gap-2">
             <button
               onClick={handleSaveTargetEdit}
-              className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium"
+              className="px-4 py-1.5 bg-brand-orange text-white rounded-md text-sm font-medium"
             >
               Save
             </button>
             <button
               onClick={() => setEditingTarget(null)}
-              className="px-4 py-1.5 border border-border rounded-md text-sm"
+              className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
             >
               Cancel
             </button>
@@ -266,9 +273,9 @@ export function CampaignTargetsTab({
 
       {/* Add target form */}
       {!readOnly && (addingTarget ? (
-        <div className="rounded-md border border-border p-4 bg-muted/20 space-y-3">
+        <div className="rounded-md border border-brand-border p-4 bg-page-bg space-y-3">
           <p className="text-sm font-medium">Add target</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <input
               className={INPUT_CLASS}
               placeholder="Name *"
@@ -308,7 +315,7 @@ export function CampaignTargetsTab({
                 !targetForm.phone_number ||
                 !targetForm.location
               }
-              className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
+              className="px-4 py-1.5 bg-brand-orange text-white rounded-md text-sm font-medium disabled:opacity-50"
             >
               Add
             </button>
@@ -318,7 +325,7 @@ export function CampaignTargetsTab({
                 setTargetForm(() => ({ name: "", title: "", phone_number: "", location: "", external_id: "" }));
                 setTargetError(null);
               }}
-              className="px-4 py-1.5 border border-border rounded-md text-sm"
+              className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
             >
               Cancel
             </button>
@@ -328,14 +335,14 @@ export function CampaignTargetsTab({
         <div className="flex gap-2">
           <button
             onClick={() => setAddingTarget(true)}
-            className="px-4 py-2 border border-dashed border-border rounded-md text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+            className="px-4 py-2 border border-dashed border-brand-border rounded-md text-sm text-brand-grey-dark hover:text-brand-black hover:border-brand-orange/50 transition-colors"
           >
             + Add Target
           </button>
           {!importOpen && (
             <button
               onClick={() => setImportOpen(true)}
-              className="px-4 py-2 border border-dashed border-border rounded-md text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+              className="px-4 py-2 border border-dashed border-brand-border rounded-md text-sm text-brand-grey-dark hover:text-brand-black hover:border-brand-orange/50 transition-colors"
             >
               Import CSV
             </button>
@@ -345,7 +352,7 @@ export function CampaignTargetsTab({
 
       {/* CSV Import panel */}
       {!readOnly && importOpen && (
-        <div className="mt-4 rounded-md border border-border p-4 bg-muted/20 space-y-4">
+        <div className="mt-4 rounded-md border border-brand-border p-4 bg-page-bg space-y-4">
           <p className="text-sm font-medium">Import targets from CSV</p>
 
           {/* Import result summary */}
@@ -365,15 +372,15 @@ export function CampaignTargetsTab({
                 <div className="space-y-2">
                   <button
                     onClick={() => setErrorsExpanded((v) => !v)}
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className="text-xs text-brand-grey-dark hover:text-brand-black"
                   >
                     {errorsExpanded ? "Hide" : "Show"} error details
                   </button>
                   {errorsExpanded && (
-                    <div className="rounded border border-border divide-y divide-border text-xs max-h-40 overflow-y-auto">
+                    <div className="rounded border border-brand-border divide-y divide-brand-border text-xs max-h-40 overflow-y-auto">
                       {importResult.errors.map((e) => (
                         <div key={e.row} className="px-3 py-1.5 flex gap-3">
-                          <span className="text-muted-foreground shrink-0">Row {e.row}</span>
+                          <span className="text-brand-grey-dark shrink-0">Row {e.row}</span>
                           <span className="text-brand-grey-dark">{e.error}</span>
                         </div>
                       ))}
@@ -381,7 +388,7 @@ export function CampaignTargetsTab({
                   )}
                   <button
                     onClick={handleDownloadErrors}
-                    className="text-xs text-primary underline-offset-2 hover:underline"
+                    className="text-xs text-brand-orange underline-offset-2 hover:underline"
                   >
                     Download error report
                   </button>
@@ -393,7 +400,7 @@ export function CampaignTargetsTab({
                   resetImport();
                   setImportOpen(true);
                 }}
-                className="px-3 py-1.5 border border-border rounded-md text-xs"
+                className="px-3 py-1.5 border border-brand-border rounded-md text-xs"
               >
                 Import another file
               </button>
@@ -409,15 +416,15 @@ export function CampaignTargetsTab({
                   onClick={() => fileInputRef.current?.click()}
                   className={`border-2 border-dashed rounded-md p-6 text-center cursor-pointer transition-colors ${
                     dragOver
-                      ? "border-primary/60 bg-primary/5"
-                      : "border-border hover:border-primary/40"
+                      ? "border-brand-orange/60 bg-brand-orange/5"
+                      : "border-brand-border hover:border-brand-orange/40"
                   }`}
                 >
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-brand-grey-dark">
                     Drag &amp; drop a CSV file here, or{" "}
-                    <span className="text-foreground font-medium">click to browse</span>
+                    <span className="text-brand-black font-medium">click to browse</span>
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-xs text-brand-grey-dark mt-1">
                     Required columns: name, title, phone_number, location
                   </p>
                   <input
@@ -438,7 +445,7 @@ export function CampaignTargetsTab({
                         resetImport();
                         setImportOpen(true);
                       }}
-                      className="text-xs text-muted-foreground hover:text-foreground"
+                      className="text-xs text-brand-grey-dark hover:text-brand-black"
                     >
                       Change file
                     </button>
@@ -446,13 +453,13 @@ export function CampaignTargetsTab({
 
                   {importHeaders.length > 0 && (
                     <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                      <p className="text-xs text-brand-grey-dark font-medium uppercase tracking-wide">
                         Column mapping
                       </p>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         {([...REQUIRED_FIELDS, ...OPTIONAL_FIELDS] as string[]).map((field) => (
                           <div key={field} className="space-y-1">
-                            <label className="text-xs text-muted-foreground">
+                            <label className="text-xs text-brand-grey-dark">
                               {FIELD_LABELS[field]}
                               {REQUIRED_FIELDS.includes(field as typeof REQUIRED_FIELDS[number]) && (
                                 <span className="text-brand-grey-dark ml-0.5">*</span>
@@ -490,13 +497,13 @@ export function CampaignTargetsTab({
                 <button
                   onClick={handleImportSubmit}
                   disabled={!importFile || !requiredMapped || importLoading}
-                  className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
+                  className="px-4 py-1.5 bg-brand-orange text-white rounded-md text-sm font-medium disabled:opacity-50"
                 >
                   {importLoading ? "Importing…" : "Import"}
                 </button>
                 <button
                   onClick={resetImport}
-                  className="px-4 py-1.5 border border-border rounded-md text-sm"
+                  className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
                 >
                   Cancel
                 </button>
@@ -505,6 +512,31 @@ export function CampaignTargetsTab({
           )}
         </div>
       )}
+
+      <Modal
+        open={pendingDeleteTarget !== null}
+        onClose={cancelDeleteTarget}
+        titleId="delete-target-title"
+        title="Remove target"
+      >
+        <p className="text-sm text-brand-grey-dark mb-4">
+          {pendingDeleteTarget?.name} will be removed from this campaign.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={cancelDeleteTarget}
+            className="px-4 py-2 border border-brand-border rounded-[7px] text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={confirmDeleteTarget}
+            className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium"
+          >
+            Remove
+          </button>
+        </div>
+      </Modal>
     </section>
   );
 }

@@ -3,33 +3,33 @@
 
 // Tailwind class-based mappings kept for simpler badge use
 export const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
-  draft:    "bg-[#F9FAFB] text-[#92918F] border border-[#E4E6EC]",
+  draft:    "bg-[#F9FAFB] text-[#53565B] border border-[#E4E6EC]",
   live:     "bg-[rgba(242,84,45,0.10)] text-[#F2542D] border border-[rgba(242,84,45,0.25)]",
-  paused:   "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
-  archived: "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  paused:   "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
+  archived: "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
   completed:"bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
   failed:   "bg-[#F3F4F6] text-[#53565B] border border-[#D1D3D9]",
 };
 
 export const CALL_SESSION_STATUS_COLORS: Record<string, string> = {
   completed:   "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
-  initiated:   "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  initiated:   "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
   in_progress: "bg-[rgba(242,84,45,0.10)] text-[#F2542D] border border-[rgba(242,84,45,0.25)]",
   failed:      "bg-[#F3F4F6] text-[#53565B] border border-[#D1D3D9]",
 };
 
 export const CONNECTION_TYPE_COLORS: Record<string, string> = {
-  webrtc:         "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
-  outbound_phone: "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
-  inbound_phone:  "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  webrtc:         "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
+  outbound_phone: "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
+  inbound_phone:  "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
 };
 
 // Twilio trust_status values as they arrive from the API
 export const TRUST_STATUS_COLORS: Record<string, string> = {
   "twilio-approved": "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
-  "pending-review":  "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
-  "in-review":       "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
-  unknown:           "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]",
+  "pending-review":  "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
+  "in-review":       "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
+  unknown:           "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
 };
 
 export const TRUST_STATUS_LABELS: Record<string, string> = {
@@ -39,7 +39,7 @@ export const TRUST_STATUS_LABELS: Record<string, string> = {
   unknown:           "Unknown",
 };
 
-export const FALLBACK_BADGE_COLOR = "bg-[#F4F5F7] text-[#92918F] border border-[#E4E6EC]";
+export const FALLBACK_BADGE_COLOR = "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]";
 
 // Campaign status machine — mirrors backend VALID_TRANSITIONS
 export const VALID_TRANSITIONS: Record<string, string[]> = {

@@ -1,3 +1,4 @@
+import { AlertTriangle, Check, Phone } from "lucide-react";
 import { STATUS_LABELS } from "@/lib/constants";
 import { INPUT_CLASS } from "@/lib/styles";
 import type { CampaignChecklist, CampaignForm } from "@/types/campaign";
@@ -46,9 +47,9 @@ export function CampaignSettingsTab({
   function field(label: string, children: React.ReactNode, hint?: string): React.ReactNode {
     return (
       <div>
-        <label className="block text-sm font-medium text-foreground mb-1">{label}</label>
+        <label className="block text-sm font-medium text-brand-black mb-1">{label}</label>
         {children}
-        {hint && <p className="text-xs text-muted-foreground mt-1">{hint}</p>}
+        {hint && <p className="text-xs text-brand-grey-dark mt-1">{hint}</p>}
       </div>
     );
   }
@@ -65,7 +66,7 @@ export function CampaignSettingsTab({
         />
         <div>
           <span className="text-sm font-medium">{label}</span>
-          {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+          {hint && <p className="text-xs text-brand-grey-dark">{hint}</p>}
         </div>
       </label>
     );
@@ -75,7 +76,7 @@ export function CampaignSettingsTab({
     <div className="space-y-8">
       {/* Basic Info */}
       <section>
-        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-border">Basic Info</h2>
+        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">Basic Info</h2>
         <div className="space-y-4">
           {field(
             "Name *",
@@ -98,7 +99,7 @@ export function CampaignSettingsTab({
               placeholder="Optional description shown internally"
             />
           )}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {field(
               "Language",
               <select
@@ -124,7 +125,7 @@ export function CampaignSettingsTab({
               </select>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {field(
               "Call Maximum",
               <input
@@ -157,7 +158,7 @@ export function CampaignSettingsTab({
 
       {/* Connection Modes */}
       <section>
-        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-border">
+        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
           Connection Modes
         </h2>
         <div className="space-y-3">
@@ -171,7 +172,7 @@ export function CampaignSettingsTab({
 
       {/* Talking Points */}
       <section>
-        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-border">
+        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
           Talking Points
         </h2>
         {field(
@@ -191,11 +192,11 @@ export function CampaignSettingsTab({
       {/* Launch Checklist — shown when campaign is live */}
       {!isNew && status === "live" && (
         <section>
-          <h2 className="text-base font-semibold mb-4 pb-2 border-b border-border">
+          <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
             Launch Checklist
           </h2>
           {checklistLoading && (
-            <p className="text-sm text-muted-foreground">Checking…</p>
+            <p className="text-sm text-brand-grey-dark">Checking…</p>
           )}
           {checklist && (() => {
             const items: { label: string; ok: boolean; tab?: TabType }[] = [
@@ -209,18 +210,22 @@ export function CampaignSettingsTab({
               <ul className="space-y-2">
                 {items.map(({ label, ok, tab }) => (
                   <li key={label} className="flex items-center gap-2 text-sm">
-                    <span className={ok ? "text-[#F2542D]" : "text-[#53565B]"}>
-                      {ok ? "✅" : "⚠️"}
+                    <span
+                      aria-hidden="true"
+                      className={ok ? "text-brand-gum" : "text-brand-grey-dark"}
+                    >
+                      {ok ? <Check size={16} /> : <AlertTriangle size={16} />}
                     </span>
-                    <span className={ok ? "text-foreground" : "text-muted-foreground"}>
+                    <span className={ok ? "text-brand-black" : "text-brand-grey-dark"}>
                       {label}
                     </span>
+                    <span className="sr-only">{ok ? "Done" : "Not ready"}</span>
                     {!ok && tab && (
                       <button
                         onClick={() => onTabChange(tab)}
-                        className="ml-1 text-xs text-primary hover:underline"
+                        className="ml-1 text-xs text-brand-orange hover:underline"
                       >
-                        → Fix it
+                        Fix it
                       </button>
                     )}
                   </li>
@@ -234,17 +239,18 @@ export function CampaignSettingsTab({
       {/* Test Call button — opens modal when campaign is live */}
       {!isNew && status === "live" && form.allow_phone_callback && (
         <section>
-          <h2 className="text-base font-semibold mb-4 pb-2 border-b border-border">
+          <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
             Test Call
           </h2>
-          <p className="text-sm text-muted-foreground mb-3">
+          <p className="text-sm text-brand-grey-dark mb-3">
             Initiate a live test call to verify the full call flow end-to-end.
           </p>
           <button
             onClick={onOpenTestCall}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
           >
-            📞 Open Test Call
+            <Phone size={16} aria-hidden="true" />
+            Open Test Call
           </button>
         </section>
       )}
@@ -255,7 +261,7 @@ export function CampaignSettingsTab({
           <button
             onClick={handleSave}
             disabled={saving || !form.name.trim()}
-            className="px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+            className="px-5 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
             {saving ? "Saving…" : "Save Campaign"}
           </button>
@@ -264,7 +270,7 @@ export function CampaignSettingsTab({
             <div className="relative">
               <button
                 onClick={openStatusMenu}
-                className="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-muted/50 transition-colors"
+                className="px-4 py-2 border border-brand-border rounded-md text-sm font-medium hover:bg-page-bg transition-colors"
               >
                 Change Status
               </button>
@@ -275,7 +281,7 @@ export function CampaignSettingsTab({
 
       {/* Status change confirmation */}
       {!readOnly && statusMenuOpen && (
-        <div className="rounded-md border border-border bg-muted/30 p-4 space-y-3">
+        <div className="rounded-md border border-brand-border bg-page-bg p-4 space-y-3">
           <p className="text-sm font-medium">
             Current status: <span className="font-semibold capitalize">{status}</span>. Choose new
             status:
@@ -287,8 +293,8 @@ export function CampaignSettingsTab({
                 onClick={() => setPendingStatus(s)}
                 className={`px-3 py-1.5 rounded text-sm font-medium border-2 transition-colors capitalize ${
                   pendingStatus === s
-                    ? "border-primary bg-primary/10"
-                    : "border-border hover:border-primary/50"
+                    ? "border-brand-orange bg-brand-orange/10"
+                    : "border-brand-border hover:border-brand-orange/50"
                 }`}
               >
                 {STATUS_LABELS[s] ?? s}
@@ -299,13 +305,13 @@ export function CampaignSettingsTab({
             <div className="flex gap-2">
               <button
                 onClick={confirmStatusChange}
-                className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium"
+                className="px-4 py-1.5 bg-brand-orange text-white rounded-md text-sm font-medium"
               >
                 Confirm → {STATUS_LABELS[pendingStatus]}
               </button>
               <button
                 onClick={() => setStatusMenuOpen(false)}
-                className="px-4 py-1.5 border border-border rounded-md text-sm"
+                className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
               >
                 Cancel
               </button>
@@ -314,7 +320,7 @@ export function CampaignSettingsTab({
           {!pendingStatus && (
             <button
               onClick={() => setStatusMenuOpen(false)}
-              className="text-sm text-muted-foreground hover:text-foreground"
+              className="text-sm text-brand-grey-dark hover:text-brand-black"
             >
               Cancel
             </button>

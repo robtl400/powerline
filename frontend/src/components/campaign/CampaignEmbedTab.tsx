@@ -48,7 +48,7 @@ export function PowerlineWidget() {
     <section className="space-y-8">
       {/* API URL editor */}
       <div>
-        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-border">
+        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
           Embed Code Generator
         </h2>
         <div className="mb-4">
@@ -61,7 +61,7 @@ export function PowerlineWidget() {
             onChange={(e) => setEmbedApiUrl(e.target.value.replace(/\/$/, ""))}
             placeholder="https://yoursite.com"
           />
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="text-xs text-brand-grey-dark mt-1">
             The public URL of your Powerline backend. Used as the script source and API base.
           </p>
         </div>
@@ -73,15 +73,15 @@ export function PowerlineWidget() {
           <p className="text-sm font-semibold">Script Tag (recommended)</p>
           <button
             onClick={() => onCopy("script", scriptSnippet)}
-            className="px-3 py-1 text-xs border border-border rounded hover:bg-muted/50 transition-colors"
+            className="px-3 py-1 text-xs border border-brand-border rounded hover:bg-page-bg transition-colors"
           >
             {copiedSnippet === "script" ? "Copied!" : "Copy"}
           </button>
         </div>
-        <pre className="bg-muted/40 rounded-md p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-border">
+        <pre className="bg-page-bg rounded-md p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-brand-border">
           {scriptSnippet}
         </pre>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="text-xs text-brand-grey-dark mt-1">
           Add to any page. Place the script tag where you want the widget to appear.
         </p>
       </div>
@@ -92,12 +92,12 @@ export function PowerlineWidget() {
           <p className="text-sm font-semibold">React Component</p>
           <button
             onClick={() => onCopy("react", reactSnippet)}
-            className="px-3 py-1 text-xs border border-border rounded hover:bg-muted/50 transition-colors"
+            className="px-3 py-1 text-xs border border-brand-border rounded hover:bg-page-bg transition-colors"
           >
             {copiedSnippet === "react" ? "Copied!" : "Copy"}
           </button>
         </div>
-        <pre className="bg-muted/40 rounded-md p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-border">
+        <pre className="bg-page-bg rounded-md p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-brand-border">
           {reactSnippet}
         </pre>
       </div>
@@ -105,10 +105,10 @@ export function PowerlineWidget() {
       {/* Live preview */}
       <div>
         <p className="text-sm font-semibold mb-2">Live Preview</p>
-        <p className="text-xs text-muted-foreground mb-3">
+        <p className="text-xs text-brand-grey-dark mb-3">
           Renders the actual widget. Requires the campaign to be <strong>live</strong> and the backend URL above to be reachable.
         </p>
-        <div className="rounded-md border border-border overflow-hidden bg-muted/10" style={{ height: 480 }}>
+        <div className="rounded-md border border-brand-border overflow-hidden bg-page-bg" style={{ height: 480 }}>
           <iframe
             srcDoc={previewSrcDoc}
             title="Widget preview"

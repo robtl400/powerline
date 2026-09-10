@@ -116,6 +116,16 @@ All notable changes to this project will be documented in this file.
 - **`_to_response` wrappers in the audio, admin and phone-number routers** — every route declares `response_model=` and every response model sets `from_attributes=True`, so the routes return ORM objects and FastAPI does the conversion. Response bodies are unchanged.
 - **`PhoneFallbackClient` class in the embed** — replaced by a plain `submitPhoneFallback()` function with the same state transitions; `renderAudioCheck` no longer takes the two arguments it never read.
 
+### Changed (design system)
+- **Accessible modal dialogs** — a reusable `Modal` component with `role="dialog"`, `aria-modal`, Escape and backdrop dismissal, focus move-in/restore, and a Tab focus trap; adopted by the Test Call modal, the Users invite modal, and both delete confirmations.
+- **Native `confirm()` replaced** — removing a campaign target or a blocklist entry opens an in-app confirmation dialog with Cancel and Remove instead of the browser prompt.
+- **Emoji swapped for icons** — the admin uses lucide `Phone`, `Check`, `AlertTriangle`, `Mic`, `Play` and `GripVertical` (icons `aria-hidden`, checklist rows carry visually-hidden state text); the embed widget ships hand-written inline SVG icons so it never depends on emoji font rendering on a host page.
+- **Success state uses brand-gum** — passing checklist rows and the test-call success message are gum, never orange.
+- **WCAG AA text contrast** — `brand-grey-light` (#92918F, 3.15:1 on white) is no longer used for text below 18px; hints, captions, table meta and status-badge labels use `brand-grey-dark`. DESIGN.md records the rule.
+- **Responsive form grids** — two-column forms in campaign settings, campaign targets, the blocklist add form and the call-quality panel stack to one column below `sm`.
+- **Brand tokens replace shadcn defaults** — `bg-primary`, `text-muted-foreground`, `border-border`, `bg-background`, `bg-card`, `bg-muted` and `text-destructive` migrated to brand-* equivalents across the authenticated UI and the login page, removing the last literal red.
+- **Embed palette and styles aligned to DESIGN.md** — brand orange, gum, text and border tokens; error text off red; recurring inline styles consolidated into named classes; the system font stack is kept deliberately so the widget never loads third-party fonts on host sites.
+
 ### Changed (simplification)
 - **Live-campaign lookup consolidated** — `get_live_campaign_or_404` replaces four copies of the same fetch-and-404 block in the call, token, rep-lookup and public-campaign endpoints. Same 404 and detail message.
 - **Twilio status maps lifted to module constants** — `DIAL_STATUS_TO_CALL_STATUS` and `CALL_STATUS_TO_SESSION_STATUS` in the webhook router instead of dict literals rebuilt per request.

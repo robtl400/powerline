@@ -1,3 +1,4 @@
+import { GripVertical } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Target } from "@/types/campaign";
@@ -27,34 +28,35 @@ export function SortableTargetRow({
     <tr
       ref={setNodeRef}
       style={style}
-      className="border-t border-border bg-background"
+      className="border-t border-brand-border bg-white"
     >
       <td className="px-3 py-2 w-8">
         <button
           {...attributes}
           {...listeners}
-          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-1"
+          className="cursor-grab active:cursor-grabbing text-brand-grey-dark hover:text-brand-black p-1"
           title="Drag to reorder"
+          aria-label="Drag to reorder"
         >
-          ⠿
+          <GripVertical size={14} aria-hidden="true" />
         </button>
       </td>
       <td className="px-3 py-2 font-medium">{target.name}</td>
-      <td className="px-3 py-2 text-muted-foreground">{target.title}</td>
-      <td className="px-3 py-2 text-muted-foreground font-mono text-xs">{target.phone_number}</td>
-      <td className="px-3 py-2 text-muted-foreground">{target.location}</td>
+      <td className="px-3 py-2 text-brand-grey-dark">{target.title}</td>
+      <td className="px-3 py-2 text-brand-grey-dark font-mono text-xs">{target.phone_number}</td>
+      <td className="px-3 py-2 text-brand-grey-dark">{target.location}</td>
       <td className="px-3 py-2 text-right space-x-2">
         {!readOnly && (
           <>
             <button
               onClick={() => onEdit(target)}
-              className="text-primary text-sm hover:underline"
+              className="text-brand-orange text-sm hover:underline"
             >
               Edit
             </button>
             <button
               onClick={() => onDelete(target.id)}
-              className="text-destructive text-sm hover:underline"
+              className="text-brand-grey-dark text-sm hover:underline"
             >
               Delete
             </button>

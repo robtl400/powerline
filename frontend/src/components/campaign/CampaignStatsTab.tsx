@@ -42,17 +42,17 @@ export function CampaignStatsTab({
         <h2 className="text-base font-semibold">Campaign Analytics</h2>
         <button
           onClick={onViewCallLog}
-          className="text-xs px-3 py-1.5 border border-border rounded hover:bg-muted/50 transition-colors"
+          className="text-xs px-3 py-1.5 border border-brand-border rounded hover:bg-page-bg transition-colors"
         >
           View Call Log →
         </button>
       </div>
 
       {statsLoading && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-brand-grey-dark">Loading…</p>
       )}
       {statsError && (
-        <div className="rounded-md bg-destructive/10 text-destructive px-4 py-3 text-sm">
+        <div className="rounded-md border border-brand-border bg-page-bg text-brand-grey-dark px-4 py-3 text-sm">
           {statsError}
         </div>
       )}
@@ -61,53 +61,53 @@ export function CampaignStatsTab({
         <>
           {/* Summary metrics */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <div className="rounded-lg border bg-card p-4 shadow-sm">
-              <p className="text-xs text-muted-foreground">Total Sessions</p>
+            <div className="rounded-[10px] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+              <p className="text-xs text-brand-grey-dark">Total Sessions</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">{campaignStats.total_sessions}</p>
             </div>
-            <div className="rounded-lg border bg-card p-4 shadow-sm">
-              <p className="text-xs text-muted-foreground">Completion Rate</p>
+            <div className="rounded-[10px] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+              <p className="text-xs text-brand-grey-dark">Completion Rate</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">
                 {(campaignStats.completion_rate * 100).toFixed(1)}%
               </p>
             </div>
-            <div className="rounded-lg border bg-card p-4 shadow-sm">
-              <p className="text-xs text-muted-foreground">Avg Calls / Session</p>
+            <div className="rounded-[10px] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+              <p className="text-xs text-brand-grey-dark">Avg Calls / Session</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">{campaignStats.avg_calls_per_session.toFixed(1)}</p>
             </div>
-            <div className="rounded-lg border bg-card p-4 shadow-sm">
-              <p className="text-xs text-muted-foreground">Connection Type</p>
+            <div className="rounded-[10px] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+              <p className="text-xs text-brand-grey-dark">Connection Type</p>
               <p className="mt-1 text-sm font-medium">
                 {campaignStats.connection_type_breakdown["webrtc"] ?? 0} WebRTC
               </p>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-brand-grey-dark">
                 {campaignStats.connection_type_breakdown["outbound_phone"] ?? 0} Phone
               </p>
             </div>
           </div>
 
           {/* Volume chart with date controls */}
-          <div className="rounded-lg border bg-card p-5 shadow-sm">
+          <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
             <div className="flex flex-wrap items-center gap-3 mb-4">
               <h3 className="text-sm font-medium flex-1">Call Volume</h3>
               <input
                 type="date"
-                className="text-xs border border-border rounded px-2 py-1 bg-background"
+                className="text-xs border border-brand-border rounded px-2 py-1 bg-white"
                 value={statsStartDate}
                 max={statsEndDate}
                 onChange={(e) => setStatsStartDate(e.target.value)}
               />
-              <span className="text-xs text-muted-foreground">to</span>
+              <span className="text-xs text-brand-grey-dark">to</span>
               <input
                 type="date"
-                className="text-xs border border-border rounded px-2 py-1 bg-background"
+                className="text-xs border border-brand-border rounded px-2 py-1 bg-white"
                 value={statsEndDate}
                 min={statsStartDate}
                 max={new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setStatsEndDate(e.target.value)}
               />
               <select
-                className="text-xs border border-border rounded px-2 py-1 bg-background"
+                className="text-xs border border-brand-border rounded px-2 py-1 bg-white"
                 value={statsGranularity}
                 onChange={(e) => setStatsGranularity(e.target.value as "day" | "week")}
               >
@@ -116,7 +116,7 @@ export function CampaignStatsTab({
               </select>
             </div>
             {chartData.length === 0 || chartData.every((d) => d.count === 0) ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">No calls in this date range.</p>
+              <p className="py-8 text-center text-sm text-brand-grey-dark">No calls in this date range.</p>
             ) : (
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
@@ -151,13 +151,13 @@ export function CampaignStatsTab({
 
           {/* Per-target breakdown */}
           {campaignStats.per_target.length > 0 && (
-            <div className="rounded-lg border bg-card shadow-sm">
+            <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
               <div className="border-b px-5 py-3">
                 <h3 className="text-sm font-medium">Per-Target Breakdown</h3>
               </div>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
+                  <tr className="border-b text-left text-xs text-brand-grey-dark">
                     <th className="px-5 py-2 font-medium">Target</th>
                     <th className="px-5 py-2 font-medium text-right">Total Calls</th>
                     <th className="px-5 py-2 font-medium text-right">Completed</th>
@@ -170,7 +170,7 @@ export function CampaignStatsTab({
                       <td className="px-5 py-2.5">{t.name}</td>
                       <td className="px-5 py-2.5 text-right tabular-nums">{t.total_calls}</td>
                       <td className="px-5 py-2.5 text-right tabular-nums">{t.completed_calls}</td>
-                      <td className="px-5 py-2.5 text-right tabular-nums text-muted-foreground">
+                      <td className="px-5 py-2.5 text-right tabular-nums text-brand-grey-dark">
                         {t.avg_duration_seconds != null
                           ? `${Math.round(t.avg_duration_seconds)}s`
                           : "—"}
@@ -184,23 +184,23 @@ export function CampaignStatsTab({
 
           {/* Call Quality panel — only shown when Twilio Voice Insights data exists */}
           {qualityData && qualityData.calls_with_quality > 0 && (
-            <div className="rounded-lg border bg-card p-5 shadow-sm">
+            <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
               <h3 className="text-sm font-medium mb-4">Call Quality (Voice Insights)</h3>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
-                  <p className="text-xs text-muted-foreground">Avg Quality Score</p>
+                  <p className="text-xs text-brand-grey-dark">Avg Quality Score</p>
                   <p className="mt-1 text-xl font-semibold tabular-nums">
                     {qualityData.avg_quality_score?.toFixed(1) ?? "—"} / 5
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Connection Rate</p>
+                  <p className="text-xs text-brand-grey-dark">Connection Rate</p>
                   <p className="mt-1 text-xl font-semibold tabular-nums">
                     {(qualityData.connection_rate * 100).toFixed(1)}%
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Scored Calls</p>
+                  <p className="text-xs text-brand-grey-dark">Scored Calls</p>
                   <p className="mt-1 text-xl font-semibold tabular-nums">
                     {qualityData.calls_with_quality} / {qualityData.total_calls}
                   </p>
@@ -208,10 +208,10 @@ export function CampaignStatsTab({
               </div>
               {Object.keys(qualityData.failure_breakdown).length > 0 && (
                 <div className="mt-4 border-t pt-3">
-                  <p className="text-xs text-muted-foreground mb-2">Failures</p>
+                  <p className="text-xs text-brand-grey-dark mb-2">Failures</p>
                   <div className="flex flex-wrap gap-3">
                     {Object.entries(qualityData.failure_breakdown).map(([k, v]) => (
-                      <span key={k} className="text-xs px-2 py-1 bg-muted/50 rounded">
+                      <span key={k} className="text-xs px-2 py-1 bg-page-bg rounded">
                         {k.replace("_", " ")}: {v}
                       </span>
                     ))}

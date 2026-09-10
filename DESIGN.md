@@ -13,7 +13,7 @@ in this file is locked. When in doubt, this file wins over inline code.
 | `brand-gum`        | `#B05357` | `brand-gum`           | **Success state** — completed calls, active version badge, waveform |
 | `brand-black`      | `#111111` | `brand-black`         | **Bold accent** — wordmark, headings, strong emphasis |
 | `brand-grey-dark`  | `#53565B` | `brand-grey-dark`     | Secondary text, logout link, error text |
-| `brand-grey-light` | `#92918F` | `brand-grey-light`    | Muted / tertiary text, paused/draft state text |
+| `brand-grey-light` | `#92918F` | `brand-grey-light`    | Muted text at 18px+, borders, decorative fills — never text below 18px |
 | `white`            | `#FFFFFF` | `white`               | All surfaces — header, sidebar, cards |
 | `page-bg`          | `#F4F5F7` | `page-bg`             | Page background — makes white cards float |
 | `brand-border`     | `#E4E6EC` | `brand-border`        | All borders |
@@ -30,6 +30,7 @@ in this file is locked. When in doubt, this file wins over inline code.
 - **Black = wordmark and bold display text only.**
 - **Orange is never used for error states** — use `brand-grey-dark` + icon.
 - **Orange is never used for success states** — use `brand-gum`.
+- **`brand-grey-light` is not used for text below 18px** (3.15:1 on white fails WCAG AA) — use `brand-grey-dark` for hints, captions and table meta. `brand-grey-light` stays available for large text, borders and decorative use.
 
 ### Status Chip Specs
 
@@ -37,8 +38,8 @@ in this file is locked. When in doubt, this file wins over inline code.
 |-----------|--------------------|-------------------------------|-------------------------------|
 | Live      | `#F2542D` orange   | `rgba(242,84,45,0.10)`        | `rgba(242,84,45,0.25)`        |
 | Completed | `#B05357` gum      | `rgba(176,83,87,0.10)`        | `rgba(176,83,87,0.20)`        |
-| Paused    | `#92918F` grey-light | `#F4F5F7`                   | `#E4E6EC`                     |
-| Draft     | `#92918F` grey-light | `#F9FAFB`                   | `#E4E6EC`                     |
+| Paused    | `#53565B` grey-dark  | `#F4F5F7`                   | `#E4E6EC`                     |
+| Draft     | `#53565B` grey-dark  | `#F9FAFB`                   | `#E4E6EC`                     |
 | Failed    | `#53565B` grey-dark  | `#F3F4F6`                   | `#D1D3D9` — darker to distinguish from draft |
 
 ---
@@ -54,8 +55,8 @@ Font: **DM Sans** (Google Fonts — already loaded)
 | Section title  | 13px  | 700    | Color: `brand-grey-dark` |
 | Body / table row | 13px | 400 / 600 | 400 for meta, 600 for primary cell |
 | Field label    | 12px  | 600    | Color: `brand-grey-dark` |
-| Uppercase label | 11px | 700   | Letter-spacing 0.07em, color: `brand-grey-light` |
-| Hint / meta    | 11px  | 400    | Color: `brand-grey-light` |
+| Uppercase label | 11px | 700   | Letter-spacing 0.07em, color: `brand-grey-dark` |
+| Hint / meta    | 11px  | 400    | Color: `brand-grey-dark` |
 
 ---
 
@@ -97,7 +98,7 @@ Do not modify stroke color, stroke-width, or path data.
 - Width: `220px`
 - Active nav item: `background: #F2542D`, `color: #fff`, `font-weight: 600`, `border-radius: 7px`
 - Inactive: `color: brand-grey-dark`; hover: `background: #F4F5F7`
-- Footer (pinned bottom): user email (`brand-grey-light`) + logout link (`brand-grey-light`)
+- Footer (pinned bottom): user email (`brand-grey-dark`) + logout link (`brand-grey-dark`)
 - On mobile: hidden by default, replaced by full-height drawer
 
 ### Main Content Area
@@ -134,7 +135,7 @@ Use the **exact same SVG** as desktop — `preserveAspectRatio="none"` handles s
 - Background: `#FFFFFF`
 - Backdrop: `rgba(0,0,0,0.20)` — tap outside to close
 - Same nav items and active state as desktop sidebar
-- Pinned footer: user email (`brand-grey-light`) + logout link
+- Pinned footer: user email (`brand-grey-dark`) + logout link
 - **Animation:** drawer uses `transform: translateX(-100%)` → `translateX(0)`, `transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1)` (Material standard easing). Backdrop fades in `opacity: 0 → 1` over `200ms ease`. Close reverses both.
 
 ### Mobile Campaign Cards (Dashboard/Campaigns)
@@ -193,7 +194,7 @@ Must include `campaignStatus: string`. Used to gate "Make active" on live campai
 
 ### First-Time Experience
 
-When no active version exists (new campaign): render the full tab picker with a hint line above it: `"No audio yet — record, upload, or generate a script below"` (11px, `brand-grey-light`). This orients the user immediately; do not show a separate empty state that hides the tabs.
+When no active version exists (new campaign): render the full tab picker with a hint line above it: `"No audio yet — record, upload, or generate a script below"` (11px, `brand-grey-dark`). This orients the user immediately; do not show a separate empty state that hides the tabs.
 
 When an active version exists (returning): hide the hint, show the Active Version Row first, then the tab picker below it for updates.
 
@@ -231,8 +232,8 @@ idle ──[click mic]──► recording ──[click stop]──► stopped
 - **Upload success:** no explicit confirmation toast — `onRefresh()` triggers, which updates the Active Version Row with the new file; the row update is the confirmation
 
 ### Tab 3: TTS
-- Textarea: max 500 characters, character count shown (`XXX / 500`, `brand-grey-light`)
-- Template variable chips: `{{title}}`, `{{name}}`, `{{calls_left}}` — outlined pills (`border: 1px solid #E4E6EC`, `border-radius: 4px`, `background: #F4F5F7`, `font-size: 11px`, `color: brand-grey-light`). Clicking a chip inserts the variable text at the current cursor position in the textarea.
+- Textarea: max 500 characters, character count shown (`XXX / 500`, `brand-grey-dark`)
+- Template variable chips: `{{title}}`, `{{name}}`, `{{calls_left}}` — outlined pills (`border: 1px solid #E4E6EC`, `border-radius: 4px`, `background: #F4F5F7`, `font-size: 11px`, `color: brand-grey-dark`). Clicking a chip inserts the variable text at the current cursor position in the textarea.
 - **"Generate preview":** while generating, button shows spinner + `"Generating…"` (disabled). On success, auto-plays via `<audio>` element. On error, inline `"Preview failed — try again"` below button in `brand-grey-dark`.
 - **"Save as audio":** while saving, button shows spinner + `"Saving…"` (disabled). On success, `onRefresh()` — no separate toast. On error, inline `"Save failed — try again"` in `brand-grey-dark`.
 
@@ -324,18 +325,18 @@ All 7 pages must conform to this design system:
 
 ## Empty States
 
-All empty states must have: (1) brief explanation of why it's empty, (2) a primary action where applicable, (3) muted tone — use `brand-grey-light` text, no large illustrations.
+All empty states must have: (1) brief explanation of why it's empty, (2) a primary action where applicable, (3) muted tone — use `brand-grey-dark` text, no large illustrations.
 
 | Page / Context | Empty message | Primary action |
 |---|---|---|
-| `/campaigns` — zero campaigns | `"No campaigns yet"` (13px, `brand-grey-light`) | `"Create campaign"` button (orange) |
+| `/campaigns` — zero campaigns | `"No campaigns yet"` (13px, `brand-grey-dark`) | `"Create campaign"` button (orange) |
 | `/dashboard` — Live Campaigns table empty | `"No live campaigns"` — render small muted row spanning all columns | `"View all campaigns"` link to `/campaigns` |
-| `/users` — zero users | `"No users yet"` (13px, `brand-grey-light`) | None — the Invite button in the header is the action |
-| `/phone-numbers` — zero numbers | `"No phone numbers configured"` (13px, `brand-grey-light`) | None |
-| `/blocklist` — zero entries | `"No blocked numbers or emails"` (13px, `brand-grey-light`) | None |
-| `/call-log` — zero results (filtered) | `"No sessions match your filters"` (13px, `brand-grey-light`) | `"Clear filters"` inline link in `brand-orange` |
-| `/call-log` — zero results (no filter) | `"No call sessions yet"` (13px, `brand-grey-light`) | None |
-| AudioSlotCard — no active version | Show tab picker immediately with hint above: `"No audio yet — record, upload, or generate a script"` (11px, `brand-grey-light`) | (tabs themselves are the action) |
+| `/users` — zero users | `"No users yet"` (13px, `brand-grey-dark`) | None — the Invite button in the header is the action |
+| `/phone-numbers` — zero numbers | `"No phone numbers configured"` (13px, `brand-grey-dark`) | None |
+| `/blocklist` — zero entries | `"No blocked numbers or emails"` (13px, `brand-grey-dark`) | None |
+| `/call-log` — zero results (filtered) | `"No sessions match your filters"` (13px, `brand-grey-dark`) | `"Clear filters"` inline link in `brand-orange` |
+| `/call-log` — zero results (no filter) | `"No call sessions yet"` (13px, `brand-grey-dark`) | None |
+| AudioSlotCard — no active version | Show tab picker immediately with hint above: `"No audio yet — record, upload, or generate a script"` (11px, `brand-grey-dark`) | (tabs themselves are the action) |
 
 ---
 
@@ -383,7 +384,7 @@ These shadcn/Tailwind defaults were used before this design system was locked. *
 |---|---|
 | `bg-card` | `bg-white` |
 | `bg-background` | `bg-white` (surfaces) or `bg-page-bg` (page) |
-| `text-muted-foreground` | `text-brand-grey-light` (muted) or `text-brand-grey-dark` (secondary) |
+| `text-muted-foreground` | `text-brand-grey-dark` (any text below 18px) or `text-brand-grey-light` (18px+ only) |
 | `border-border` | `border-brand-border` |
 | `rounded-lg border bg-card shadow-sm` | `rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]` |
 | `text-destructive` | `text-brand-grey-dark` + error icon (never orange, never red) |
@@ -396,7 +397,7 @@ These shadcn/Tailwind defaults were used before this design system was locked. *
 
 ```ts
 export const INPUT_CLASS =
-  "w-full px-3 py-2 rounded-lg border border-brand-border bg-background text-sm " +
+  "w-full px-3 py-2 rounded-lg border border-brand-border bg-white text-sm " +
   "focus:outline-none focus:ring-2 focus:ring-brand-black focus:ring-offset-0";
 ```
 

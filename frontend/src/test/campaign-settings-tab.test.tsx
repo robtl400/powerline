@@ -114,17 +114,17 @@ describe("CampaignSettingsTab — launch checklist", () => {
 
     const row = (label: string) => screen.getByText(label).closest("li")!;
 
-    expect(within(row("Targets configured")).getByText("✅")).toBeInTheDocument();
-    expect(within(row("Audio set")).getByText("⚠️")).toBeInTheDocument();
-    expect(within(row("STIR/SHAKEN verified")).getByText("✅")).toBeInTheDocument();
+    expect(within(row("Targets configured")).getByText("Done")).toBeInTheDocument();
+    expect(within(row("Audio set")).getByText("Not ready")).toBeInTheDocument();
+    expect(within(row("STIR/SHAKEN verified")).getByText("Done")).toBeInTheDocument();
 
     // Failed and tab-linked → fixable.
     expect(
-      within(row("Audio set")).getByRole("button", { name: "→ Fix it" })
+      within(row("Audio set")).getByRole("button", { name: "Fix it" })
     ).toBeInTheDocument();
     expect(
       within(row("Talking points written")).getByRole("button", {
-        name: "→ Fix it",
+        name: "Fix it",
       })
     ).toBeInTheDocument();
 
@@ -134,7 +134,7 @@ describe("CampaignSettingsTab — launch checklist", () => {
     ).toBeNull();
     // Passing → no button.
     expect(within(row("Targets configured")).queryByRole("button")).toBeNull();
-    expect(screen.getAllByRole("button", { name: "→ Fix it" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Fix it" })).toHaveLength(2);
   });
 
   it("sends the user to the failing tab", () => {
@@ -142,7 +142,7 @@ describe("CampaignSettingsTab — launch checklist", () => {
 
     fireEvent.click(
       within(screen.getByText("Audio set").closest("li")!).getByRole("button", {
-        name: "→ Fix it",
+        name: "Fix it",
       })
     );
 
@@ -163,7 +163,7 @@ describe("CampaignSettingsTab — test call", () => {
       form: { ...emptyForm(), name: "C", allow_phone_callback: true },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "📞 Open Test Call" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Test Call" }));
 
     expect(props.onOpenTestCall).toHaveBeenCalledTimes(1);
   });

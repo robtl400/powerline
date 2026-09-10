@@ -49,7 +49,7 @@ function NavItems({ onNavClick }: { onNavClick?: () => void }) {
         <SidebarFooter />
         <button
           onClick={logout}
-          className="mt-1 flex items-center gap-1.5 text-xs text-brand-grey-light hover:text-brand-grey-dark transition-colors"
+          className="mt-1 flex items-center gap-1.5 text-xs text-brand-grey-dark hover:text-brand-black transition-colors"
         >
           <LogOut className="h-3 w-3" />
           Logout
@@ -62,7 +62,7 @@ function NavItems({ onNavClick }: { onNavClick?: () => void }) {
 function SidebarFooter() {
   const { user } = useAuth();
   return (
-    <p className="text-xs text-brand-grey-light truncate">{user?.email}</p>
+    <p className="text-xs text-brand-grey-dark truncate">{user?.email}</p>
   );
 }
 

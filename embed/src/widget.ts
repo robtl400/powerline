@@ -347,7 +347,7 @@ export class PowerlineWidget {
     if (!/^\d{5}$/.test(zip)) {
       if (input) {
         input.setAttribute("aria-invalid", "true");
-        input.style.borderColor = "#ef4444";
+        input.style.borderColor = "#53565B";
       }
       const errorEl = this.container.querySelector<HTMLElement>("#pl-zip-error");
       if (errorEl) errorEl.textContent = "Please enter a valid 5-digit ZIP code.";

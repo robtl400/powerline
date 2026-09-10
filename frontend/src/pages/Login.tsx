@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { INPUT_CLASS } from "@/lib/styles";
 
 export default function Login() {
   const { login } = useAuth();
@@ -22,16 +23,16 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="w-full max-w-sm space-y-6 rounded-lg border bg-card p-8 shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-page-bg">
+      <div className="w-full max-w-sm space-y-6 rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] border border-brand-border p-8">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Powerline</h1>
-          <p className="text-sm text-muted-foreground">Sign in to your account</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-brand-black">Powerline</h1>
+          <p className="text-sm text-brand-grey-dark">Sign in to your account</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="email">
+            <label className="text-sm font-medium text-brand-black" htmlFor="email">
               Email
             </label>
             <input
@@ -41,13 +42,13 @@ export default function Login() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className={INPUT_CLASS}
               placeholder="admin@example.com"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="password">
+            <label className="text-sm font-medium text-brand-black" htmlFor="password">
               Password
             </label>
             <input
@@ -57,16 +58,16 @@ export default function Login() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className={INPUT_CLASS}
             />
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-sm text-brand-grey-dark">{error}</p>}
 
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            className="w-full rounded-[7px] bg-brand-orange px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {isLoading ? "Signing in…" : "Sign in"}
           </button>

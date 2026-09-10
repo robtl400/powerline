@@ -61,7 +61,7 @@ export default function Campaigns() {
             className={`px-3 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
               statusFilter === s
                 ? "border-brand-orange text-brand-orange"
-                : "border-transparent text-brand-grey-light hover:text-brand-black"
+                : "border-transparent text-brand-grey-dark hover:text-brand-black"
             }`}
           >
             {s}
@@ -69,12 +69,12 @@ export default function Campaigns() {
         ))}
       </div>
 
-      {loading && <p className="text-sm text-brand-grey-light">Loading…</p>}
+      {loading && <p className="text-sm text-brand-grey-dark">Loading…</p>}
       {error && <p className="text-sm text-brand-grey-dark">{error}</p>}
 
       {!loading && !error && campaigns.length === 0 && (
         <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] px-6 py-12 text-center">
-          <p className="text-sm text-brand-grey-light mb-4">No campaigns yet</p>
+          <p className="text-sm text-brand-grey-dark mb-4">No campaigns yet</p>
           {isAdmin && (
             <button
               onClick={() => navigate("/campaigns/new")}
@@ -106,7 +106,7 @@ export default function Campaigns() {
                   className={`border-t border-brand-border hover:bg-page-bg/50 transition-colors ${c.status === "draft" ? "opacity-50" : ""}`}
                 >
                   <td className="px-4 py-3 font-medium">{c.name}</td>
-                  <td className="px-4 py-3 capitalize text-brand-grey-light">{c.campaign_type}</td>
+                  <td className="px-4 py-3 capitalize text-brand-grey-dark">{c.campaign_type}</td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[c.status] ?? FALLBACK_BADGE_COLOR}`}
@@ -114,15 +114,15 @@ export default function Campaigns() {
                       {c.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-brand-grey-light">{c.target_count}</td>
-                  <td className="px-4 py-3 text-brand-grey-light">
+                  <td className="px-4 py-3 text-brand-grey-dark">{c.target_count}</td>
+                  <td className="px-4 py-3 text-brand-grey-dark">
                     {new Date(c.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {c.status === "draft" ? (
                       <button
                         onClick={() => navigate(`/campaigns/${c.id}/wizard`)}
-                        className="text-brand-grey-light text-sm hover:underline"
+                        className="text-brand-grey-dark text-sm hover:underline"
                       >
                         Resume wizard
                       </button>

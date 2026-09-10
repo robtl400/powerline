@@ -64,7 +64,7 @@ export function PhoneInput({ value, onChange, required, placeholder = "(555) 555
   return (
     <div className={className}>
       <div
-        className={`flex rounded-lg border bg-background text-sm focus-within:ring-2 focus-within:ring-brand-black focus-within:ring-offset-0 ${
+        className={`flex rounded-lg border bg-white text-sm focus-within:ring-2 focus-within:ring-brand-black focus-within:ring-offset-0 ${
           isInvalid ? "border-brand-grey-dark" : "border-brand-border"
         }`}
       >
