@@ -23,6 +23,7 @@ class CallSession(Base):
         UUID(as_uuid=True),
         ForeignKey("campaigns.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
     )
     caller_phone_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     caller_location: Mapped[str | None] = mapped_column(String(20), nullable=True)

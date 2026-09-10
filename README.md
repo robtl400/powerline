@@ -25,7 +25,7 @@ Embed SDK (IIFE bundle) ──→ API (runs on org websites)
 - **Campaigns** — create and manage call campaigns with custom audio, script prompts, and target lists
 - **In-browser audio recording** — campaign audio slots support in-browser microphone recording (MediaRecorder + waveform visualizer), drag-and-drop file upload (MP3, WAV, WebM, M4A), and TTS; live campaign lock prevents audio changes without pausing
 - **CSV bulk target import** — drag-and-drop CSV upload with column mapping, upsert semantics, partial success, and a downloadable error report for failed rows
-- **Elected official rep lookup** — supporters enter their ZIP code to be connected to their federal or state representative; results cached via Redis with Google Civic + OpenStates APIs
+- **Elected official rep lookup** — supporters enter their ZIP code to be connected to their federal or state representative; results cached via Redis with Google Civic + OpenStates APIs. `GET /api/v1/campaigns/{id}/reps` returns `{name, title, level, rep_token}` — the representative's phone number stays on the server and is dialed by exchanging `rep_token` at call time, so the browser can never choose the number
 - **WebRTC calling** — supporters call from their browser; no phone app required
 - **Embed widget** — drop a "Call Now" button on any website with a single `<script>` tag
 - **Voice Insights** — Celery background task syncs Twilio call quality scores every 15 minutes
@@ -174,7 +174,12 @@ export function PowerlineWidget({ campaignId }: { campaignId: string }) {
 |----------|----------|-------|
 | `DATABASE_URL` | Yes | Use `postgresql+asyncpg://` scheme |
 | `REDIS_URL` | Yes | Used by Celery + call state |
+| `ENVIRONMENT` | Yes | `production` (default) or `development`; `development` relaxes webhook signature checks only when `TWILIO_AUTH_TOKEN` is unset |
 | `SECRET_KEY` | Yes | `openssl rand -hex 32` |
+| `TRUSTED_PROXIES` | Recommended | Comma-separated IPs/CIDRs of your reverse proxies. `X-Forwarded-For` is ignored unless the peer is listed, so set it when running behind Caddy/ALB — otherwise every request is rate limited under the proxy's IP |
+| `DEFAULT_RATE_LIMIT` | Optional | Calls per hour per phone/IP when a campaign has no `rate_limit` (default 5) |
+| `REPS_RATE_LIMIT` | Optional | Rep lookups per hour per client IP (default 20); the per-campaign ceiling is 25× this |
+| `AUTH_RATE_LIMIT` | Optional | Login / password-reset attempts per hour per identifier (default 10) |
 | `PUBLIC_BASE_URL` | Yes | Must be reachable by Twilio |
 | `TWILIO_ACCOUNT_SID` | Yes | |
 | `TWILIO_AUTH_TOKEN` | Yes | |
@@ -186,6 +191,15 @@ export function PowerlineWidget({ campaignId }: { campaignId: string }) {
 | `CLOUDINARY_*` | Optional | For audio file uploads |
 | `GOOGLE_CIVIC_API_KEY` | Optional | Federal rep lookup (Senate & House); leave empty to disable |
 | `OPENSTATES_API_KEY` | Optional | State legislator lookup; leave empty to disable |
+
+### Public call endpoints
+
+`POST /api/v1/calls/create` and `POST /api/v1/tokens/voice` are unauthenticated. Both accept only
+`campaign_id`, an optional `rep_token`, and (for the callback path) `phone_number` and
+`referral_code`; the number to dial is always resolved server-side. Before any Twilio spend they
+apply, in order: the blocklist (phone hash and client IP), the per-caller and per-IP hourly rate
+limits, and the campaign's `call_maximum` ceiling. Set `TRUSTED_PROXIES` so those limits key on the
+real client IP.
 
 ### CORS
 

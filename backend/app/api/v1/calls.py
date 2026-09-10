@@ -11,12 +11,13 @@ import random
 import uuid
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Request, status
+from sqlalchemy import func, or_, select
 
 from app.api.deps import DB
-from app.api.v1.helpers import resolve_target_ids
+from app.api.v1.helpers import resolve_rep_or_422, resolve_target_ids
 from app.config import settings
+from app.dependencies import get_client_ip
 from app.models.blocklist import BlocklistEntry
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
@@ -32,14 +33,16 @@ router = APIRouter(tags=["calls"])
 
 
 @router.post("/calls/create", response_model=CallCreateResponse)
-async def create_call(body: CallCreateRequest, db: DB) -> CallCreateResponse:
+async def create_call(body: CallCreateRequest, request: Request, db: DB) -> CallCreateResponse:
     """Initiate a phone callback for a supporter.
 
     Creates a CallSession, stores call state in Redis, then places an outbound
     Twilio call to the supporter's phone. Twilio calls voice-app which plays
     the intro and walks the supporter through each target.
 
-    No auth required — this is a public endpoint called from org websites.
+    No auth required — this is a public endpoint called from org websites, so
+    the blocklist, per-phone and per-IP rate limits and the campaign's call
+    ceiling are all applied before any Twilio spend is incurred.
     """
     # 1. Validate campaign
     result = await db.execute(select(Campaign).where(Campaign.id == body.campaign_id))
@@ -53,24 +56,38 @@ async def create_call(body: CallCreateRequest, db: DB) -> CallCreateResponse:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="This campaign does not support phone callbacks"
         )
 
-    # 2. Load targets (DB campaign targets or transient rep-lookup target)
-    target_ids = await resolve_target_ids(
-        campaign,
-        db,
-        target_phone_override=body.target_phone_override,
-        target_rep_name=body.target_rep_name,
-        target_rep_title=body.target_rep_title,
-    )
-
-    if not target_ids:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Campaign has no targets configured")
-
-    if campaign.target_ordering == "shuffle" and not body.target_phone_override:
-        random.shuffle(target_ids)
-
+    # 2. Hash the canonical number for privacy-safe storage and rate limiting
     phone = body.phone_number
+    phone_hash = hashlib.sha256(phone.encode()).hexdigest()
+    ip = get_client_ip(request)
 
-    # 3. Twilio Lookup validation (only when credentials are present)
+    # 3. Blocklist check — silent 403 to avoid confirming the number exists
+    bl_result = await db.execute(
+        select(BlocklistEntry)
+        .where(or_(BlocklistEntry.phone_hash == phone_hash, BlocklistEntry.ip_address == ip))
+        .limit(1)
+    )
+    if bl_result.scalar_one_or_none():
+        log.warning("calls_create_blocklist_hit", phone_hash=phone_hash[:12], ip=ip)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This number is not eligible to participate")
+
+    # 4. Rate limit by caller phone hash and by client IP
+    redis = get_redis()
+    await check_rate_limit(redis, "call", phone_hash, campaign.rate_limit)
+    await check_rate_limit(redis, "call-ip", ip, campaign.rate_limit)
+
+    # 5. Campaign-wide call ceiling
+    if campaign.call_maximum is not None:
+        count_result = await db.execute(
+            select(func.count()).select_from(CallSession).where(CallSession.campaign_id == campaign.id)
+        )
+        if (count_result.scalar_one() or 0) >= campaign.call_maximum:
+            log.warning("calls_create_campaign_maximum", campaign_id=str(campaign.id))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="This campaign has reached its call limit"
+            )
+
+    # 6. Twilio Lookup validation (only when credentials are present)
     if campaign.lookup_validate and settings.TWILIO_ACCOUNT_SID:
         loop = asyncio.get_running_loop()
         provider = get_provider()
@@ -92,23 +109,17 @@ async def create_call(body: CallCreateRequest, db: DB) -> CallCreateResponse:
                 ),
             )
 
-    # 4. Hash phone for privacy-safe storage and rate limiting
-    phone_hash = hashlib.sha256(phone.encode()).hexdigest()
+    # 7. Load targets (DB campaign targets or the rep behind the caller's handle)
+    rep = await resolve_rep_or_422(body.rep_token, campaign.id)
+    target_ids = await resolve_target_ids(campaign, db, rep=rep)
 
-    # 5. Blocklist check — silent 403 to avoid confirming the number exists
-    bl_result = await db.execute(
-        select(BlocklistEntry).where(BlocklistEntry.phone_hash == phone_hash).limit(1)
-    )
-    if bl_result.scalar_one_or_none():
-        log.warning("calls_create_blocklist_hit", phone_hash=phone_hash[:12])
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This number is not eligible to participate")
+    if not target_ids:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Campaign has no targets configured")
 
-    # 6. Rate limit — dev bypass mirrors validate_twilio_request (no token = no enforcement)
-    redis = get_redis()
-    is_dev = not settings.TWILIO_AUTH_TOKEN
-    await check_rate_limit(redis, phone_hash, campaign.rate_limit, is_admin=is_dev)
+    if campaign.target_ordering == "shuffle" and rep is None:
+        random.shuffle(target_ids)
 
-    # 7. Persist CallSession
+    # 8. Persist CallSession
     session_id = uuid.uuid4()
     session = CallSession(
         id=session_id,
@@ -129,17 +140,18 @@ async def create_call(body: CallCreateRequest, db: DB) -> CallCreateResponse:
         target_count=len(target_ids),
     )
 
-    # 8. Store call state in Redis (consumed by webhook chain)
+    # 9. Store call state in Redis (consumed by webhook chain)
     state = {
         "campaign_id": str(campaign.id),
         "target_ids": target_ids,
         "current_target_index": 0,
         "caller_phone_hash": phone_hash,
         "connection_type": "outbound_phone",
+        "client_ip": ip,
     }
     await save_call_state(session_id, state)
 
-    # 9. Place Twilio outbound call (skipped in dev when credentials are absent)
+    # 10. Place Twilio outbound call (skipped in dev when credentials are absent)
     if settings.TWILIO_ACCOUNT_SID and settings.PUBLIC_BASE_URL:
         caller_id = await get_campaign_caller_id(campaign.id, db)
         voice_url = (

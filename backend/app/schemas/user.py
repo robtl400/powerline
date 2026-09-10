@@ -1,7 +1,11 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+
+from app.schemas.target import normalize_phone
+from app.services.auth import validate_password_strength
 
 
 class UserCreate(BaseModel):
@@ -9,14 +13,38 @@ class UserCreate(BaseModel):
     name: str
     phone: str  # E.164 format
     password: str | None = None  # if omitted, a random password is generated and SMS'd
-    role: str = "staff"
+    role: Literal["admin", "staff"] = "staff"
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.lower()
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        return normalize_phone(v)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return validate_password_strength(v)
 
 
 class UserUpdate(BaseModel):
     name: str | None = None
     phone: str | None = None
-    role: str | None = None
+    role: Literal["admin", "staff"] | None = None
     is_active: bool | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return normalize_phone(v)
 
 
 class UserResponse(BaseModel):

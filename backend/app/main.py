@@ -14,10 +14,52 @@ from app.config import settings
 
 log = structlog.get_logger()
 
+_PLACEHOLDER_SECRET_KEYS = {
+    "dev-secret-key-change-in-production",
+    "change-me-in-production-use-openssl-rand-hex-32",
+}
+
+
+def _validate_startup_config() -> None:
+    """Refuse to start with an insecure configuration."""
+    if settings.SECRET_KEY in _PLACEHOLDER_SECRET_KEYS:
+        raise RuntimeError(
+            "SECRET_KEY is set to a placeholder value. "
+            "Generate a real one with: openssl rand -hex 32"
+        )
+    if len(settings.SECRET_KEY) < 32:
+        raise RuntimeError(
+            "SECRET_KEY must be at least 32 characters. "
+            "Generate one with: openssl rand -hex 32"
+        )
+
+    if settings.is_development:
+        return
+
+    if not settings.TWILIO_AUTH_TOKEN:
+        raise RuntimeError(
+            "TWILIO_AUTH_TOKEN is required in production — "
+            "webhook signature validation cannot be performed without it."
+        )
+    if not settings.PUBLIC_BASE_URL:
+        raise RuntimeError(
+            "PUBLIC_BASE_URL is required in production — "
+            "Twilio webhook signature validation depends on it."
+        )
+    if not settings.PUBLIC_BASE_URL.startswith("https://"):
+        raise RuntimeError(
+            f"PUBLIC_BASE_URL must use https:// in production, got: {settings.PUBLIC_BASE_URL}"
+        )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    log.info("powerline_api_starting", version="2.0.0-dev")
+    log.info(
+        "powerline_api_starting",
+        version="2.0.0-dev",
+        environment=settings.ENVIRONMENT,
+    )
+    _validate_startup_config()
     if not settings.GOOGLE_CIVIC_API_KEY:
         log.warning("civic_key_missing", key="GOOGLE_CIVIC_API_KEY")
     if not settings.OPENSTATES_API_KEY:

@@ -18,6 +18,14 @@ from app.services.civic.google_civic import MissingApiKeyError
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+async def clear_reps_rate_limit(redis):
+    """Drop the shared per-IP reps bucket around every test in this module."""
+    await redis.delete("rate:reps:127.0.0.1")
+    yield
+    await redis.delete("rate:reps:127.0.0.1")
+
+
 @pytest.fixture
 async def live_campaign(db: AsyncSession, campaign: Campaign) -> Campaign:
     campaign.status = "live"
@@ -71,7 +79,10 @@ async def test_cache_miss_calls_api_and_returns_reps(
     resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=10001")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["reps"][0]["phone"] == "+12025550200"
+    rep = data["reps"][0]
+    assert rep["name"] == "Rep. Jones"
+    assert "phone" not in rep
+    assert rep["rep_token"]
 
 
 @pytest.mark.asyncio

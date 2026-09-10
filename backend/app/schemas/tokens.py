@@ -1,14 +1,13 @@
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class VoiceTokenRequest(BaseModel):
     campaign_id: uuid.UUID
-    # Rep-lookup path: caller selected a specific representative.
-    target_phone_override: str | None = None
-    target_rep_name: str | None = None
-    target_rep_title: str | None = None
+    # Handle issued by GET /campaigns/{id}/reps; resolved server-side to the
+    # representative's phone number.
+    rep_token: str | None = Field(default=None, max_length=64)
 
 
 class VoiceTokenResponse(BaseModel):

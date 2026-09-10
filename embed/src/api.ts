@@ -37,11 +37,15 @@ export async function fetchCampaign(
 /** Request a Twilio Access Token + session_id for a WebRTC call. */
 export async function requestToken(
   baseUrl: string,
-  campaignId: string
+  campaignId: string,
+  repToken?: string
 ): Promise<VoiceTokenResponse> {
   return apiFetch<VoiceTokenResponse>(`${baseUrl}/api/v1/tokens/voice`, {
     method: "POST",
-    body: JSON.stringify({ campaign_id: campaignId }),
+    body: JSON.stringify({
+      campaign_id: campaignId,
+      ...(repToken !== undefined && { rep_token: repToken }),
+    }),
   });
 }
 
@@ -60,20 +64,14 @@ export async function createCall(
   baseUrl: string,
   campaignId: string,
   phoneNumber: string,
-  targetPhoneOverride?: string,
-  targetRepName?: string,
-  targetRepTitle?: string
+  repToken?: string
 ): Promise<CallCreateResponse> {
   return apiFetch<CallCreateResponse>(`${baseUrl}/api/v1/calls/create`, {
     method: "POST",
     body: JSON.stringify({
       campaign_id: campaignId,
       phone_number: phoneNumber,
-      ...(targetPhoneOverride && {
-        target_phone_override: targetPhoneOverride,
-        target_rep_name: targetRepName,
-        target_rep_title: targetRepTitle,
-      }),
+      ...(repToken !== undefined && { rep_token: repToken }),
     }),
   });
 }
@@ -119,25 +117,4 @@ export async function fetchReps(
   }
 
   return res.json() as Promise<RepsResponse>;
-}
-
-/** Request a Twilio Access Token for a WebRTC call, optionally with a rep phone override. */
-export async function requestTokenWithOverride(
-  baseUrl: string,
-  campaignId: string,
-  targetPhoneOverride?: string,
-  targetRepName?: string,
-  targetRepTitle?: string
-): Promise<VoiceTokenResponse> {
-  return apiFetch<VoiceTokenResponse>(`${baseUrl}/api/v1/tokens/voice`, {
-    method: "POST",
-    body: JSON.stringify({
-      campaign_id: campaignId,
-      ...(targetPhoneOverride && {
-        target_phone_override: targetPhoneOverride,
-        target_rep_name: targetRepName,
-        target_rep_title: targetRepTitle,
-      }),
-    }),
-  });
 }

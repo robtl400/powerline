@@ -5,14 +5,18 @@ import uuid
 
 import httpx
 import structlog
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.deps import DB
+from app.config import settings
+from app.dependencies import get_client_ip
 from app.models.campaign import Campaign
+from app.redis_client import get_redis
 from app.services.civic.google_civic import MissingApiKeyError
-from app.services.civic_service import lookup_reps
+from app.services.civic_service import issue_rep_tokens, lookup_reps
+from app.services.rate_limiter import check_rate_limit
 
 log = structlog.get_logger()
 
@@ -29,8 +33,9 @@ _NO_REPS_DEFAULT = (
 class RepInfoOut(BaseModel):
     name: str
     title: str
-    phone: str
     level: str
+    # Opaque handle the call endpoints exchange for the rep's phone number.
+    rep_token: str
 
 
 class RepsResponse(BaseModel):
@@ -41,6 +46,7 @@ class RepsResponse(BaseModel):
 @router.get("/{campaign_id}/reps", response_model=RepsResponse)
 async def get_reps(
     campaign_id: uuid.UUID,
+    request: Request,
     db: DB,
     zip: str = Query(..., description="5-digit US ZIP code"),
 ) -> RepsResponse:
@@ -48,7 +54,11 @@ async def get_reps(
     Look up elected representatives for a ZIP code.
 
     Public endpoint — no auth required. Same access pattern as GET /campaigns/{id}/public.
+    Rate limited per client IP and per campaign so the upstream civic APIs cannot
+    be drained by an unauthenticated caller.
     """
+    await check_rate_limit(get_redis(), "reps", get_client_ip(request), settings.REPS_RATE_LIMIT)
+
     if not _ZIP_RE.match(zip):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -59,6 +69,13 @@ async def get_reps(
     campaign = result.scalar_one_or_none()
     if not campaign or campaign.status != "live":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found or not active")
+
+    await check_rate_limit(
+        get_redis(),
+        "reps-campaign",
+        str(campaign_id),
+        settings.REPS_RATE_LIMIT * 25,
+    )
 
     embed_config: dict = campaign.embed_config or {}
 
@@ -104,7 +121,17 @@ async def get_reps(
     if missing_levels and reps:
         notice = "Note: some representatives may be temporarily unavailable."
 
+    tokenized = await issue_rep_tokens(str(campaign_id), reps)
+
     return RepsResponse(
-        reps=[RepInfoOut(**r) for r in reps],
+        reps=[
+            RepInfoOut(
+                name=r["name"],
+                title=r["title"],
+                level=r["level"],
+                rep_token=r["rep_token"],
+            )
+            for r in tokenized
+        ],
         message=notice,
     )

@@ -5,7 +5,6 @@ Covers:
   - Full WebRTC path: tokens/voice → voice-app webhook → <Gather> TwiML
   - Rate limit: 6th token request from same IP returns 429
 """
-import hashlib
 import uuid
 from unittest.mock import patch
 
@@ -14,7 +13,6 @@ from httpx import AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models.call import Call
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
@@ -29,12 +27,24 @@ def mock_build_access_token():
         yield
 
 
+@pytest.fixture(autouse=True)
+async def clear_token_rate_limit(redis):
+    """Drop the shared per-IP token bucket around every test in this module.
+
+    Every request from the ASGI test client arrives from the same client IP,
+    so the "token" bucket would otherwise leak between tests.
+    """
+    await redis.delete("rate:token:127.0.0.1")
+    yield
+    await redis.delete("rate:token:127.0.0.1")
+
+
 @pytest.fixture
 async def live_webrtc_campaign(db: AsyncSession, campaign: Campaign) -> Campaign:
     """Promote the shared campaign fixture to live with WebRTC enabled."""
     campaign.status = "live"
     campaign.allow_webrtc = True
-    campaign.rate_limit = None  # unlimited — no Redis rate-limit ops
+    campaign.rate_limit = 5
     await db.commit()
     await db.refresh(campaign)
     return campaign
@@ -128,7 +138,11 @@ async def test_webrtc_voice_app_returns_gather_twiml(
     # Step 2: simulate Twilio calling voice-app (WebRTC path sends session_id in body)
     webhook_resp = await client.post(
         "/webhooks/twilio/voice-app",
-        data={"session_id": session_id, "CallSid": "CAwebrtc0001"},
+        data={
+            "session_id": session_id,
+            "CallSid": "CAwebrtc0001",
+            "From": f"client:{session_id}",
+        },
     )
     assert webhook_resp.status_code == 200, webhook_resp.text
     assert webhook_resp.headers["content-type"] == "application/xml"
@@ -159,32 +173,15 @@ async def test_rate_limit_tokens_voice(
     """6th token request from the same IP within an hour returns 429."""
     campaign, _ = webrtc_campaign_with_target
 
-    # The test client sends x-forwarded-for so tokens.py picks up a real identifier.
-    test_ip = "203.0.113.42"
-    headers = {"x-forwarded-for": test_ip}
-
-    # Flush any leftover rate-limit state for this IP from other tests.
-    await redis.delete(f"rate:{test_ip}")
-
-    # tokens.py skips rate limiting in dev mode (empty TWILIO_AUTH_TOKEN).
-    # Temporarily set a non-empty value to enable enforcement.
-    original = settings.TWILIO_AUTH_TOKEN
-    settings.TWILIO_AUTH_TOKEN = "fake-token-for-rate-limit-test"
-    try:
-        for i in range(5):
-            resp = await client.post(
-                "/api/v1/tokens/voice",
-                json={"campaign_id": str(campaign.id)},
-                headers=headers,
-            )
-            assert resp.status_code == 200, f"Call {i + 1} expected 200, got {resp.status_code}: {resp.text}"
-
+    for i in range(5):
         resp = await client.post(
             "/api/v1/tokens/voice",
             json={"campaign_id": str(campaign.id)},
-            headers=headers,
         )
-        assert resp.status_code == 429, f"Expected 429 on 6th token request, got {resp.status_code}"
-    finally:
-        settings.TWILIO_AUTH_TOKEN = original
-        await redis.delete(f"rate:{test_ip}")
+        assert resp.status_code == 200, f"Call {i + 1} expected 200, got {resp.status_code}: {resp.text}"
+
+    resp = await client.post(
+        "/api/v1/tokens/voice",
+        json={"campaign_id": str(campaign.id)},
+    )
+    assert resp.status_code == 429, f"Expected 429 on 6th token request, got {resp.status_code}"

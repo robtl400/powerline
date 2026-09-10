@@ -9,13 +9,16 @@
  * The widget drives state changes; this class emits state events upward.
  */
 import { Call, Device } from "@twilio/voice-sdk";
-import { requestTokenWithOverride } from "./api.js";
+import { requestToken } from "./api.js";
 import type { CampaignPublic, ConnectedData, WidgetState } from "./types.js";
 
 type StateCallback = (state: WidgetState, data?: unknown) => void;
 
 /** How long after "accept" to wait before flagging a possible audio issue. */
-const AUDIO_CHECK_DELAY_MS = 3_000;
+const AUDIO_CHECK_DELAY_MS = 8_000;
+
+/** Output volume above which we consider inbound audio to be flowing. */
+const AUDIO_PRESENT_THRESHOLD = 0.01;
 
 export class WebRTCClient {
   private device: Device | null = null;
@@ -24,15 +27,14 @@ export class WebRTCClient {
   private timerHandle: ReturnType<typeof setInterval> | null = null;
   private elapsed = 0;
   private audioCheckHandle: ReturnType<typeof setTimeout> | null = null;
+  private audioDetected = false;
 
   constructor(
     private readonly baseUrl: string,
     private readonly campaign: CampaignPublic,
     private readonly onStateChange: StateCallback,
     private readonly onTimerTick: (elapsed: number) => void,
-    private readonly targetPhoneOverride?: string,
-    private readonly targetRepName?: string,
-    private readonly targetRepTitle?: string
+    private readonly repToken?: string
   ) {}
 
   /** Request a token, create the Twilio Device, and register it. */
@@ -42,12 +44,10 @@ export class WebRTCClient {
     let token: string;
     let sessionId: string;
     try {
-      const res = await requestTokenWithOverride(
+      const res = await requestToken(
         this.baseUrl,
         this.campaign.id,
-        this.targetPhoneOverride,
-        this.targetRepName,
-        this.targetRepTitle
+        this.repToken
       );
       token = res.token;
       sessionId = res.session_id;
@@ -109,6 +109,13 @@ export class WebRTCClient {
       return;
     }
 
+    this.call.on("volume", (_inputVolume: number, outputVolume: number) => {
+      if (outputVolume > AUDIO_PRESENT_THRESHOLD) {
+        this.audioDetected = true;
+        this.cancelAudioCheck();
+      }
+    });
+
     this.call.on("accept", () => {
       const target = this.campaign.targets[0] ?? null;
       if (target) {
@@ -168,13 +175,12 @@ export class WebRTCClient {
   }
 
   private _scheduleAudioCheck(): void {
-    // If the call is still "accepted" after the delay with no user interaction,
-    // surface an audio troubleshooting screen. The user can dismiss it once
-    // they hear audio or switch to phone fallback.
+    // If no inbound audio has been observed by the time the delay elapses,
+    // surface an audio troubleshooting screen. The widget decides whether to
+    // show it based on its own current state.
     this.audioCheckHandle = setTimeout(() => {
-      // Only show if we're still connected (not already complete/error).
-      // Widget state is managed by the caller; we just emit the suggestion.
-      // The widget decides whether to show it based on current state.
+      this.audioCheckHandle = null;
+      if (this.audioDetected) return;
       this.onStateChange("audio_check");
     }, AUDIO_CHECK_DELAY_MS);
   }
@@ -198,5 +204,6 @@ export class WebRTCClient {
     }
     this.call = null;
     this.elapsed = 0;
+    this.audioDetected = false;
   }
 }

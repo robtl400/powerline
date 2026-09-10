@@ -11,12 +11,13 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
 
 from app.api.deps import DB
-from app.api.v1.helpers import resolve_target_ids
+from app.api.v1.helpers import resolve_rep_or_422, resolve_target_ids
 from app.config import settings
+from app.dependencies import get_client_ip
+from app.models.blocklist import BlocklistEntry
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.redis_client import get_redis
@@ -29,6 +30,7 @@ log = structlog.get_logger()
 router = APIRouter(tags=["tokens"])
 
 _TOKEN_RATE_LIMIT = 5  # max AccessTokens per IP per hour
+_TOKEN_CAMPAIGN_LIMIT = 500  # max AccessTokens per campaign per hour
 
 
 @router.post("/tokens/voice", response_model=VoiceTokenResponse)
@@ -45,8 +47,20 @@ async def create_voice_token(
             → device.connect({ params: { session_id } })
             → Twilio calls voice-app with session_id in form body
             → same webhook chain as phone callback path
+
+    No auth required — the blocklist and both rate limits are applied before
+    any session is created or any Twilio credential is used.
     """
-    # 1. Validate campaign
+    # 1. Blocklist check by client IP — silent 403
+    ip = get_client_ip(request)
+    bl_result = await db.execute(
+        select(BlocklistEntry).where(BlocklistEntry.ip_address == ip).limit(1)
+    )
+    if bl_result.scalar_one_or_none():
+        log.warning("tokens_voice_blocklist_hit", ip=ip)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This number is not eligible to participate")
+
+    # 2. Validate campaign
     result = await db.execute(select(Campaign).where(Campaign.id == body.campaign_id))
     campaign = result.scalar_one_or_none()
 
@@ -58,33 +72,33 @@ async def create_voice_token(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="This campaign does not support browser calling"
         )
 
-    # 2. Load targets (DB campaign targets or transient rep-lookup target)
-    target_ids = await resolve_target_ids(
-        campaign,
-        db,
-        target_phone_override=body.target_phone_override,
-        target_rep_name=body.target_rep_name,
-        target_rep_title=body.target_rep_title,
-    )
+    # 3. Rate limit by client IP and by campaign
+    redis = get_redis()
+    await check_rate_limit(redis, "token", ip, _TOKEN_RATE_LIMIT)
+    await check_rate_limit(redis, "token-campaign", str(campaign.id), _TOKEN_CAMPAIGN_LIMIT)
+
+    # 4. Campaign-wide call ceiling
+    if campaign.call_maximum is not None:
+        count_result = await db.execute(
+            select(func.count()).select_from(CallSession).where(CallSession.campaign_id == campaign.id)
+        )
+        if (count_result.scalar_one() or 0) >= campaign.call_maximum:
+            log.warning("tokens_voice_campaign_maximum", campaign_id=str(campaign.id))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="This campaign has reached its call limit"
+            )
+
+    # 5. Load targets (DB campaign targets or the rep behind the caller's handle)
+    rep = await resolve_rep_or_422(body.rep_token, campaign.id)
+    target_ids = await resolve_target_ids(campaign, db, rep=rep)
 
     if not target_ids:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Campaign has no targets configured")
 
-    if campaign.target_ordering == "shuffle" and not body.target_phone_override:
+    if campaign.target_ordering == "shuffle" and rep is None:
         random.shuffle(target_ids)
 
-    # 3. Rate limit by IP — dev bypass mirrors validate_twilio_request pattern
-    ip = request.headers.get("x-forwarded-for", "") or (
-        request.client.host if request.client else ""
-    )
-    # x-forwarded-for may be a comma-separated list; take the leftmost (original client)
-    ip = ip.split(",")[0].strip()
-
-    redis = get_redis()
-    is_dev = not settings.TWILIO_AUTH_TOKEN
-    await check_rate_limit(redis, ip, _TOKEN_RATE_LIMIT, is_admin=is_dev)
-
-    # 4. Persist CallSession
+    # 6. Persist CallSession
     session_id = uuid.uuid4()
     session = CallSession(
         id=session_id,
@@ -102,17 +116,18 @@ async def create_voice_token(
         target_count=len(target_ids),
     )
 
-    # 5. Store call state in Redis (consumed by webhook chain)
+    # 7. Store call state in Redis (consumed by webhook chain)
     state = {
         "campaign_id": str(campaign.id),
         "target_ids": target_ids,
         "current_target_index": 0,
         "caller_phone_hash": "",
         "connection_type": "webrtc",
+        "client_ip": ip,
     }
     await save_call_state(session_id, state)
 
-    # 6. Generate Twilio Access Token with VoiceGrant (skipped in dev when key absent)
+    # 8. Generate Twilio Access Token with VoiceGrant (skipped in dev when key absent)
     if settings.TWILIO_API_KEY_SID:
         loop = asyncio.get_running_loop()
         try:

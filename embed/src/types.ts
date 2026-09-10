@@ -22,13 +22,14 @@ export interface CampaignPublic {
 export interface RepInfo {
   name: string;
   title: string;
-  phone: string;
   level: string;
+  /** Opaque, short-lived handle for the selected representative. */
+  rep_token: string;
 }
 
 export interface RepsResponse {
   reps: RepInfo[];
-  message?: string;
+  message?: string | null;
 }
 
 export interface VoiceTokenResponse {

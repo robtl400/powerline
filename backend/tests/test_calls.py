@@ -16,7 +16,6 @@ from httpx import AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.models.call import Call
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
@@ -39,13 +38,41 @@ def mock_twilio_create_call():
         yield mock_provider
 
 
+MODULE_PHONES = [
+    "+12025550143",
+    "+12025550144",
+    "+12025550145",
+    "+12025550146",
+    "+12025550171",
+    "+12025550181",
+    "+12025550182",
+    "+12025550183",
+]
+
+
+@pytest.fixture(autouse=True)
+async def clear_rate_buckets(redis):
+    """Drop every rate-limit bucket this module touches, before and after.
+
+    All requests from the ASGI test client share one client IP, and the
+    per-phone buckets survive the hour-long window, so both would otherwise
+    leak between tests and between suite runs.
+    """
+    keys = ["rate:call-ip:127.0.0.1"] + [
+        f"rate:call:{hashlib.sha256(phone.encode()).hexdigest()}" for phone in MODULE_PHONES
+    ]
+    await redis.delete(*keys)
+    yield
+    await redis.delete(*keys)
+
+
 @pytest.fixture
 async def live_campaign(db: AsyncSession, campaign: Campaign) -> Campaign:
     """Promote the shared campaign fixture to live with phone callback enabled."""
     campaign.status = "live"
     campaign.allow_phone_callback = True
     campaign.lookup_validate = False  # skip Twilio Lookup in tests
-    campaign.rate_limit = None  # unlimited — no Redis rate-limit ops
+    campaign.rate_limit = 5
     await db.commit()
     await db.refresh(campaign)
     return campaign
@@ -95,7 +122,7 @@ async def test_create_call_returns_session(
         "/api/v1/calls/create",
         json={
             "campaign_id": str(campaign.id),
-            "phone_number": "+15559876543",
+            "phone_number": "+12025550143",
         },
     )
     assert response.status_code == 200, response.text
@@ -126,7 +153,7 @@ async def test_voice_app_returns_gather_twiml(
         "/api/v1/calls/create",
         json={
             "campaign_id": str(campaign.id),
-            "phone_number": "+15559876544",
+            "phone_number": "+12025550144",
         },
     )
     assert create_resp.status_code == 200, create_resp.text
@@ -135,7 +162,7 @@ async def test_voice_app_returns_gather_twiml(
     # Step 2: simulate Twilio calling voice-app (phone callback path uses query param)
     webhook_resp = await client.post(
         f"/webhooks/twilio/voice-app?session_id={session_id}",
-        data={"CallSid": "CAsmoke0001", "From": "+15559876544"},
+        data={"CallSid": "CAsmoke0001", "From": "+12025550144"},
     )
     assert webhook_resp.status_code == 200, webhook_resp.text
     assert webhook_resp.headers["content-type"] == "application/xml"
@@ -165,7 +192,7 @@ async def test_create_call_rejects_nonlive_campaign(
         "/api/v1/calls/create",
         json={
             "campaign_id": str(campaign.id),
-            "phone_number": "+15559876545",
+            "phone_number": "+12025550145",
         },
     )
     assert response.status_code == 404
@@ -184,7 +211,7 @@ async def test_create_call_rejects_callback_disabled(
         "/api/v1/calls/create",
         json={
             "campaign_id": str(live_campaign.id),
-            "phone_number": "+15559876546",
+            "phone_number": "+12025550146",
         },
     )
     assert response.status_code == 422
@@ -213,29 +240,11 @@ async def test_rate_limit_calls_create(
     client: AsyncClient,
     db: AsyncSession,
     rate_limited_campaign: Campaign,
-    redis,
 ) -> None:
     """6th call from the same phone number within an hour returns 429."""
-    phone = "+15559990001"
-    phone_hash = hashlib.sha256(phone.encode()).hexdigest()
+    phone = "+12025550171"
 
-    # Flush any leftover rate-limit state for this phone from other tests.
-    await redis.delete(f"rate:{phone_hash}")
-
-    # calls.py also uses is_dev bypass — enable enforcement with a fake token.
-    original = settings.TWILIO_AUTH_TOKEN
-    settings.TWILIO_AUTH_TOKEN = "fake-token-for-rate-limit-test"
-    try:
-        for i in range(5):
-            resp = await client.post(
-                "/api/v1/calls/create",
-                json={
-                    "campaign_id": str(rate_limited_campaign.id),
-                    "phone_number": phone,
-                },
-            )
-            assert resp.status_code == 200, f"Call {i + 1} expected 200, got {resp.status_code}: {resp.text}"
-
+    for i in range(5):
         resp = await client.post(
             "/api/v1/calls/create",
             json={
@@ -243,10 +252,16 @@ async def test_rate_limit_calls_create(
                 "phone_number": phone,
             },
         )
-        assert resp.status_code == 429, f"Expected 429 on 6th call, got {resp.status_code}"
-    finally:
-        settings.TWILIO_AUTH_TOKEN = original
-        await redis.delete(f"rate:{phone_hash}")
+        assert resp.status_code == 200, f"Call {i + 1} expected 200, got {resp.status_code}: {resp.text}"
+
+    resp = await client.post(
+        "/api/v1/calls/create",
+        json={
+            "campaign_id": str(rate_limited_campaign.id),
+            "phone_number": phone,
+        },
+    )
+    assert resp.status_code == 429, f"Expected 429 on 6th call, got {resp.status_code}"
 
 
 # ---------------------------------------------------------------------------
@@ -255,11 +270,11 @@ async def test_rate_limit_calls_create(
 
 
 @pytest.mark.parametrize(
-    "dial_status,expected_db_status",
+    "dial_status,expected_db_status,phone,call_sid",
     [
-        ("no-answer", "no_answer"),
-        ("busy", "busy"),
-        ("failed", "failed"),
+        ("no-answer", "no_answer", "+12025550181", "CAfailtest001"),
+        ("busy", "busy", "+12025550182", "CAfailtest002"),
+        ("failed", "failed", "+12025550183", "CAfailtest003"),
     ],
 )
 async def test_call_complete_writes_failure_statuses(
@@ -268,6 +283,8 @@ async def test_call_complete_writes_failure_statuses(
     campaign_with_target: tuple[Campaign, Target],
     dial_status: str,
     expected_db_status: str,
+    phone: str,
+    call_sid: str,
 ) -> None:
     """call-complete webhook correctly writes no_answer/busy/failed to the calls table.
 
@@ -279,7 +296,7 @@ async def test_call_complete_writes_failure_statuses(
     # Step 1: create session
     create_resp = await client.post(
         "/api/v1/calls/create",
-        json={"campaign_id": str(campaign.id), "phone_number": "+15559990002"},
+        json={"campaign_id": str(campaign.id), "phone_number": phone},
     )
     assert create_resp.status_code == 200, create_resp.text
     session_id = create_resp.json()["session_id"]
@@ -287,7 +304,7 @@ async def test_call_complete_writes_failure_statuses(
     # Step 2: advance to in_progress via voice-app (phone callback path)
     va_resp = await client.post(
         f"/webhooks/twilio/voice-app?session_id={session_id}",
-        data={"CallSid": "CAfailtest001", "From": "+15559990002"},
+        data={"CallSid": call_sid, "From": phone},
     )
     assert va_resp.status_code == 200, va_resp.text
 
@@ -295,8 +312,8 @@ async def test_call_complete_writes_failure_statuses(
     cc_resp = await client.post(
         f"/webhooks/twilio/call-complete?session_id={session_id}",
         data={
-            "CallSid": "CAfailtest001",
-            "DialCallSid": "CAleg001",
+            "CallSid": call_sid,
+            "DialCallSid": f"CAleg-{call_sid}",
             "DialCallStatus": dial_status,
             "DialCallDuration": "0",
         },

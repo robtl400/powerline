@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import secrets
 
 import structlog
 
@@ -12,6 +13,7 @@ from app.services.civic.router import LevelRouter
 log = structlog.get_logger()
 
 REPS_CACHE_TTL = 86400  # 24 hours
+REP_TOKEN_TTL = 3600  # 1 hour — matches the widget's usable selection window
 
 _router = LevelRouter()
 
@@ -44,3 +46,60 @@ async def lookup_reps(zip_code: str, campaign_id: str, embed_config: dict) -> li
         log.warning("reps_cache_write_failed", zip=zip_code, campaign_id=campaign_id, error=str(exc))
 
     return payload
+
+
+async def issue_rep_tokens(campaign_id: str, reps: list[dict]) -> list[dict]:
+    """Replace each rep's phone number with an opaque single-campaign handle.
+
+    The phone number is stored server-side under `rep_token:{token}` and never
+    reaches the client, so a caller can only dial numbers the lookup returned
+    for the campaign they are calling on behalf of.
+
+    Returns the reps with a `rep_token` key added and `phone` removed.
+    """
+    redis = get_redis()
+    issued: list[dict] = []
+
+    for rep in reps:
+        token = secrets.token_urlsafe(24)
+        record = {
+            "campaign_id": campaign_id,
+            "phone": rep.get("phone", ""),
+            "name": rep.get("name", ""),
+            "title": rep.get("title", ""),
+            "level": rep.get("level", ""),
+        }
+        await redis.set(f"rep_token:{token}", json.dumps(record), ex=REP_TOKEN_TTL)
+
+        public = {k: v for k, v in rep.items() if k != "phone"}
+        public["rep_token"] = token
+        issued.append(public)
+
+    log.info("rep_tokens_issued", campaign_id=campaign_id, count=len(issued))
+    return issued
+
+
+async def resolve_rep_token(token: str, campaign_id: str) -> dict | None:
+    """Return the stored rep record for a token, or None when it does not apply.
+
+    A token resolves only for the campaign it was issued for. Tokens stay
+    usable for the whole TTL so a retry after a failed call still works.
+    """
+    if not token:
+        return None
+
+    raw = await get_redis().get(f"rep_token:{token}")
+    if not raw:
+        return None
+
+    try:
+        record = json.loads(raw)
+    except (TypeError, ValueError):
+        log.warning("rep_token_corrupt", campaign_id=campaign_id)
+        return None
+
+    if record.get("campaign_id") != campaign_id:
+        log.warning("rep_token_campaign_mismatch", campaign_id=campaign_id)
+        return None
+
+    return record

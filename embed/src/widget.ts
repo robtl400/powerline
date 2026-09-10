@@ -28,6 +28,9 @@ import type {
   WidgetState,
 } from "./types.js";
 
+/** Backend detail returned when a rep_token has expired between lookup and call. */
+const REP_SELECTION_EXPIRED = "Invalid or expired representative selection";
+
 export interface WidgetOptions {
   campaignId: string;
   container: Element;
@@ -53,10 +56,8 @@ export class PowerlineWidget {
   private phoneFallbackMsg: string | undefined = undefined;
   // Rep-lookup state
   private repSelectionReps: RepInfo[] = [];
-  private repSelectionMessage: string | undefined = undefined;
-  private selectedRepPhone: string | null = null;
-  private selectedRepName: string | null = null;
-  private selectedRepTitle: string | null = null;
+  private repSelectionMessage: string | null | undefined = undefined;
+  private selectedRepToken: string | null = null;
 
   constructor({ campaignId, container, apiUrl = "" }: WidgetOptions) {
     this.campaignId = campaignId;
@@ -84,7 +85,18 @@ export class PowerlineWidget {
   // ── State transitions ────────────────────────────────────────────────────
 
   private _onStateChange = (state: WidgetState, data?: unknown): void => {
+    const prev = this.state;
     this.state = state;
+
+    if (state === "error" && data === REP_SELECTION_EXPIRED) {
+      this._destroyClients();
+      this._resetRepSelection();
+      this.state = "idle";
+      this._render("idle");
+      const errorEl = this.container.querySelector<HTMLElement>("#pl-zip-error");
+      if (errorEl) errorEl.textContent = REP_SELECTION_EXPIRED;
+      return;
+    }
 
     if (state === "connected") {
       this.connectedData = (data as ConnectedData) ?? null;
@@ -117,11 +129,12 @@ export class PowerlineWidget {
     }
 
     if (state === "audio_check") {
-      // Only switch to audio_check if we're still in "connected" — don't
-      // override a disconnect/complete that may have raced with the timer.
-      if (this.state === "audio_check" || this.state === "connected") {
-        this.state = "audio_check";
+      // Only switch to audio_check from a live call — don't override a
+      // disconnect/complete that may have raced with the timer.
+      if (prev === "connected") {
         this._render("audio_check");
+      } else {
+        this.state = prev;
       }
       return;
     }
@@ -253,30 +266,29 @@ export class PowerlineWidget {
         break;
 
       case "select-rep": {
-        const phone = el?.dataset.plPhone ?? "";
-        const name = el?.dataset.plName ?? "";
-        const title = el?.dataset.plTitle ?? "";
-        if (phone) {
-          this.selectedRepPhone = phone;
-          this.selectedRepName = name;
-          this.selectedRepTitle = title;
+        const repToken = el?.dataset.plRepToken ?? "";
+        if (repToken) {
+          this.selectedRepToken = repToken;
           this._startCall();
         }
         break;
       }
 
       case "show-phone":
+        this._destroyClients();
         this.state = "phone_input";
         this._render("phone_input");
         break;
 
+      case "dismiss-audio-check":
+        this.webrtc?.cancelAudioCheck();
+        this.state = "connected";
+        this._renderConnected();
+        break;
+
       case "back-to-idle":
         this.phoneFallbackMsg = undefined;
-        this.selectedRepPhone = null;
-        this.selectedRepName = null;
-        this.selectedRepTitle = null;
-        this.repSelectionReps = [];
-        this.repSelectionMessage = undefined;
+        this._resetRepSelection();
         this.state = "idle";
         this._render("idle");
         break;
@@ -294,11 +306,7 @@ export class PowerlineWidget {
       case "retry-webrtc":
         this._destroyClients();
         this.phoneFallbackMsg = undefined;
-        this.selectedRepPhone = null;
-        this.selectedRepName = null;
-        this.selectedRepTitle = null;
-        this.repSelectionReps = [];
-        this.repSelectionMessage = undefined;
+        this._resetRepSelection();
         this.state = "idle";
         this._render("idle");
         break;
@@ -386,9 +394,7 @@ export class PowerlineWidget {
         this.campaign,
         this._onStateChange,
         this._onTimerTick,
-        this.selectedRepPhone ?? undefined,
-        this.selectedRepName ?? undefined,
-        this.selectedRepTitle ?? undefined
+        this.selectedRepToken ?? undefined
       );
       void this.webrtc.start();
     } else if (this.campaign.allow_phone_callback) {
@@ -409,11 +415,15 @@ export class PowerlineWidget {
       this.baseUrl,
       this.campaignId,
       this._onStateChange,
-      this.selectedRepPhone ?? undefined,
-      this.selectedRepName ?? undefined,
-      this.selectedRepTitle ?? undefined
+      this.selectedRepToken ?? undefined
     );
     void this.phoneFallback.submit(phone);
+  }
+
+  private _resetRepSelection(): void {
+    this.selectedRepToken = null;
+    this.repSelectionReps = [];
+    this.repSelectionMessage = undefined;
   }
 
   private _destroyClients(): void {

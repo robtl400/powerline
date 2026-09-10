@@ -76,7 +76,10 @@ export function renderLookingUpReps(): string {
   </div>`;
 }
 
-export function renderRepSelection(reps: RepInfo[], message?: string): string {
+export function renderRepSelection(
+  reps: RepInfo[],
+  message?: string | null
+): string {
   const notice = `<p class="pl-subtext" style="margin-bottom:12px">${esc(message ?? "Select a representative to connect your call.")}</p>`;
 
   let items: string;
@@ -110,9 +113,7 @@ export function renderRepSelection(reps: RepInfo[], message?: string): string {
             class="pl-btn"
             style="width:100%;text-align:left;margin-bottom:8px;padding:10px 12px;min-height:44px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;display:flex;flex-direction:column;justify-content:center"
             data-pl-action="select-rep"
-            data-pl-phone="${esc(r.phone)}"
-            data-pl-name="${esc(r.name)}"
-            data-pl-title="${esc(r.title)}"
+            data-pl-rep-token="${esc(r.rep_token)}"
           >
             <strong style="display:block;font-size:14px">📞 Call ${esc(r.name)}</strong>
             <span style="font-size:12px;color:#6b7280">${esc(r.title)}</span>
@@ -164,7 +165,10 @@ export function renderAudioCheck(campaignId: string, baseUrl: string): string {
       <li>Check that the correct audio output device is selected</li>
       <li>Try refreshing the page and clicking Call Now again</li>
     </ul>
-    <button class="pl-btn pl-btn-primary" data-pl-action="retry-webrtc" style="margin-bottom:10px">
+    <button class="pl-btn pl-btn-primary" data-pl-action="dismiss-audio-check" style="margin-bottom:10px">
+      I can hear it — go back
+    </button>
+    <button class="pl-btn pl-btn-secondary" data-pl-action="retry-webrtc" style="margin-bottom:10px">
       Try Again
     </button>
     <button class="pl-btn pl-btn-ghost" data-pl-action="show-phone">

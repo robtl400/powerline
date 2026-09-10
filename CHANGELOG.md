@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.4.0] - 2026-09-10
+
+### Security
+- **Password reset codes** — 8-digit codes generated with `secrets`, compared with `hmac.compare_digest`, and destroyed after 5 wrong attempts. A pending code is reused until it expires, so repeated requests cannot flood a phone with SMS.
+- **Password reset rate limits** — per-email (`AUTH_RATE_LIMIT // 3`, minimum 3) and per-IP limits on `POST /auth/reset-request`, applied before the account lookup so unknown emails cost the same; per-IP limit on `POST /auth/reset-confirm`. Reset failures no longer log the email address, only a truncated hash.
+- **Login hardening** — per-IP (`AUTH_RATE_LIMIT * 3`) and per-email (`AUTH_RATE_LIMIT`) rate limits, plus a dummy bcrypt verification for unknown emails so response timing no longer reveals whether an account exists.
+- **Refresh re-checks the account** — `POST /auth/refresh` loads the user named by the token and returns 401 when they no longer exist or have been deactivated.
+- **Password policy** — new passwords must be 12–128 characters and contain a letter and a digit, enforced on password reset and on admin-supplied passwords at user creation.
+- **User role and phone validation** — `role` is restricted to `admin` / `staff`, and `phone` is normalized to E.164 on create and update so invites reach a real number.
+- **Last-admin guard** — deactivating or demoting the only remaining active admin returns HTTP 409.
+- **Long passwords no longer error** — passwords are truncated to bcrypt's 72-byte limit before hashing and verification, so a login or reset with a longer password returns a normal result instead of a 500.
+- **Consistent email handling** — login and password reset match accounts case-insensitively and new accounts are stored lowercased, so a rate-limit key can no longer diverge from the account it protects.
+- **SMS off the event loop** — Twilio's blocking client now runs in a thread pool for reset and invite messages.
+- **Rep selection handles replace client-supplied dial targets** — `GET /campaigns/{id}/reps` returns `{name, title, level, rep_token}` with no phone number. `rep_token` is an opaque `secrets.token_urlsafe(24)` handle stored in Redis for one hour under `rep_token:{token}`, bound to the campaign it was issued for and exchanged server-side at call time. `target_phone_override`, `target_rep_name` and `target_rep_title` are gone from `CallCreateRequest` and `VoiceTokenRequest`, so a caller can no longer make the platform dial an arbitrary number under the campaign's caller ID.
+- **Unknown, expired, or cross-campaign `rep_token`** — HTTP 422 "Invalid or expired representative selection" instead of a fallback to a caller-chosen target.
+- **Phone numbers canonicalised before use** — `CallCreateRequest.phone_number` is normalized to E.164 by a field validator, so `+12025550123`, `12025550123` and `(202) 555-0123` yield one hash for storage, rate limiting and blocklist matching. Non-US numbers are rejected with "Only US phone numbers are supported".
+- **Blocklist and rate limits applied before Twilio spend** — `POST /calls/create` checks the blocklist on phone hash *or* client IP, then rate limits on the phone hash (`call`) and the IP (`call-ip`), before any Lookup call or session write. `POST /tokens/voice` checks the IP blocklist first, then rate limits per IP (`token`, 5/hour) and per campaign (`token-campaign`, 500/hour).
+- **Campaign `call_maximum` enforced** — both public paths return HTTP 429 "This campaign has reached its call limit" once the campaign's session count reaches its ceiling.
+- **Rep lookup rate limited** — `GET /campaigns/{id}/reps` is limited per client IP (`REPS_RATE_LIMIT`) and per campaign (`REPS_RATE_LIMIT × 25`), so an unauthenticated caller cannot drain the Google Civic / OpenStates quota.
+- **Webhook sessions bound to their Twilio call** — `voice-app` requires a WebRTC session's `From` to be `client:{session_id}`, records the `CallSid` on first hit, and hangs up on a later hit carrying a different `CallSid`; `make-calls`, `dial-target` and `call-complete` hang up on the same mismatch, so a leaked `session_id` cannot be replayed from another call.
+- **`voice-app` hangs up when the campaign is missing** and also checks the blocklist against the client IP recorded in the call state.
+- **`status-callback` ignores an empty `CallSid`** — an empty value previously matched every session whose `twilio_call_sid` was still blank and marked them all completed.
+- **`call-complete` hardened** — a repeated `DialCallSid` returns the same TwiML without writing a second `Call` row or skipping a target, an unparseable `DialCallDuration` counts as 0, and an unrecognised `DialCallStatus` is stored as `failed` rather than `completed`. A malformed `session_id` hangs up instead of raising.
+- **`campaigns.rate_limit` defaults to 5** — new campaigns are rate limited without configuration; migration `006` backfills existing NULL rows.
+- `client_ip` is recorded in the Redis call state so the webhook chain can apply IP-based blocks.
+- `resolve_target_ids(campaign, db, rep=None)` builds the transient rep target from the server-stored record only, truncating name to 200 and title to 100 characters; shuffle ordering is skipped only when a rep was selected.
+- Migration `006_rate_limit_default.py` — `campaigns.rate_limit` server default plus `ix_call_sessions_campaign_id` for the call-ceiling count.
+- `test_call_security.py` — new suite covering rep-token resolution, phone-variant hashing, IP blocklisting, `X-Forwarded-For` spoofing, campaign ceilings, and the webhook bindings.
+
 ## [2.0.3.0] - 2026-03-21
 
 ### Added

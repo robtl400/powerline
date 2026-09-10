@@ -1,3 +1,4 @@
+import ipaddress
 import uuid
 
 import jwt
@@ -13,6 +14,68 @@ from app.services.auth import decode_token
 
 log = structlog.get_logger()
 bearer = HTTPBearer()
+
+_trusted_proxy_cache: tuple[str, list[ipaddress.IPv4Network | ipaddress.IPv6Network]] | None = None
+
+
+def _trusted_proxy_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    """Parse settings.TRUSTED_PROXIES into networks, cached on the raw string."""
+    global _trusted_proxy_cache
+
+    from app.config import settings
+
+    raw = settings.TRUSTED_PROXIES
+    if _trusted_proxy_cache is not None and _trusted_proxy_cache[0] == raw:
+        return _trusted_proxy_cache[1]
+
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            log.warning("trusted_proxy_invalid", entry=entry)
+
+    _trusted_proxy_cache = (raw, networks)
+    return networks
+
+
+def _is_trusted(candidate: str, networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network]) -> bool:
+    if not networks:
+        return False
+    try:
+        addr = ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    return any(addr in net for net in networks)
+
+
+def get_client_ip(request: Request) -> str:
+    """Return the client IP, honouring X-Forwarded-For only behind trusted proxies.
+
+    The peer address is authoritative unless it belongs to a network listed in
+    settings.TRUSTED_PROXIES. In that case the X-Forwarded-For chain is walked
+    from the right and the first entry that is not itself a trusted proxy wins.
+    """
+    peer = request.client.host if request.client else ""
+    networks = _trusted_proxy_networks()
+
+    if not _is_trusted(peer, networks):
+        return peer
+
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if not forwarded:
+        return peer
+
+    for entry in reversed(forwarded.split(",")):
+        entry = entry.strip()
+        if not entry or _is_trusted(entry, networks):
+            continue
+        return entry
+
+    return peer
 
 
 async def get_current_user(
@@ -65,16 +128,16 @@ async def validate_twilio_request(
     Apply this dependency to all TwiML callback endpoints. Without it,
     anyone who knows the webhook URL can trigger call logic.
 
-    In dev mode (TWILIO_AUTH_TOKEN unset), validation is skipped so webhooks
-    can be exercised with curl without real Twilio credentials.
+    Validation is skipped only in the development environment with
+    TWILIO_AUTH_TOKEN unset, so webhooks can be exercised with curl without
+    real Twilio credentials. In production a missing token rejects the request.
 
     Note: this dependency consumes the request body stream (request.form()).
     Starlette caches the parsed form, so handlers can call request.form() again.
     """
     from app.config import settings
 
-    if not settings.TWILIO_AUTH_TOKEN:
-        # Skip in dev — no credentials configured.
+    if settings.is_development and not settings.TWILIO_AUTH_TOKEN:
         return
 
     signature = request.headers.get("X-Twilio-Signature", "")

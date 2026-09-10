@@ -1,10 +1,10 @@
-import random
-import string
+import asyncio
+import secrets
 import uuid
 
 import structlog
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
@@ -15,6 +15,21 @@ from app.services.sms import send_sms
 
 log = structlog.get_logger()
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+async def _send_sms_async(to: str, body: str) -> str:
+    """Run the blocking Twilio client off the event loop."""
+    return await asyncio.get_running_loop().run_in_executor(None, send_sms, to, body)
+
+
+async def _other_active_admins(db: AsyncSession, user_id: uuid.UUID) -> int:
+    """Count active admins other than user_id."""
+    result = await db.execute(
+        select(func.count())
+        .select_from(User)
+        .where(User.role == "admin", User.is_active.is_(True), User.id != user_id)
+    )
+    return int(result.scalar_one())
 
 
 @router.get("/me", response_model=UserResponse)
@@ -34,26 +49,34 @@ async def create_user(
     db: DB,
     _: AdminUser,
 ) -> User:
-    existing = await db.execute(select(User).where(User.email == body.email))
-    if existing.scalar_one_or_none():
+    existing = await db.execute(select(User).where(func.lower(User.email) == body.email).limit(1))
+    if existing.scalars().first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-    temp_password = body.password or "".join(random.choices(string.ascii_letters + string.digits, k=16))
+    temp_password = None if body.password else secrets.token_urlsafe(12)
     user = User(
         email=body.email,
         name=body.name,
         phone=body.phone,
-        hashed_password=hash_password(temp_password),
+        hashed_password=hash_password(body.password or temp_password),
         role=body.role,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
 
+    if temp_password:
+        message = f"You've been invited to Powerline. Your temporary password is: {temp_password}"
+    else:
+        message = (
+            "You've been invited to Powerline. "
+            "Sign in with the password your administrator gave you."
+        )
+
     try:
-        send_sms(user.phone, f"You've been invited to Powerline. Your temporary password is: {temp_password}")
+        await _send_sms_async(user.phone, message)
     except Exception:
-        log.exception("invite_sms_failed", email=user.email)
+        log.exception("invite_sms_failed", user_id=str(user.id))
 
     return user
 
@@ -70,7 +93,19 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+
+    if user.role == "admin" and user.is_active:
+        losing_admin = changes.get("is_active") is False or (
+            "role" in changes and changes["role"] is not None and changes["role"] != "admin"
+        )
+        if losing_admin and await _other_active_admins(db, user.id) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot deactivate or demote the last active admin",
+            )
+
+    for field, value in changes.items():
         setattr(user, field, value)
 
     await db.commit()

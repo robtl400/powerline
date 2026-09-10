@@ -10,8 +10,25 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Security
-    SECRET_KEY: str = "dev-secret-key-change-in-production"
+    # Deployment environment: "development" | "production".
+    # Defaults to production so an unconfigured deploy fails closed.
+    ENVIRONMENT: str = "production"
+
+    # Security — no default; startup fails when unset.
+    SECRET_KEY: str
+
+    # Comma-separated IPs/CIDRs of reverse proxies whose X-Forwarded-For
+    # header may be trusted. Empty = never trust the header.
+    TRUSTED_PROXIES: str = ""
+
+    # Calls per hour per identifier when a campaign has no rate_limit configured.
+    DEFAULT_RATE_LIMIT: int = 5
+
+    # Rep lookups per hour per client IP.
+    REPS_RATE_LIMIT: int = 20
+
+    # Login / password-reset attempts per hour per identifier.
+    AUTH_RATE_LIMIT: int = 10
 
     # Twilio
     TWILIO_ACCOUNT_SID: str = ""
@@ -40,6 +57,11 @@ class Settings(BaseSettings):
     # Use "*" for development and the embed widget (runs on third-party sites).
     # In production, restrict to your frontend domain: "https://app.example.com"
     CORS_ORIGINS: str = "*"
+
+    @property
+    def is_development(self) -> bool:
+        """True when running in the development environment."""
+        return self.ENVIRONMENT == "development"
 
 
 settings = Settings()

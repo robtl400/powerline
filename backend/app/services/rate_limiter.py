@@ -1,19 +1,22 @@
-"""Redis sliding-window rate limiter for call sessions.
+"""Redis sliding-window rate limiter.
 
-Algorithm (sorted set per identifier):
-  Key: rate:{identifier}  (identifier = phone_hash or IP address)
+Algorithm (sorted set per scope + identifier):
+  Key: rate:{scope}:{identifier}  (identifier = phone_hash, IP address, email, …)
   On each attempt:
     1. ZREMRANGEBYSCORE — remove entries older than the window
-    2. ZADD — record this attempt (score = member = current unix timestamp)
-    3. ZCOUNT — count entries in the window
-    4. EXPIRE — reset TTL so the key is cleaned up automatically
-  Reject if count exceeds the campaign's rate_limit.
+    2. ZCOUNT — count the entries remaining in the window
+    3. Reject with HTTP 429 when the count already reaches the limit, without
+       recording the attempt
+    4. Otherwise ZADD the attempt (unique member, score = now) and EXPIRE the
+       key so it is cleaned up automatically
 
-Admin bypass: pass is_admin=True to skip all checks.
+A limit of None or <= 0 falls back to settings.DEFAULT_RATE_LIMIT; there is no
+unlimited mode and no bypass.
 """
 from __future__ import annotations
 
 import time
+import uuid
 
 import structlog
 from fastapi import HTTPException
@@ -21,48 +24,56 @@ from redis.asyncio import Redis
 
 log = structlog.get_logger()
 
-_WINDOW_SECONDS = 3600  # 1-hour sliding window
-
 
 async def check_rate_limit(
     redis: Redis,
+    scope: str,
     identifier: str,
     limit: int | None,
-    is_admin: bool = False,
+    window_seconds: int = 3600,
 ) -> None:
-    """Raise HTTP 429 if the identifier has exceeded the hourly rate limit.
+    """Raise HTTP 429 if the identifier has exceeded its limit within the window.
 
     Args:
         redis: Async Redis client from get_redis().
-        identifier: phone_hash (phone path) or IP address (WebRTC path).
-        limit: max calls per hour from campaign.rate_limit; None = unlimited.
-        is_admin: if True, skip all rate limit checks (mirrors dev-bypass pattern).
+        scope: namespace for the counter, e.g. "call", "token", "auth", "reps".
+        identifier: phone_hash, IP address, or other per-caller key.
+        limit: max attempts per window; None or <= 0 uses settings.DEFAULT_RATE_LIMIT.
+        window_seconds: sliding window length in seconds.
     """
-    if is_admin or limit is None or not identifier:
+    from app.config import settings
+
+    if not identifier:
+        log.warning("rate_limit_missing_identifier", scope=scope)
         return
 
-    now = time.time()
-    window_start = now - _WINDOW_SECONDS
-    key = f"rate:{identifier}"
+    effective_limit = limit if limit and limit > 0 else settings.DEFAULT_RATE_LIMIT
 
-    # Pipeline for atomicity and reduced round-trips.
+    now = time.time()
+    window_start = now - window_seconds
+    key = f"rate:{scope}:{identifier}"
+
     pipe = redis.pipeline()
     pipe.zremrangebyscore(key, "-inf", window_start)
-    pipe.zadd(key, {str(now): now})
     pipe.zcount(key, window_start, "+inf")
-    pipe.expire(key, _WINDOW_SECONDS)
     results = await pipe.execute()
 
-    count: int = results[2]  # zcount result index
+    count: int = results[1]
 
-    if count > limit:
+    if count >= effective_limit:
         log.warning(
             "rate_limit_exceeded",
+            scope=scope,
             identifier=identifier[:12],  # truncate for privacy in logs
             count=count,
-            limit=limit,
+            limit=effective_limit,
         )
         raise HTTPException(
             status_code=429,
-            detail="Too many calls. Please try again later.",
+            detail="Too many requests. Please try again later.",
         )
+
+    pipe = redis.pipeline()
+    pipe.zadd(key, {str(uuid.uuid4()): now})
+    pipe.expire(key, window_seconds)
+    await pipe.execute()

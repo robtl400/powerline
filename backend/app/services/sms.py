@@ -7,7 +7,11 @@ log = structlog.get_logger()
 
 
 def send_sms(to: str, body: str) -> str:
-    """Send an SMS via Twilio. Returns the message SID."""
+    """Send an SMS via Twilio. Returns the message SID.
+
+    The Twilio client is synchronous and performs blocking network I/O, so
+    async callers must dispatch this through a thread (run_in_executor).
+    """
     client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
     message = client.messages.create(
         to=to,
