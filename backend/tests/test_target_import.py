@@ -31,6 +31,13 @@ Rep Bad,Representative,555-bad-phone,CA-13
 Rep Doe,Representative,+12025551003,NY-10
 """
 
+RAGGED_CSV = """\
+name,title,phone_number,location
+Rep Smith,Representative,+12025551001,CA-12
+Rep Ragged,Representative,+12025551004,CA-14,extra,columns
+Rep Doe,Representative,+12025551003,NY-10
+"""
+
 UPSERT_CSV_FIRST = """\
 name,title,phone_number,location,external_id
 Original Name,Representative,+12025551001,CA-12,rep-001
@@ -76,6 +83,29 @@ async def test_import_partial_success(
     assert data["updated"] == 0
     assert len(data["errors"]) == 1
     assert data["errors"][0]["row"] == 3  # second data row (row 3 including header)
+
+    ct_result = await db.execute(
+        select(CampaignTarget).where(CampaignTarget.campaign_id == campaign.id)
+    )
+    assert len(ct_result.scalars().all()) == 2
+
+
+async def test_import_ragged_row_is_a_row_error(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, db: AsyncSession
+) -> None:
+    """A row with more cells than the header fails that row only."""
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets/import",
+        files=_csv_file(RAGGED_CSV),
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["imported"] == 2
+    assert data["updated"] == 0
+    assert len(data["errors"]) == 1
+    assert data["errors"][0]["row"] == 3
+    assert data["errors"][0]["error"] == "row has more columns than the header"
 
     ct_result = await db.execute(
         select(CampaignTarget).where(CampaignTarget.campaign_id == campaign.id)

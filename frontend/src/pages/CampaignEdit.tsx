@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import { PAGE_HEADING } from "@/lib/styles";
 import { useCampaignData } from "@/hooks/useCampaignData";
 import { CAMPAIGN_STATUS_COLORS } from "@/lib/constants";
@@ -17,6 +18,8 @@ export default function CampaignEdit() {
   const { id } = useParams<{ id: string }>();
   const isNew = !id;
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const readOnly = user?.role !== "admin";
 
   const [activeTab, setActiveTab] = useState<TabType>("settings");
 
@@ -96,6 +99,7 @@ export default function CampaignEdit() {
             data.setTestCallOpen(true);
             data.setTestCallState("idle");
           }}
+          readOnly={readOnly}
         />
       )}
 
@@ -132,6 +136,7 @@ export default function CampaignEdit() {
           handleImportSubmit={data.handleImportSubmit}
           handleDownloadErrors={data.handleDownloadErrors}
           resetImport={data.resetImport}
+          readOnly={readOnly}
         />
       )}
 
@@ -143,6 +148,7 @@ export default function CampaignEdit() {
           audioLoading={data.audioLoading}
           audioByKey={data.audioByKey}
           onRefresh={data.refreshAudio}
+          readOnly={readOnly}
         />
       )}
 

@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -109,12 +110,17 @@ def create_app() -> FastAPI:
     app.include_router(tokens.router, prefix="/api/v1")
 
     # Serve the built embed bundle at /static/powerline-embed.iife.js.
-    # The embed/dist directory is volume-mounted at /app/embed-dist in docker-compose.
-    # Server starts fine even if the directory is empty or the build hasn't run yet.
+    # The image builds it into /app/embed-dist; docker-compose mounts embed/dist
+    # over that path so a local `npm run build` is picked up without a rebuild.
+    # Server starts fine either way — the bundle is optional to the API.
+    embed_dist = os.environ.get("EMBED_DIST_DIR", "/app/embed-dist")
     try:
-        app.mount("/static", StaticFiles(directory="/app/embed-dist"), name="static")
+        app.mount("/static", StaticFiles(directory=embed_dist), name="static")
     except RuntimeError:
-        log.warning("embed_static_not_mounted", reason="embed/dist directory not found or empty")
+        if settings.is_development:
+            log.warning("embed_static_missing", directory=embed_dist)
+        else:
+            log.error("embed_static_missing", directory=embed_dist)
 
     return app
 

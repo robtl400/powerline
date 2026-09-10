@@ -1,9 +1,11 @@
-"""Admin-only utility endpoints.
+"""Global dashboard and blocklist endpoints.
 
-Exposes blocklist CRUD and global dashboard analytics.
+Any signed-in user may read the dashboard and the blocklist; adding or
+removing blocklist entries is admin-only.
 """
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -11,12 +13,13 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DB, AdminUser
+from app.api.deps import DB, AdminUser, CurrentUser
 from app.models.blocklist import BlocklistEntry
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.schemas.admin import BlocklistCreate, BlocklistResponse
 from app.schemas.analytics import DailyCount, DashboardResponse
+from app.schemas.target import normalize_phone
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -31,7 +34,7 @@ def _to_response(e: BlocklistEntry) -> BlocklistResponse:
 
 @router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard(
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
 ) -> DashboardResponse:
     """Return global call activity summary for the admin dashboard."""
@@ -103,7 +106,7 @@ async def get_dashboard(
 
 @router.get("/blocklist", response_model=list[BlocklistResponse])
 async def list_blocklist(
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, le=500),
@@ -128,9 +131,24 @@ async def create_blocklist_entry(
     current_user: AdminUser,
     db: DB,
 ) -> BlocklistResponse:
-    """Add a phone hash and/or IP address to the blocklist."""
+    """Add a phone number, phone hash and/or IP address to the blocklist.
+
+    A phone number is normalized to E.164 and hashed the same way the public
+    call paths hash callers, so the stored digest matches at block time; the
+    raw number is never persisted.
+    """
+    phone_hash = body.phone_hash
+    if body.phone_number:
+        try:
+            e164 = normalize_phone(body.phone_number)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            )
+        phone_hash = hashlib.sha256(e164.encode()).hexdigest()
+
     entry = BlocklistEntry(
-        phone_hash=body.phone_hash,
+        phone_hash=phone_hash,
         ip_address=body.ip_address,
         reason=body.reason,
         created_by_id=current_user.id,

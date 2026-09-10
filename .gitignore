@@ -31,8 +31,10 @@ yarn-error.log*
 dist/
 .vite/
 
-# Frontend build output (keep embed/dist for serving)
+# Build output — the embed bundle is built inside Dockerfile.backend, and
+# locally by `cd embed && npm run build` for the dev bind mount
 frontend/dist/
+embed/dist/
 
 # Celery
 celerybeat-schedule

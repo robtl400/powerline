@@ -137,11 +137,39 @@ async def test_campaigns_require_auth(client: AsyncClient) -> None:
     assert resp.status_code == 401
 
 
-async def test_campaigns_require_admin(
-    client: AsyncClient, staff_headers: dict
+async def test_staff_can_read_campaigns(
+    client: AsyncClient, campaign: Campaign, staff_headers: dict
 ) -> None:
-    resp = await client.get("/api/v1/campaigns", headers=staff_headers)
-    assert resp.status_code == 403
+    """Staff see the campaign list, one campaign, and its checklist."""
+    listed = await client.get("/api/v1/campaigns", headers=staff_headers)
+    assert listed.status_code == 200
+
+    detail = await client.get(f"/api/v1/campaigns/{campaign.id}", headers=staff_headers)
+    assert detail.status_code == 200
+
+    checklist = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/checklist", headers=staff_headers
+    )
+    assert checklist.status_code == 200
+
+
+async def test_campaign_writes_require_admin(
+    client: AsyncClient, campaign: Campaign, staff_headers: dict
+) -> None:
+    """Reads are open to staff; anything that changes a campaign is not."""
+    created = await client.post(
+        "/api/v1/campaigns",
+        json={"name": "Staff Attempt"},
+        headers=staff_headers,
+    )
+    assert created.status_code == 403
+
+    patched = await client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json={"name": "Renamed by staff"},
+        headers=staff_headers,
+    )
+    assert patched.status_code == 403
 
 
 async def test_target_invalid_phone(

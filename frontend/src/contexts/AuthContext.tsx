@@ -8,6 +8,7 @@ interface User {
   name: string;
   phone: string;
   role: string;
+  is_active: boolean;
 }
 
 interface AuthContextValue {

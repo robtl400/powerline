@@ -22,6 +22,7 @@ export function CampaignSettingsTab({
   checklistLoading,
   onTabChange,
   onOpenTestCall,
+  readOnly = false,
 }: {
   form: CampaignForm;
   setForm: (fn: (prev: CampaignForm) => CampaignForm) => void;
@@ -40,6 +41,7 @@ export function CampaignSettingsTab({
   checklistLoading: boolean;
   onTabChange: (tab: TabType) => void;
   onOpenTestCall: () => void;
+  readOnly?: boolean;
 }) {
   function field(label: string, children: React.ReactNode, hint?: string): React.ReactNode {
     return (
@@ -57,6 +59,7 @@ export function CampaignSettingsTab({
         <input
           type="checkbox"
           className="mt-0.5"
+          disabled={readOnly}
           checked={form[key] as boolean}
           onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.checked }))}
         />
@@ -78,6 +81,7 @@ export function CampaignSettingsTab({
             "Name *",
             <input
               className={INPUT_CLASS}
+              disabled={readOnly}
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               placeholder="e.g. Call Your Senator"
@@ -87,6 +91,7 @@ export function CampaignSettingsTab({
             "Description",
             <textarea
               className={INPUT_CLASS}
+              disabled={readOnly}
               rows={3}
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
@@ -98,6 +103,7 @@ export function CampaignSettingsTab({
               "Language",
               <select
                 className={INPUT_CLASS}
+                disabled={readOnly}
                 value={form.language}
                 onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}
               >
@@ -109,6 +115,7 @@ export function CampaignSettingsTab({
               "Target Ordering",
               <select
                 className={INPUT_CLASS}
+                disabled={readOnly}
                 value={form.target_ordering}
                 onChange={(e) => setForm((f) => ({ ...f, target_ordering: e.target.value }))}
               >
@@ -123,6 +130,7 @@ export function CampaignSettingsTab({
               <input
                 type="number"
                 className={INPUT_CLASS}
+                disabled={readOnly}
                 value={form.call_maximum}
                 onChange={(e) => setForm((f) => ({ ...f, call_maximum: e.target.value }))}
                 placeholder="Blank = unlimited"
@@ -135,6 +143,7 @@ export function CampaignSettingsTab({
               <input
                 type="number"
                 className={INPUT_CLASS}
+                disabled={readOnly}
                 value={form.rate_limit}
                 onChange={(e) => setForm((f) => ({ ...f, rate_limit: e.target.value }))}
                 placeholder="Blank = unlimited"
@@ -169,6 +178,7 @@ export function CampaignSettingsTab({
           "Talking Points",
           <textarea
             className={INPUT_CLASS}
+            disabled={readOnly}
             rows={6}
             value={form.talking_points}
             onChange={(e) => setForm((f) => ({ ...f, talking_points: e.target.value }))}
@@ -240,29 +250,31 @@ export function CampaignSettingsTab({
       )}
 
       {/* Actions */}
-      <div className="flex items-center gap-3 pt-2">
-        <button
-          onClick={handleSave}
-          disabled={saving || !form.name.trim()}
-          className="px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-        >
-          {saving ? "Saving…" : "Save Campaign"}
-        </button>
+      {!readOnly && (
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            onClick={handleSave}
+            disabled={saving || !form.name.trim()}
+            className="px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {saving ? "Saving…" : "Save Campaign"}
+          </button>
 
-        {!isNew && nextStatuses.length > 0 && (
-          <div className="relative">
-            <button
-              onClick={openStatusMenu}
-              className="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-muted/50 transition-colors"
-            >
-              Change Status
-            </button>
-          </div>
-        )}
-      </div>
+          {!isNew && nextStatuses.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={openStatusMenu}
+                className="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-muted/50 transition-colors"
+              >
+                Change Status
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Status change confirmation */}
-      {statusMenuOpen && (
+      {!readOnly && statusMenuOpen && (
         <div className="rounded-md border border-border bg-muted/30 p-4 space-y-3">
           <p className="text-sm font-medium">
             Current status: <span className="font-semibold capitalize">{status}</span>. Choose new

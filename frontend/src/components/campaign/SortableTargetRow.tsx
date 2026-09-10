@@ -6,10 +6,12 @@ export function SortableTargetRow({
   target,
   onEdit,
   onDelete,
+  readOnly = false,
 }: {
   target: Target;
   onEdit: (t: Target) => void;
   onDelete: (id: string) => void;
+  readOnly?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: target.id,
@@ -42,18 +44,22 @@ export function SortableTargetRow({
       <td className="px-3 py-2 text-muted-foreground font-mono text-xs">{target.phone_number}</td>
       <td className="px-3 py-2 text-muted-foreground">{target.location}</td>
       <td className="px-3 py-2 text-right space-x-2">
-        <button
-          onClick={() => onEdit(target)}
-          className="text-primary text-sm hover:underline"
-        >
-          Edit
-        </button>
-        <button
-          onClick={() => onDelete(target.id)}
-          className="text-destructive text-sm hover:underline"
-        >
-          Delete
-        </button>
+        {!readOnly && (
+          <>
+            <button
+              onClick={() => onEdit(target)}
+              className="text-primary text-sm hover:underline"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => onDelete(target.id)}
+              className="text-destructive text-sm hover:underline"
+            >
+              Delete
+            </button>
+          </>
+        )}
       </td>
     </tr>
   );

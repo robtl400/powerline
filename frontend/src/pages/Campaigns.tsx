@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import client from "@/api/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { PAGE_HEADING } from "@/lib/styles";
 import { CAMPAIGN_STATUS_COLORS, FALLBACK_BADGE_COLOR } from "@/lib/constants";
 
@@ -17,6 +18,8 @@ const STATUSES = ["all", "draft", "live", "paused", "archived"];
 
 export default function Campaigns() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -39,12 +42,14 @@ export default function Campaigns() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className={PAGE_HEADING}>Campaigns</h1>
-        <button
-          onClick={() => navigate("/campaigns/new")}
-          className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium hover:opacity-90 transition-opacity"
-        >
-          New Campaign
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => navigate("/campaigns/new")}
+            className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            New Campaign
+          </button>
+        )}
       </div>
 
       {/* Status filter tabs */}
@@ -70,12 +75,14 @@ export default function Campaigns() {
       {!loading && !error && campaigns.length === 0 && (
         <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] px-6 py-12 text-center">
           <p className="text-sm text-brand-grey-light mb-4">No campaigns yet</p>
-          <button
-            onClick={() => navigate("/campaigns/new")}
-            className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            Create campaign
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => navigate("/campaigns/new")}
+              className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium hover:opacity-90 transition-opacity"
+            >
+              Create campaign
+            </button>
+          )}
         </div>
       )}
 

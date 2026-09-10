@@ -10,7 +10,12 @@
  */
 import { Call, Device } from "@twilio/voice-sdk";
 import { requestToken } from "./api.js";
-import type { CampaignPublic, ConnectedData, WidgetState } from "./types.js";
+import type {
+  CampaignPublic,
+  ConnectedData,
+  TargetPublicInfo,
+  WidgetState,
+} from "./types.js";
 
 type StateCallback = (state: WidgetState, data?: unknown) => void;
 
@@ -34,7 +39,8 @@ export class WebRTCClient {
     private readonly campaign: CampaignPublic,
     private readonly onStateChange: StateCallback,
     private readonly onTimerTick: (elapsed: number) => void,
-    private readonly repToken?: string
+    private readonly repToken?: string,
+    private readonly rep?: { name: string; title: string }
   ) {}
 
   /** Request a token, create the Twilio Device, and register it. */
@@ -117,12 +123,15 @@ export class WebRTCClient {
     });
 
     this.call.on("accept", () => {
-      const target = this.campaign.targets[0] ?? null;
+      // A rep-lookup call dials the chosen rep first, then the campaign targets.
+      const target: TargetPublicInfo | null = this.rep
+        ? { id: "rep", name: this.rep.name, title: this.rep.title, location: "" }
+        : this.campaign.targets[0] ?? null;
       if (target) {
         const connectedData: ConnectedData = {
           target,
           targetIndex: 0,
-          totalTargets: this.campaign.targets.length,
+          totalTargets: (this.rep ? 1 : 0) + this.campaign.targets.length,
         };
         this.onStateChange("connected", connectedData);
       } else {

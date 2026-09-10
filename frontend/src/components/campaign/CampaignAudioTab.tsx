@@ -8,12 +8,14 @@ export function CampaignAudioTab({
   audioLoading,
   audioByKey,
   onRefresh,
+  readOnly = false,
 }: {
   campaignId: string;
   campaignStatus: string;
   audioLoading: boolean;
   audioByKey: Record<string, AudioRecording[]>;
   onRefresh: () => void;
+  readOnly?: boolean;
 }) {
   if (audioLoading) {
     return <p className="text-muted-foreground text-sm">Loading audio…</p>;
@@ -32,6 +34,7 @@ export function CampaignAudioTab({
             campaignId={campaignId}
             campaignStatus={campaignStatus}
             onRefresh={onRefresh}
+            readOnly={readOnly}
           />
         ))}
       </div>

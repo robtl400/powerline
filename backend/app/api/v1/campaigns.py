@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import DB, AdminUser
+from app.api.deps import DB, AdminUser, CurrentUser
 from app.api.v1.helpers import get_campaign_or_404
 from app.models.audio import AudioRecording
 from app.models.call_session import CallSession
@@ -125,7 +125,7 @@ async def _get_target_in_campaign_or_404(
 
 @router.get("", response_model=list[CampaignResponse])
 async def list_campaigns(
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
     status: str | None = Query(default=None),
 ) -> list[CampaignResponse]:
@@ -225,10 +225,10 @@ async def get_campaign_call_count(
 @router.get("/{campaign_id}/checklist", response_model=CampaignChecklist)
 async def get_campaign_checklist(
     campaign_id: uuid.UUID,
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
 ) -> CampaignChecklist:
-    """Launch-readiness checklist for a campaign. Admin only."""
+    """Launch-readiness checklist for a campaign."""
     campaign = await get_campaign_or_404(campaign_id, db)
 
     # Targets
@@ -327,7 +327,7 @@ async def get_campaign_public(
 @router.get("/{campaign_id}", response_model=CampaignDetailResponse)
 async def get_campaign(
     campaign_id: uuid.UUID,
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
 ) -> CampaignDetailResponse:
     result = await db.execute(
@@ -527,6 +527,16 @@ async def _do_import(
 
     for idx, raw_row in enumerate(rows):
         row_num = idx + 2  # 1-based, +1 for header
+
+        # DictReader parks unmatched trailing cells under the None restkey and
+        # hands back a list for them; either shape means a ragged row.
+        if None in raw_row or any(isinstance(v, list) for v in raw_row.values()):
+            errors.append(ImportRowError(
+                row=row_num,
+                error="row has more columns than the header",
+            ))
+            continue
+
         row = {k.lower().strip(): (v or "").strip() for k, v in raw_row.items()}
 
         # Validate required fields

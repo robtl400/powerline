@@ -92,9 +92,18 @@ def build_gather_intro(
     confirm_audio is an optional second audio clip played after the main intro
     (e.g. "Press any key when you're ready to begin."). When omitted, only the
     main intro plays — backward-compatible with callers that don't separate them.
+
+    actionOnEmptyResult keeps a silent caller in the flow: Twilio posts to
+    action_url with no Digits instead of falling off the end of the document.
     """
     r = VoiceResponse()
-    gather = r.gather(action=action_url, num_digits=1, method="POST", timeout=10)
+    gather = r.gather(
+        action=action_url,
+        num_digits=1,
+        method="POST",
+        timeout=10,
+        action_on_empty_result=True,
+    )
     if audio.file_url:
         gather.play(audio.file_url)
     elif audio.tts_text:
@@ -121,10 +130,19 @@ def build_target_intro_and_dial(
 
     action_url is called when the dialed leg completes (DialCallStatus, etc.)
     so call-complete can log the result and route to the next target or goodbye.
+
+    hangupOnStar lets the caller press * to end the current target's leg and
+    move on — Twilio drops the dialed party and posts to action_url.
     """
     r = VoiceResponse()
     _add_audio(r, intro_audio, context)
-    dial = Dial(caller_id=caller_id, timeout=timeout, action=action_url, method="POST")
+    dial = Dial(
+        caller_id=caller_id,
+        timeout=timeout,
+        action=action_url,
+        method="POST",
+        hangup_on_star=True,
+    )
     dial.number(target_phone)
     r.append(dial)
     return str(r)

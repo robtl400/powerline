@@ -17,7 +17,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, sta
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DB, AdminUser
+from app.api.deps import DB, AdminUser, CurrentUser
 from app.models.audio import AUDIO_KEYS, AudioRecording
 from app.models.campaign import Campaign
 from app.schemas.audio import AudioRecordingCreate, AudioRecordingResponse
@@ -157,7 +157,7 @@ async def activate_audio(
 @router_campaign_audio.get("/{campaign_id}/audio", response_model=list[AudioRecordingResponse])
 async def list_campaign_audio(
     campaign_id: uuid.UUID,
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, le=500),

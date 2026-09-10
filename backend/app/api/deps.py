@@ -13,10 +13,10 @@ from app.dependencies import get_current_user, get_telephony_provider, require_a
 from app.models.user import User
 from app.services.telephony.twilio_provider import TwilioProvider
 
-# Any authenticated user (admin or staff)
+# Any authenticated user (admin or staff) — read-only routes
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
-# Admin-only routes
+# Admin-only routes — everything that writes
 AdminUser = Annotated[User, Depends(require_admin)]
 
 # Async database session

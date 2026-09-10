@@ -29,6 +29,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
+      target: dev
     ports:
       - "8000:8000"
     volumes:
@@ -72,6 +73,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
+      target: dev
     volumes:
       - ./backend:/app
     env_file:
@@ -87,6 +89,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
+      target: dev
     volumes:
       - ./backend:/app
     env_file:

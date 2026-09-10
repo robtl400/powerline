@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import client from "@/api/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { getErrorDetail } from "@/lib/api-error";
 import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { PhoneInput, validatePhone } from "@/components/PhoneInput";
 
 interface BlocklistEntry {
   id: string;
@@ -24,12 +26,17 @@ function formatIdentifier(entry: BlocklistEntry): string {
 }
 
 export default function Blocklist() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
   const [entries, setEntries] = useState<BlocklistEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Add form state
   const [showForm, setShowForm] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [showHashField, setShowHashField] = useState(false);
   const [phoneHash, setPhoneHash] = useState("");
   const [ipAddress, setIpAddress] = useState("");
   const [reason, setReason] = useState("");
@@ -45,20 +52,31 @@ export default function Blocklist() {
   }, []);
 
   async function handleAdd() {
-    if (!phoneHash.trim() && !ipAddress.trim()) {
-      setFormError("At least one of phone hash or IP address is required.");
+    const hasPhone = phoneNumber.replace(/\D/g, "").length > 1;
+    const hash = phoneHash.trim();
+    const ip = ipAddress.trim();
+
+    if (!hasPhone && !hash && !ip) {
+      setFormError("Enter a phone number, a phone hash, or an IP address.");
       return;
     }
+    if (hasPhone && !validatePhone(phoneNumber)) {
+      setFormError("Enter a 10-digit US phone number");
+      return;
+    }
+
     setSaving(true);
     setFormError(null);
     try {
       const res = await client.post<BlocklistEntry>("/admin/blocklist", {
-        phone_hash: phoneHash.trim() || null,
-        ip_address: ipAddress.trim() || null,
+        ...(hasPhone ? { phone_number: phoneNumber } : hash ? { phone_hash: hash } : {}),
+        ip_address: ip || null,
         reason: reason.trim() || null,
       });
       setEntries((prev) => [res.data, ...prev]);
+      setPhoneNumber("");
       setPhoneHash("");
+      setShowHashField(false);
       setIpAddress("");
       setReason("");
       setShowForm(false);
@@ -85,12 +103,14 @@ export default function Blocklist() {
     <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className={PAGE_HEADING}>Blocklist</h1>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-        >
-          {showForm ? "Cancel" : "+ Add Entry"}
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            {showForm ? "Cancel" : "+ Add Entry"}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -100,7 +120,7 @@ export default function Blocklist() {
       )}
 
       {/* Add entry form */}
-      {showForm && (
+      {isAdmin && showForm && (
         <div className="rounded-md border border-border p-4 mb-6 space-y-3 bg-muted/20">
           <p className="text-sm font-medium">New blocklist entry</p>
           {formError && (
@@ -109,14 +129,9 @@ export default function Blocklist() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">
-                Phone Hash (sha256 hex)
+                Phone Number
               </label>
-              <input
-                className={INPUT_CLASS}
-                value={phoneHash}
-                onChange={(e) => setPhoneHash(e.target.value)}
-                placeholder="64-char hex"
-              />
+              <PhoneInput value={phoneNumber} onChange={setPhoneNumber} />
             </div>
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">
@@ -129,6 +144,32 @@ export default function Blocklist() {
                 placeholder="e.g. 192.168.1.1"
               />
             </div>
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowHashField((v) => !v)}
+              aria-expanded={showHashField}
+              className="text-xs text-brand-grey-dark hover:text-brand-black"
+            >
+              Advanced: paste a sha256 hash instead
+            </button>
+            {showHashField && (
+              <div className="mt-2">
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
+                  Phone Hash (sha256 hex)
+                </label>
+                <input
+                  className={INPUT_CLASS}
+                  value={phoneHash}
+                  onChange={(e) => setPhoneHash(e.target.value)}
+                  placeholder="64-char hex"
+                />
+                <p className="mt-1 text-[11px] text-brand-grey-light">
+                  Used only when the phone number field is empty.
+                </p>
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">
@@ -163,7 +204,7 @@ export default function Blocklist() {
       )}
 
       {entries.length === 0 ? (
-        <p className="text-sm text-brand-grey-light py-8 text-center">No blocked numbers or emails</p>
+        <p className="text-sm text-brand-grey-light py-8 text-center">No blocked numbers or IP addresses</p>
       ) : (
         <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
           <table className="w-full text-sm">
@@ -172,7 +213,7 @@ export default function Blocklist() {
                 <th className="text-left px-4 py-2 font-semibold">Identifier</th>
                 <th className="text-left px-4 py-2 font-semibold">Reason</th>
                 <th className="text-left px-4 py-2 font-semibold">Added</th>
-                <th className="px-4 py-2" />
+                {isAdmin && <th className="px-4 py-2" />}
               </tr>
             </thead>
             <tbody>
@@ -185,14 +226,16 @@ export default function Blocklist() {
                   <td className="px-4 py-2 text-muted-foreground text-xs">
                     {new Date(entry.created_at).toLocaleDateString()}
                   </td>
-                  <td className="px-4 py-2 text-right">
-                    <button
-                      onClick={() => handleDelete(entry)}
-                      className="text-destructive text-sm hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </td>
+                  {isAdmin && (
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        onClick={() => handleDelete(entry)}
+                        className="text-destructive text-sm hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DB, AdminUser, Provider
+from app.api.deps import DB, AdminUser, CurrentUser, Provider
 from app.models.campaign import Campaign
 from app.models.campaign_phone_number import CampaignPhoneNumber
 from app.models.phone_number import PhoneNumber
@@ -93,7 +93,7 @@ async def sync_phone_numbers(
 
 @router.get("", response_model=list[PhoneNumberResponse])
 async def list_phone_numbers(
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
 ) -> list[PhoneNumberResponse]:
     result = await db.execute(

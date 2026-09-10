@@ -114,6 +114,8 @@ export function renderRepSelection(
             style="width:100%;text-align:left;margin-bottom:8px;padding:10px 12px;min-height:44px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;display:flex;flex-direction:column;justify-content:center"
             data-pl-action="select-rep"
             data-pl-rep-token="${esc(r.rep_token)}"
+            data-pl-name="${esc(r.name)}"
+            data-pl-title="${esc(r.title)}"
           >
             <strong style="display:block;font-size:14px">📞 Call ${esc(r.name)}</strong>
             <span style="font-size:12px;color:#6b7280">${esc(r.title)}</span>
@@ -177,6 +179,12 @@ export function renderAudioCheck(campaignId: string, baseUrl: string): string {
   </div>`;
 }
 
+function formatElapsed(elapsed: number): string {
+  const mm = Math.floor(elapsed / 60).toString().padStart(2, "0");
+  const ss = (elapsed % 60).toString().padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
 export function renderConnected(
   target: TargetPublicInfo,
   targetIndex: number,
@@ -184,8 +192,6 @@ export function renderConnected(
   elapsed: number,
   talkingPoints: string | null
 ): string {
-  const mm = Math.floor(elapsed / 60).toString().padStart(2, "0");
-  const ss = (elapsed % 60).toString().padStart(2, "0");
   const tpBlock = talkingPoints
     ? `<div class="pl-talking-points">${esc(talkingPoints)}</div>`
     : "";
@@ -195,7 +201,7 @@ export function renderConnected(
     <p class="pl-target-name">${esc(target.name)}</p>
     <p class="pl-target-meta">${esc(target.title)}${target.location ? ` &middot; ${esc(target.location)}` : ""}</p>
     <p class="pl-status">Call ${targetIndex + 1} of ${totalTargets}</p>
-    <p class="pl-timer">⏱ ${mm}:${ss}</p>
+    <p class="pl-timer">⏱ ${formatElapsed(elapsed)}</p>
     ${tpBlock}
     <div class="pl-actions" style="margin-top:16px">
       <button class="pl-btn pl-btn-secondary" data-pl-action="skip">Skip</button>
@@ -204,17 +210,13 @@ export function renderConnected(
   </div>`;
 }
 
-export function renderBetweenTargets(
-  nextTarget: TargetPublicInfo,
-  nextIndex: number,
-  totalTargets: number
-): string {
+export function renderConnectedGeneric(elapsed: number): string {
   return `<div class="pl-card" style="text-align:center">
-    <div class="pl-spinner"></div>
-    <p class="pl-status">Connecting to call ${nextIndex + 1} of ${totalTargets}…</p>
-    <p style="font-size:13px;color:#6b7280;margin-top:4px">
-      Next: ${esc(nextTarget.name)}
-    </p>
+    <p class="pl-heading">Connected</p>
+    <p class="pl-timer">⏱ ${formatElapsed(elapsed)}</p>
+    <div class="pl-actions" style="margin-top:16px">
+      <button class="pl-btn pl-btn-danger" data-pl-action="end">End Call</button>
+    </div>
   </div>`;
 }
 

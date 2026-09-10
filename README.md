@@ -56,7 +56,15 @@ cp .env.example .env
 # Edit .env with your credentials
 ```
 
-### 2. Start services
+### 2. Build the embed bundle
+
+```bash
+cd embed && npm ci && npm run build && cd ..
+```
+
+The dev stack bind-mounts `embed/dist` into the backend so edits to the widget only need a rebuild, not a container restart. The production image builds the bundle itself — this step is for local development only.
+
+### 3. Start services
 
 ```bash
 docker compose up --build
@@ -64,13 +72,13 @@ docker compose up --build
 
 Starts PostgreSQL, Redis, FastAPI backend, Vite dev server, Celery worker, and Celery beat.
 
-### 3. Run migrations
+### 4. Run migrations
 
 ```bash
 docker compose exec backend alembic upgrade head
 ```
 
-### 4. Create an admin user
+### 5. Create an admin user
 
 ```bash
 docker compose exec backend python -m app.cli create-admin \
@@ -79,13 +87,15 @@ docker compose exec backend python -m app.cli create-admin \
   --password yourpassword
 ```
 
-### 5. Open the app
+### 6. Open the app
 
 | Service | URL |
 |---------|-----|
 | Admin frontend | http://localhost:3000 |
 | API (Swagger docs) | http://localhost:8000/docs |
 | Health check | http://localhost:8000/api/v1/health |
+
+Caddy fronts the whole stack on port 80 and proxies `/api/*`, `/webhooks/*`, `/static/*`, `/docs*`, and `/openapi.json` to the backend; everything else goes to the frontend.
 
 ---
 
@@ -137,14 +147,24 @@ Add a "Call Now" button to any webpage with a single script tag:
 ></script>
 ```
 
+### Script tag attributes
+
+| Attribute | Required | Notes |
+|-----------|----------|-------|
+| `data-campaign` | Yes | Campaign UUID. Without it the widget does nothing. |
+| `data-api-url` | Yes | Base URL of the Powerline backend. Missing it logs `[Powerline] data-api-url is required` and renders a configuration error instead of calling relative URLs. |
+| `data-container` | Optional | `id` of the element to render into. Defaults to `powerline-widget`. |
+
+The widget renders into `#powerline-widget` (or the element named by `data-container`) when that element is on the page, so you control where it appears. If no such element exists it appends its own `<div>` to the end of `<body>`.
+
 ### Build the embed bundle
 
 ```bash
-cd embed && npm install && npm run build
+cd embed && npm ci && npm run build
 # Output: embed/dist/powerline-embed.iife.js
 ```
 
-The backend volume-mounts `embed/dist` at `/app/embed-dist` and serves it at `/static/`.
+`Dockerfile.backend` runs this build in a Node stage and copies the result to `/app/embed-dist` in the API image, so production images ship the bundle. In development `docker compose` mounts `embed/dist` over that path for hot reload. Either way the backend serves it at `/static/` (set `EMBED_DIST_DIR` to serve it from elsewhere), and Caddy proxies `/static/*` through to the backend.
 
 ### React integration
 
@@ -191,6 +211,7 @@ export function PowerlineWidget({ campaignId }: { campaignId: string }) {
 | `CLOUDINARY_*` | Optional | For audio file uploads |
 | `GOOGLE_CIVIC_API_KEY` | Optional | Federal rep lookup (Senate & House); leave empty to disable |
 | `OPENSTATES_API_KEY` | Optional | State legislator lookup; leave empty to disable |
+| `EMBED_DIST_DIR` | Optional | Directory served at `/static/` (default `/app/embed-dist`) |
 
 ### Public call endpoints
 
@@ -238,7 +259,10 @@ docker compose exec backend ruff check app/
 docker compose exec backend ruff format app/
 
 # Build embed widget
-cd embed && npm install && npm run build
+cd embed && npm ci && npm run build
+
+# Run embed widget tests
+cd embed && npm test
 ```
 
 See [frontend/TESTING.md](frontend/TESTING.md) for the frontend test philosophy and conventions.

@@ -7,9 +7,9 @@ import { PhoneFallbackClient } from "./phone-fallback.js";
 import { injectStyles } from "./ui/styles.js";
 import {
   renderAudioCheck,
-  renderBetweenTargets,
   renderComplete,
   renderConnected,
+  renderConnectedGeneric,
   renderError,
   renderIdle,
   renderLoading,
@@ -24,7 +24,6 @@ import type {
   CampaignPublic,
   ConnectedData,
   RepInfo,
-  TargetPublicInfo,
   WidgetState,
 } from "./types.js";
 
@@ -58,6 +57,8 @@ export class PowerlineWidget {
   private repSelectionReps: RepInfo[] = [];
   private repSelectionMessage: string | null | undefined = undefined;
   private selectedRepToken: string | null = null;
+  private selectedRepName: string | null = null;
+  private selectedRepTitle: string | null = null;
 
   constructor({ campaignId, container, apiUrl = "" }: WidgetOptions) {
     this.campaignId = campaignId;
@@ -108,7 +109,9 @@ export class PowerlineWidget {
 
     if (state === "complete") {
       this.callsCompleted =
-        this.campaign?.targets.length ?? this.callsCompleted;
+        this.connectedData?.totalTargets ??
+        this.campaign?.targets.length ??
+        this.callsCompleted;
       this._render(state);
       this._destroyClients();
       // Fetch campaign-wide caller count and update the completion screen.
@@ -207,17 +210,6 @@ export class PowerlineWidget {
       case "repSelection":
         this.container.innerHTML = renderRepSelection(this.repSelectionReps, this.repSelectionMessage);
         break;
-      case "between_targets": {
-        const idx = (this.connectedData?.targetIndex ?? 0) + 1;
-        const next: TargetPublicInfo =
-          this.campaign.targets[idx] ?? this.campaign.targets[0];
-        this.container.innerHTML = renderBetweenTargets(
-          next,
-          idx,
-          this.campaign.targets.length
-        );
-        break;
-      }
       default:
         break;
     }
@@ -226,13 +218,17 @@ export class PowerlineWidget {
   }
 
   private _renderConnected(): void {
-    if (!this.campaign || !this.connectedData) return;
+    if (!this.connectedData) {
+      this.container.innerHTML = renderConnectedGeneric(this.elapsed);
+      this._bindEvents();
+      return;
+    }
     this.container.innerHTML = renderConnected(
       this.connectedData.target,
       this.connectedData.targetIndex,
       this.connectedData.totalTargets,
       this.elapsed,
-      this.campaign.talking_points
+      this.campaign?.talking_points ?? null
     );
     this._bindEvents();
   }
@@ -269,6 +265,8 @@ export class PowerlineWidget {
         const repToken = el?.dataset.plRepToken ?? "";
         if (repToken) {
           this.selectedRepToken = repToken;
+          this.selectedRepName = el?.dataset.plName ?? null;
+          this.selectedRepTitle = el?.dataset.plTitle ?? null;
           this._startCall();
         }
         break;
@@ -394,7 +392,10 @@ export class PowerlineWidget {
         this.campaign,
         this._onStateChange,
         this._onTimerTick,
-        this.selectedRepToken ?? undefined
+        this.selectedRepToken ?? undefined,
+        this.selectedRepName
+          ? { name: this.selectedRepName, title: this.selectedRepTitle ?? "" }
+          : undefined
       );
       void this.webrtc.start();
     } else if (this.campaign.allow_phone_callback) {
@@ -422,6 +423,8 @@ export class PowerlineWidget {
 
   private _resetRepSelection(): void {
     this.selectedRepToken = null;
+    this.selectedRepName = null;
+    this.selectedRepTitle = null;
     this.repSelectionReps = [];
     this.repSelectionMessage = undefined;
   }
@@ -430,5 +433,6 @@ export class PowerlineWidget {
     this.webrtc?.destroy();
     this.webrtc = null;
     this.phoneFallback = null;
+    this.connectedData = null;
   }
 }

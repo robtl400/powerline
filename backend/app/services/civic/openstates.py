@@ -15,6 +15,7 @@ log = structlog.get_logger()
 _DATA_DIR = pathlib.Path(__file__).parent / "data"
 _ZIPS_CSV = _DATA_DIR / "uszips.csv"
 _BASE = "https://v3.openstates.org"
+_OFFICE_RANK = {"capitol": 0, "district": 1}
 
 
 def _load_zip_centroids() -> dict[str, tuple[float, float]]:
@@ -56,10 +57,7 @@ async def fetch_state_reps(zip_code: str) -> list[RepInfo]:
 
     results: list[RepInfo] = []
     for person in resp.json().get("results", []):
-        phone = next(
-            (c["value"] for c in person.get("contact_details", []) if c.get("type") == "voice"),
-            None,
-        )
+        phone = _office_voice(person)
         if not phone:
             continue
         results.append(RepInfo(
@@ -70,6 +68,20 @@ async def fetch_state_reps(zip_code: str) -> list[RepInfo]:
         ))
 
     return results
+
+
+def _office_voice(person: dict) -> str | None:
+    """Return the best voice number from a v3 Person's offices list.
+
+    Offices are ranked capitol first, then district, then anything else with a
+    number; a person whose offices all lack a voice line has no callable number.
+    """
+    offices = person.get("offices") or []
+    ranked = sorted(
+        (o for o in offices if isinstance(o, dict) and (o.get("voice") or "").strip()),
+        key=lambda o: _OFFICE_RANK.get((o.get("classification") or "").lower(), 2),
+    )
+    return ranked[0]["voice"].strip() if ranked else None
 
 
 def _format_title(person: dict) -> str:

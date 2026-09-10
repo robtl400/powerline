@@ -209,6 +209,59 @@ describe("WebRTCClient", () => {
     );
   });
 
+  describe("connected payload", () => {
+    it("reports the first campaign target when no rep was chosen", async () => {
+      mockRegister.mockResolvedValueOnce(undefined);
+      const call = makeCallStub();
+      mockConnect.mockResolvedValueOnce(call);
+
+      const client = new WebRTCClient(
+        "http://localhost",
+        fakeCampaign,
+        onStateChange,
+        onTimerTick
+      );
+
+      await client.start();
+      call.fire("accept");
+
+      expect(onStateChange).toHaveBeenCalledWith("connected", {
+        target: fakeCampaign.targets[0],
+        targetIndex: 0,
+        totalTargets: 1,
+      });
+    });
+
+    it("reports the chosen rep first and counts them ahead of the targets", async () => {
+      mockRegister.mockResolvedValueOnce(undefined);
+      const call = makeCallStub();
+      mockConnect.mockResolvedValueOnce(call);
+
+      const client = new WebRTCClient(
+        "http://localhost",
+        fakeCampaign,
+        onStateChange,
+        onTimerTick,
+        "rep-token-abc",
+        { name: "Rep Example", title: "U.S. Representative" }
+      );
+
+      await client.start();
+      call.fire("accept");
+
+      expect(onStateChange).toHaveBeenCalledWith("connected", {
+        target: {
+          id: "rep",
+          name: "Rep Example",
+          title: "U.S. Representative",
+          location: "",
+        },
+        targetIndex: 0,
+        totalTargets: 2,
+      });
+    });
+  });
+
   describe("audio check", () => {
     beforeEach(() => {
       vi.useFakeTimers();

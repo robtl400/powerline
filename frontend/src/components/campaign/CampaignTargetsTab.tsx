@@ -57,6 +57,7 @@ export function CampaignTargetsTab({
   handleImportSubmit,
   handleDownloadErrors,
   resetImport,
+  readOnly = false,
 }: {
   targets: Target[];
   targetLevels?: string[];
@@ -90,6 +91,7 @@ export function CampaignTargetsTab({
   handleImportSubmit: () => void;
   handleDownloadErrors: () => void;
   resetImport: () => void;
+  readOnly?: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -196,6 +198,7 @@ export function CampaignTargetsTab({
                       target={target}
                       onEdit={startEditTarget}
                       onDelete={handleDeleteTarget}
+                      readOnly={readOnly}
                     />
                   ))}
                 </tbody>
@@ -210,7 +213,7 @@ export function CampaignTargetsTab({
       )}
 
       {/* Edit target inline */}
-      {editingTarget && (
+      {!readOnly && editingTarget && (
         <div className="rounded-md border border-border p-4 mb-4 bg-muted/20 space-y-3">
           <p className="text-sm font-medium">Edit target</p>
           <div className="grid grid-cols-2 gap-3">
@@ -262,7 +265,7 @@ export function CampaignTargetsTab({
       )}
 
       {/* Add target form */}
-      {addingTarget ? (
+      {!readOnly && (addingTarget ? (
         <div className="rounded-md border border-border p-4 bg-muted/20 space-y-3">
           <p className="text-sm font-medium">Add target</p>
           <div className="grid grid-cols-2 gap-3">
@@ -338,10 +341,10 @@ export function CampaignTargetsTab({
             </button>
           )}
         </div>
-      )}
+      ))}
 
       {/* CSV Import panel */}
-      {importOpen && (
+      {!readOnly && importOpen && (
         <div className="mt-4 rounded-md border border-border p-4 bg-muted/20 space-y-4">
           <p className="text-sm font-medium">Import targets from CSV</p>
 

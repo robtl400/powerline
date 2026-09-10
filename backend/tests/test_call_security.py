@@ -192,6 +192,36 @@ async def test_rep_token_dials_server_stored_phone_on_tokens_voice(
     assert await _dialed_phone(db, session_id) == REP_PHONE
 
 
+async def test_rep_token_calls_run_ahead_of_configured_targets(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """A looked-up rep is added to the campaign's targets, not swapped in for them."""
+    campaign, configured = campaign_with_target
+    rep_token = await _issue_token(campaign.id)
+
+    resp = await client.post(
+        "/api/v1/calls/create",
+        json={
+            "campaign_id": str(campaign.id),
+            "phone_number": "+12025550204",
+            "rep_token": rep_token,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    state = await load_call_state(resp.json()["session_id"])
+    assert state is not None
+    assert len(state["target_ids"]) == 2
+    assert state["target_ids"][1] == str(configured.id)
+
+    result = await db.execute(
+        select(Target).where(Target.id == uuid.UUID(state["target_ids"][0]))
+    )
+    assert result.scalar_one().phone_number == REP_PHONE
+
+
 async def test_unknown_rep_token_is_rejected(
     client: AsyncClient,
     live_campaign: Campaign,

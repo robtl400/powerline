@@ -16,7 +16,7 @@ export function CampaignEmbedTab({
   const scriptSnippet =
 `<div id="powerline-widget"></div>
 <script
-  src="${embedApiUrl}/static/powerline.js"
+  src="${embedApiUrl}/static/powerline-embed.iife.js"
   data-campaign="${campaignId}"
   data-api-url="${embedApiUrl}"
 ></script>`;
@@ -27,7 +27,7 @@ export function CampaignEmbedTab({
 export function PowerlineWidget() {
   useEffect(() => {
     const s = document.createElement('script');
-    s.src = '${embedApiUrl}/static/powerline.js';
+    s.src = '${embedApiUrl}/static/powerline-embed.iife.js';
     s.dataset.campaign = '${campaignId}';
     s.dataset.apiUrl = '${embedApiUrl}';
     document.body.appendChild(s);
@@ -41,7 +41,7 @@ export function PowerlineWidget() {
 <style>body{margin:0;display:flex;justify-content:center;align-items:flex-start;padding:24px;background:#f9fafb;min-height:100vh}</style>
 </head><body>
 <div id="powerline-widget"></div>
-<script src="${embedApiUrl}/static/powerline.js" data-campaign="${campaignId}" data-api-url="${embedApiUrl}"></script>
+<script src="${embedApiUrl}/static/powerline-embed.iife.js" data-campaign="${campaignId}" data-api-url="${embedApiUrl}"></script>
 </body></html>`;
 
   return (

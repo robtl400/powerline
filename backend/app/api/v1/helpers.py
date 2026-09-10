@@ -56,24 +56,27 @@ async def resolve_target_ids(
 
     When rep is given (rep-lookup path), creates a transient Target row from
     the server-stored rep record, marked with external_id="rep_lookup", and
-    returns its UUID. Otherwise loads the campaign's configured targets.
+    puts it first, ahead of the campaign's configured targets in their
+    configured order. Without a rep the configured targets stand alone.
     """
-    if rep:
-        target = Target(
-            id=uuid.uuid4(),
-            name=(rep.get("name") or "Your Representative")[:200],
-            title=(rep.get("title") or "Elected Official")[:100],
-            phone_number=rep["phone"],
-            location=(rep.get("level") or "").capitalize(),
-            external_id="rep_lookup",
-        )
-        db.add(target)
-        await db.flush()
-        return [str(target.id)]
-
     ct_result = await db.execute(
         select(CampaignTarget)
         .where(CampaignTarget.campaign_id == campaign.id)
         .order_by(CampaignTarget.order)
     )
-    return [str(ct.target_id) for ct in ct_result.scalars().all()]
+    configured = [str(ct.target_id) for ct in ct_result.scalars().all()]
+
+    if not rep:
+        return configured
+
+    target = Target(
+        id=uuid.uuid4(),
+        name=(rep.get("name") or "Your Representative")[:200],
+        title=(rep.get("title") or "Elected Official")[:100],
+        phone_number=rep["phone"],
+        location=(rep.get("level") or "").capitalize(),
+        external_id="rep_lookup",
+    )
+    db.add(target)
+    await db.flush()
+    return [str(target.id), *configured]

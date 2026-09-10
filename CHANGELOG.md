@@ -31,6 +31,33 @@ All notable changes to this project will be documented in this file.
 - Migration `006_rate_limit_default.py` — `campaigns.rate_limit` server default plus `ix_call_sessions_campaign_id` for the call-ceiling count.
 - `test_call_security.py` — new suite covering rep-token resolution, phone-variant hashing, IP blocklisting, `X-Forwarded-For` spoofing, campaign ceilings, and the webhook bindings.
 
+### Fixed
+- **OpenStates v3 phone parsing** — state legislator numbers are read from the `offices` list (capitol first, then district), so state-level rep lookups stop returning empty.
+- **Rep lookup adds to the call list** — a looked-up representative is dialed first and the campaign's configured targets follow in order, instead of replacing them.
+- **Skip a target with the star key** — dialed legs are placed with `hangupOnStar`, so the widget's `*` control actually ends the current call and moves on.
+- **Silent callers no longer strand the call** — the intro gather uses `actionOnEmptyResult`; a caller who presses nothing is re-asked once and then hears the goodbye message.
+- **Abandoned sessions marked failed** — a parent call that completes without a single dialed target is recorded as failed, keeping completion counts honest.
+- **CSV rows with extra columns** — a ragged row is reported as a row error instead of failing the whole import.
+- **Blocklist by phone number** — admins can block a number directly; it is normalized to E.164 and hashed the same way the call paths hash callers, and phone hashes and IPs are now validated.
+- **Embed snippet script path** — the campaign embed tab now points at `/static/powerline-embed.iife.js` in the script tag, React snippet, and live preview, so copied snippets actually load the widget.
+- **Embed container placement** — auto-init renders into `#powerline-widget` (or the id in `data-container`) instead of always appending a div to the end of `<body>`.
+- **Missing `data-api-url`** — the widget logs `[Powerline] data-api-url is required` and renders a configuration error rather than silently issuing relative API calls against the host site.
+- **Connected screen on rep calls** — shows the selected representative's name and title and counts them as call 1 of `1 + campaign targets`, matching the server's dial order.
+- **Stuck Microphone Access screen** — a connected call always paints a card now, falling back to a generic "Connected" card with timer and End Call when no target detail is known.
+- **Swagger and the embed bundle behind Caddy** — `/static/*`, `/docs*` and `/openapi.json` proxy to the backend instead of falling through to the frontend.
+- **Invite modal accessibility** — the Users invite modal is a labelled `role="dialog"` with `aria-modal`, closes on Escape, and moves focus to the first field on open.
+- **Blocklist empty-state copy** — reads "No blocked numbers or IP addresses" instead of referring to emails the blocklist never stored.
+
+### Changed
+- **Staff read access** — staff accounts can open campaigns, analytics, the dashboard, blocklist, phone numbers, and audio lists; every write stays admin-only, and the admin UI hides write controls for non-admins.
+- **User activation and role management** — admins can switch a user between admin/staff and activate/deactivate from the Users table via `PATCH /users/{id}`, with the last-active-admin 409 surfaced inline.
+- **Blocklist takes phone numbers directly** — the add form uses the standard US phone input and submits E.164 `phone_number` for server-side hashing, with the raw sha256 field kept behind an Advanced disclosure.
+- **Embed bundle built into the API image** — `Dockerfile.backend` builds the widget in a `node:20-alpine` stage and copies it to `/app/embed-dist`, so production images ship it; compose keeps the `embed/dist` bind mount for dev hot reload.
+- **Slimmer, non-root backend image** — the default target installs base deps only and runs as an unprivileged `app` user; a separate `dev` target adds `.[dev]` and is what docker-compose builds.
+- **Configurable embed static dir** — `EMBED_DIST_DIR` overrides `/app/embed-dist`; a missing directory logs a warning in development and an error in production.
+- **Dead between-targets screen removed** — the backend advances targets server-side without notifying the browser, so `renderBetweenTargets` and the `between_targets` state are gone.
+- **Trimmed Docker build context** — a new `.dockerignore` keeps host `node_modules`, build output, and `.env` out of image builds.
+
 ## [2.0.3.0] - 2026-03-21
 
 ### Added

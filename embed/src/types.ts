@@ -51,7 +51,6 @@ export interface CallCreateResponse {
  * mic_permission  → waiting for browser mic grant
  * audio_check     → connected but no audio detected; show troubleshooting
  * connected       → in a live call with a target
- * between_targets → transitioning to next target
  * complete        → all targets called
  * error           → unrecoverable error; show message + retry
  * phone_input     → user chose phone fallback; entering number
@@ -65,7 +64,6 @@ export type WidgetState =
   | "mic_permission"
   | "audio_check"
   | "connected"
-  | "between_targets"
   | "complete"
   | "error"
   | "phone_input"

@@ -1,8 +1,9 @@
 """Campaign analytics endpoints.
 
-All routes require admin authentication. Route registration order is critical —
-specific sub-paths (/{id}/calls/export, /{id}/calls-by-date, /{id}/stats, /{id}/quality)
-are registered before the wildcard-like /{id}/calls to avoid any path ambiguity.
+All routes are read-only and open to any signed-in user. Route registration
+order is critical — specific sub-paths (/{id}/calls/export, /{id}/calls-by-date,
+/{id}/stats, /{id}/quality) are registered before the wildcard-like /{id}/calls
+to avoid any path ambiguity.
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DB, AdminUser
+from app.api.deps import DB, CurrentUser
 from app.api.v1.helpers import get_campaign_or_404
 from app.models.call import Call
 from app.models.call_session import CallSession
@@ -41,7 +42,7 @@ router = APIRouter(prefix="/campaigns", tags=["analytics"])
 @router.get("/{campaign_id}/calls/export")
 async def export_calls_csv(
     campaign_id: uuid.UUID,
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
     status: str | None = Query(default=None),
     connection_type: str | None = Query(default=None),
@@ -103,7 +104,7 @@ async def export_calls_csv(
 @router.get("/{campaign_id}/calls-by-date", response_model=list[DailyCount])
 async def calls_by_date(
     campaign_id: uuid.UUID,
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
     start: str | None = Query(default=None, description="ISO date, e.g. 2026-01-01"),
     end: str | None = Query(default=None, description="ISO date, e.g. 2026-03-01"),
@@ -143,7 +144,7 @@ async def calls_by_date(
 @router.get("/{campaign_id}/stats", response_model=CampaignStatsResponse)
 async def campaign_stats(
     campaign_id: uuid.UUID,
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
 ) -> CampaignStatsResponse:
     """Return aggregated stats for a campaign."""
@@ -229,7 +230,7 @@ async def campaign_stats(
 @router.get("/{campaign_id}/calls", response_model=CallSessionPage)
 async def list_campaign_calls(
     campaign_id: uuid.UUID,
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, le=200),
@@ -288,7 +289,7 @@ async def list_campaign_calls(
 @router.get("/{campaign_id}/quality", response_model=QualityResponse)
 async def campaign_quality(
     campaign_id: uuid.UUID,
-    _: AdminUser,
+    _: CurrentUser,
     db: DB,
 ) -> QualityResponse:
     """Return call quality metrics for a campaign."""

@@ -14,6 +14,7 @@ export function AudioSlotCard({
   campaignId,
   campaignStatus,
   onRefresh,
+  readOnly = false,
 }: {
   slotKey: string;
   label: string;
@@ -22,6 +23,7 @@ export function AudioSlotCard({
   campaignId: string;
   campaignStatus: string;
   onRefresh: () => void;
+  readOnly?: boolean;
 }) {
   // iOS < 16 check — must run before useState calls
   const iosLt16 = (() => {
@@ -272,38 +274,40 @@ export function AudioSlotCard({
       </div>
 
       {/* First-time hint */}
-      {!active && (
+      {!readOnly && !active && (
         <p className="text-[11px] text-brand-grey-light mb-3">
           No audio yet — record, upload, or generate a script below
         </p>
       )}
 
       {/* Tabs */}
-      <div className="overflow-x-auto whitespace-nowrap border-b border-brand-border">
-        <div role="tablist" onKeyDown={handleTabKeyDown} className="flex gap-0">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              role="tab"
-              aria-selected={activeTab === t.key}
-              aria-controls={`audiotab-panel-${t.key}`}
-              tabIndex={activeTab === t.key ? 0 : -1}
-              onClick={() => setActiveTab(t.key)}
-              disabled={t.key === "record" && iosLt16}
-              className={`px-3 py-2 text-xs font-medium border-b-2 min-h-[44px] transition-colors disabled:opacity-40 ${
-                activeTab === t.key
-                  ? "border-brand-orange text-brand-orange"
-                  : "border-transparent text-brand-grey-dark hover:text-brand-black"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+      {!readOnly && (
+        <div className="overflow-x-auto whitespace-nowrap border-b border-brand-border">
+          <div role="tablist" onKeyDown={handleTabKeyDown} className="flex gap-0">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                role="tab"
+                aria-selected={activeTab === t.key}
+                aria-controls={`audiotab-panel-${t.key}`}
+                tabIndex={activeTab === t.key ? 0 : -1}
+                onClick={() => setActiveTab(t.key)}
+                disabled={t.key === "record" && iosLt16}
+                className={`px-3 py-2 text-xs font-medium border-b-2 min-h-[44px] transition-colors disabled:opacity-40 ${
+                  activeTab === t.key
+                    ? "border-brand-orange text-brand-orange"
+                    : "border-transparent text-brand-grey-dark hover:text-brand-black"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Tab: Record */}
-      {activeTab === "record" && (
+      {!readOnly && activeTab === "record" && (
         <div
           id="audiotab-panel-record"
           role="tabpanel"
@@ -400,7 +404,7 @@ export function AudioSlotCard({
       )}
 
       {/* Tab: Upload */}
-      {activeTab === "upload" && (
+      {!readOnly && activeTab === "upload" && (
         <div
           id="audiotab-panel-upload"
           role="tabpanel"
@@ -458,7 +462,7 @@ export function AudioSlotCard({
       )}
 
       {/* Tab: TTS */}
-      {activeTab === "tts" && (
+      {!readOnly && activeTab === "tts" && (
         <div
           id="audiotab-panel-tts"
           role="tabpanel"
@@ -564,7 +568,7 @@ export function AudioSlotCard({
                 <span className="flex-1 truncate text-brand-grey-light">
                   {v.file_url ? v.file_url.split("/").pop() : v.tts_text}
                 </span>
-                {!v.is_active && (
+                {!readOnly && !v.is_active && (
                   <button
                     onClick={() => activate(v.id)}
                     disabled={isLive}

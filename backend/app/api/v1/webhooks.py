@@ -18,6 +18,7 @@ import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from sqlalchemy import or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB
 from app.dependencies import validate_twilio_request
@@ -40,6 +41,8 @@ from app.services.telephony.twiml import (
 log = structlog.get_logger()
 
 router = APIRouter(tags=["webhooks"])
+
+_MAX_GATHER_ATTEMPTS = 2
 
 
 def _hangup_xml() -> Response:
@@ -82,6 +85,17 @@ async def _bound_state(handler: str, session_id: str, call_sid: str) -> dict | N
         return None
 
     return state
+
+
+async def _session_has_calls(call_sid: str, db: AsyncSession) -> bool:
+    """True when the session bound to this parent CallSid logged any Call row."""
+    result = await db.execute(
+        select(Call.id)
+        .join(CallSession, CallSession.id == Call.session_id)
+        .where(CallSession.twilio_call_sid == call_sid)
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +231,10 @@ async def make_calls(
     """Called by Twilio after the caller presses a key in voice-app's <Gather>.
 
     Plays the block-intro message then redirects to dial-target.
+
+    A <Gather> with actionOnEmptyResult also lands here when the caller stayed
+    silent. The confirm prompt is re-asked once; a second silence ends the call
+    rather than dialing targets nobody is listening to.
     """
     form = dict(await request.form())
     session_id = request.query_params.get("session_id") or form.get("session_id", "")
@@ -231,6 +249,29 @@ async def make_calls(
         return _hangup_xml()
 
     campaign_id = uuid.UUID(state["campaign_id"])
+
+    if not form.get("Digits"):
+        attempts = int(state.get("gather_attempts") or 0) + 1
+        state["gather_attempts"] = attempts
+        await save_call_state(session_id, state)
+        log.info(
+            "make_calls_no_digits",
+            session_id=session_id,
+            call_sid=call_sid,
+            attempts=attempts,
+        )
+
+        if attempts < _MAX_GATHER_ATTEMPTS:
+            confirm_audio = await get_audio_config("msg_intro_confirm", campaign_id, db)
+            action_url = f"/webhooks/twilio/make-calls?session_id={session_id}"
+            twiml = build_gather_intro(confirm_audio, {}, action_url)
+            return Response(content=twiml, media_type="application/xml")
+
+        goodbye_audio = await get_audio_config("msg_goodbye", campaign_id, db)
+        return Response(
+            content=build_goodbye(goodbye_audio, {}), media_type="application/xml"
+        )
+
     block_intro = await get_audio_config("msg_call_block_intro", campaign_id, db)
     redirect_url = f"/webhooks/twilio/dial-target?session_id={session_id}"
     twiml = build_between_targets(block_intro, {}, redirect_url)
@@ -473,6 +514,12 @@ async def status_callback(
         # Intermediate states (queued, ringing) — nothing to update yet.
         log.debug("status_callback_skipped", call_sid=call_sid, raw_status=raw_status)
         return Response(content="", status_code=200)
+
+    # A parent call that hung up before any target was dialed is an abandoned
+    # session, not a completed one — only Call rows prove work happened.
+    if session_status == "completed" and not await _session_has_calls(call_sid, db):
+        log.info("status_callback_abandoned_session", call_sid=call_sid)
+        session_status = "failed"
 
     updates: dict = {"status": session_status}
     if call_duration:
