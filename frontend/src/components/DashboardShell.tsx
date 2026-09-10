@@ -34,7 +34,7 @@ function NavItems({ onNavClick }: { onNavClick?: () => void }) {
             onClick={onNavClick}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-3 rounded-[7px] px-3 py-2 text-sm transition-colors",
+                "flex min-h-[44px] items-center gap-3 rounded-control px-3 py-2 text-sm transition-colors",
                 isActive
                   ? "bg-brand-orange text-white font-semibold"
                   : "text-brand-grey-dark hover:bg-page-bg"
@@ -51,7 +51,7 @@ function NavItems({ onNavClick }: { onNavClick?: () => void }) {
         <SidebarFooter />
         <button
           onClick={logout}
-          className="mt-1 flex items-center gap-1.5 text-xs text-brand-grey-dark hover:text-brand-black transition-colors"
+          className={`mt-1 inline-flex min-h-[44px] items-center gap-1.5 rounded-control text-xs text-brand-grey-dark hover:text-brand-black transition-colors ${FOCUS_RING}`}
         >
           <LogOut className="h-3 w-3" />
           Logout

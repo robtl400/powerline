@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { PAGE_HEADING } from "@/lib/styles";
+import { LineChart as LineChartIcon, Megaphone } from "lucide-react";
+import { CARD_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
+import { EmptyState, EmptyTableRow } from "@/components/EmptyState";
 import {
   Line,
   LineChart,
@@ -39,7 +41,7 @@ interface Campaign {
 
 function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
-    <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+    <div className={`${CARD_CLASS} p-5`}>
       <p className="text-xs font-semibold uppercase tracking-[0.07em] text-brand-grey-dark">{label}</p>
       <p className="mt-1 text-3xl font-semibold tabular-nums text-brand-black">{value}</p>
       {sub && <p className="mt-1 text-[11px] text-brand-grey-dark">{sub}</p>}
@@ -111,12 +113,16 @@ export default function Dashboard() {
       </div>
 
       {/* 7-day call volume chart */}
-      <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className={`${CARD_CLASS} p-5`}>
         <h2 className="mb-4 text-sm font-medium text-brand-grey-dark">
           Call Volume — Last 7 Days
         </h2>
         {chartData.every((d) => d.calls === 0) ? (
-          <p className="py-8 text-center text-sm text-brand-grey-dark">No calls recorded yet.</p>
+          <EmptyState
+            icon={LineChartIcon}
+            title="No calls recorded yet"
+            description="Call volume appears here once a live campaign starts taking calls."
+          />
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
@@ -159,12 +165,12 @@ export default function Dashboard() {
       </div>
 
       {/* Live campaigns table */}
-      <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden">
-        <div className="border-b px-5 py-3 flex items-center justify-between">
+      <div className={`${CARD_CLASS} overflow-hidden`}>
+        <div className="border-b px-5 py-1 flex items-center justify-between">
           <h2 className="text-sm font-medium">Live Campaigns</h2>
           <button
             onClick={() => navigate("/campaigns")}
-            className="text-xs text-[#111111] hover:underline"
+            className={`${LINK_BUTTON} px-2 text-brand-black`}
           >
             View all
           </button>
@@ -174,18 +180,26 @@ export default function Dashboard() {
               <tr className="bg-page-bg text-left text-xs text-brand-grey-dark">
                 <th className="px-5 py-2 font-semibold">Campaign</th>
                 <th className="px-5 py-2 font-semibold">Type</th>
-                <th className="px-5 py-2 font-semibold">Targets</th>
+                <th className="px-5 py-2 font-semibold text-right">Targets</th>
                 <th className="px-5 py-2 font-semibold"></th>
               </tr>
             </thead>
             <tbody>
               {campaigns.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-5 py-8 text-center text-sm text-brand-grey-dark">
-                    No live campaigns —{" "}
-                    <Link to="/campaigns" className="text-brand-orange hover:underline">View all campaigns</Link>
-                  </td>
-                </tr>
+                <EmptyTableRow
+                  colSpan={4}
+                  icon={Megaphone}
+                  title="No live campaigns"
+                  description="Set a campaign live and it shows up here."
+                  action={
+                    <Link
+                      to="/campaigns"
+                      className={`${LINK_BUTTON} px-2 text-brand-orange`}
+                    >
+                      View all campaigns
+                    </Link>
+                  }
+                />
               ) : (
                 campaigns.map((c) => (
                   <tr
@@ -194,11 +208,13 @@ export default function Dashboard() {
                   >
                     <td className="px-5 py-3 font-medium">{c.name}</td>
                     <td className="px-5 py-3 capitalize text-brand-grey-dark">{c.campaign_type}</td>
-                    <td className="px-5 py-3 text-brand-grey-dark">{c.target_count}</td>
+                    <td className="px-5 py-3 text-right tabular-nums text-brand-grey-dark">
+                      {c.target_count}
+                    </td>
                     <td className="px-5 py-3 text-right">
                       <button
                         onClick={() => navigate(`/campaigns/${c.id}/edit`)}
-                        className="text-xs text-brand-orange hover:underline"
+                        className={`${LINK_BUTTON} px-2 text-brand-orange`}
                       >
                         Manage
                       </button>

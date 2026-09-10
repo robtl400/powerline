@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Users as UsersIcon } from "lucide-react";
 import client from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useIsNarrow } from "@/hooks/useMediaQuery";
 import { getErrorDetail } from "@/lib/api-error";
-import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { USER_STATUS_COLORS } from "@/lib/constants";
+import { BUTTON_PRIMARY, CARD_CLASS, FOCUS_RING, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { EmptyState, EmptyTableRow } from "@/components/EmptyState";
 import { Modal } from "@/components/Modal";
 import { PhoneInput } from "@/components/PhoneInput";
 
@@ -29,6 +33,7 @@ const EMPTY_FORM: InviteForm = { name: "", email: "", phone: "", role: "staff" }
 export default function Users() {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === "admin";
+  const isNarrow = useIsNarrow();
 
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -87,6 +92,56 @@ export default function Users() {
 
   const columnCount = isAdmin ? 6 : 5;
 
+  function roleControl(u: User) {
+    if (!isAdmin) return <span className="capitalize">{u.role}</span>;
+    return (
+      <select
+        aria-label={`Role for ${u.name}`}
+        value={u.role}
+        disabled={rowBusy[u.id]}
+        onChange={(e) => patchUser(u.id, { role: e.target.value })}
+        className={`min-h-[44px] rounded-field border border-brand-border bg-white px-2 py-1 text-sm disabled:opacity-50 ${FOCUS_RING}`}
+      >
+        <option value="admin">Admin</option>
+        <option value="staff">Staff</option>
+      </select>
+    );
+  }
+
+  function statusChip(u: User) {
+    return (
+      <span
+        className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
+          USER_STATUS_COLORS[u.is_active ? "active" : "inactive"]
+        }`}
+      >
+        {u.is_active ? "Active" : "Inactive"}
+      </span>
+    );
+  }
+
+  function activationControl(u: User) {
+    return (
+      <>
+        <button
+          onClick={() => patchUser(u.id, { is_active: !u.is_active })}
+          disabled={rowBusy[u.id] || (u.is_active && u.id === currentUser?.id)}
+          title={
+            u.is_active && u.id === currentUser?.id
+              ? "You cannot deactivate your own account"
+              : undefined
+          }
+          className={`inline-flex min-h-[44px] items-center rounded-control border border-brand-border bg-white px-3 py-1.5 text-sm text-brand-grey-dark hover:bg-page-bg disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${FOCUS_RING}`}
+        >
+          {u.is_active ? "Deactivate" : "Activate"}
+        </button>
+        {rowErrors[u.id] && (
+          <p className="mt-1 text-[11px] text-brand-grey-dark">{rowErrors[u.id]}</p>
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -94,7 +149,7 @@ export default function Users() {
         {isAdmin && (
           <button
             onClick={() => { setInviteOpen(true); setInviteError(null); setInviteForm(EMPTY_FORM); }}
-            className="rounded-[7px] bg-brand-orange px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
+            className={BUTTON_PRIMARY}
           >
             Invite User
           </button>
@@ -156,14 +211,14 @@ export default function Users() {
             <button
               type="submit"
               disabled={inviting}
-              className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium disabled:opacity-50"
+              className={BUTTON_PRIMARY}
             >
               {inviting ? "Inviting…" : "Send Invite"}
             </button>
             <button
               type="button"
               onClick={() => setInviteOpen(false)}
-              className="px-4 py-2 border border-brand-border rounded-[7px] text-sm"
+              className="px-4 py-2 border border-brand-border rounded-control text-sm"
             >
               Cancel
             </button>
@@ -174,8 +229,40 @@ export default function Users() {
       {isLoading && <p className="text-sm text-brand-grey-dark">Loading…</p>}
       {error && <p className="text-sm text-brand-grey-dark">{error}</p>}
 
-      {!isLoading && !error && (
-        <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
+      {/* Mobile: one card per user — the table controls are unreachable below sm */}
+      {!isLoading && !error && isNarrow && (
+        <div className="space-y-3">
+          {users.length === 0 ? (
+            <div className={CARD_CLASS}>
+              <EmptyState
+                icon={UsersIcon}
+                title="No users yet"
+                description="Invited teammates appear here once they are added."
+              />
+            </div>
+          ) : (
+            users.map((u) => (
+              <div key={u.id} className={`${CARD_CLASS} p-4 space-y-2`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-brand-black">{u.name}</p>
+                    <p className="truncate text-[11px] text-brand-grey-dark">{u.email}</p>
+                    <p className="text-[11px] tabular-nums text-brand-grey-dark">{u.phone}</p>
+                  </div>
+                  {statusChip(u)}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {roleControl(u)}
+                  {isAdmin && activationControl(u)}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {!isLoading && !error && !isNarrow && (
+        <div className={`${CARD_CLASS} overflow-x-auto`}>
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-page-bg text-brand-grey-dark">
@@ -189,63 +276,21 @@ export default function Users() {
             </thead>
             <tbody>
               {users.length === 0 && (
-                <tr>
-                  <td colSpan={columnCount} className="px-4 py-8 text-center text-brand-grey-dark">
-                    No users yet.
-                  </td>
-                </tr>
+                <EmptyTableRow
+                  colSpan={columnCount}
+                  icon={UsersIcon}
+                  title="No users yet"
+                  description="Invited teammates appear here once they are added."
+                />
               )}
               {users.map((u) => (
                 <tr key={u.id} className="border-b last:border-0">
                   <td className="px-4 py-3">{u.name}</td>
                   <td className="px-4 py-3">{u.email}</td>
-                  <td className="px-4 py-3">{u.phone}</td>
-                  <td className="px-4 py-3 capitalize">
-                    {isAdmin ? (
-                      <select
-                        aria-label={`Role for ${u.name}`}
-                        value={u.role}
-                        disabled={rowBusy[u.id]}
-                        onChange={(e) => patchUser(u.id, { role: e.target.value })}
-                        className="rounded-lg border border-brand-border bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-black disabled:opacity-50"
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="staff">Staff</option>
-                      </select>
-                    ) : (
-                      u.role
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium border ${
-                        u.is_active
-                          ? "bg-[rgba(176,83,87,0.10)] text-[#B05357] border-[rgba(176,83,87,0.20)]"
-                          : "bg-[#F4F5F7] text-[#53565B] border-[#E4E6EC]"
-                      }`}
-                    >
-                      {u.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  {isAdmin && (
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => patchUser(u.id, { is_active: !u.is_active })}
-                        disabled={rowBusy[u.id] || (u.is_active && u.id === currentUser?.id)}
-                        title={
-                          u.is_active && u.id === currentUser?.id
-                            ? "You cannot deactivate your own account"
-                            : undefined
-                        }
-                        className="rounded-[7px] border border-brand-border bg-white px-3 py-1.5 text-sm text-brand-grey-dark hover:bg-page-bg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {u.is_active ? "Deactivate" : "Activate"}
-                      </button>
-                      {rowErrors[u.id] && (
-                        <p className="mt-1 text-[11px] text-brand-grey-dark">{rowErrors[u.id]}</p>
-                      )}
-                    </td>
-                  )}
+                  <td className="px-4 py-3 tabular-nums">{u.phone}</td>
+                  <td className="px-4 py-3">{roleControl(u)}</td>
+                  <td className="px-4 py-3">{statusChip(u)}</td>
+                  {isAdmin && <td className="px-4 py-3">{activationControl(u)}</td>}
                 </tr>
               ))}
             </tbody>

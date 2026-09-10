@@ -239,6 +239,32 @@ async def test_list_campaigns_rejects_bad_status_filter(
     assert resp.status_code == 422
 
 
+async def test_list_campaigns_search_filters_by_name(
+    client: AsyncClient, db: AsyncSession, campaign: Campaign, admin_headers: dict
+) -> None:
+    """?q= narrows the list to name matches and excludes everything else."""
+    other = Campaign(name=f"Unrelated Drive {uuid.uuid4().hex[:8]}", created_by_id=campaign.created_by_id)
+    db.add(other)
+    await db.commit()
+    await db.refresh(other)
+
+    try:
+        term = campaign.name.split(" ")[-1]
+        resp = await client.get(f"/api/v1/campaigns?q={term}", headers=admin_headers)
+        assert resp.status_code == 200
+        ids = [c["id"] for c in resp.json()]
+        assert str(campaign.id) in ids
+        assert str(other.id) not in ids
+
+        # Wildcards in the term are literal, not LIKE metacharacters.
+        wild = await client.get("/api/v1/campaigns?q=%25", headers=admin_headers)
+        assert wild.status_code == 200
+        assert str(campaign.id) not in [c["id"] for c in wild.json()]
+    finally:
+        await db.execute(delete(Campaign).where(Campaign.id == other.id))
+        await db.commit()
+
+
 async def test_list_campaigns_pagination(
     client: AsyncClient, campaign: Campaign, admin_headers: dict
 ) -> None:

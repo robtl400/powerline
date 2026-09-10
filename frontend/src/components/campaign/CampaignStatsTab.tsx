@@ -7,6 +7,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { CARD_CLASS } from "@/lib/styles";
 import type { CampaignStats, DailyCount, QualityData } from "@/types/campaign";
 
 export function CampaignStatsTab({
@@ -61,21 +62,21 @@ export function CampaignStatsTab({
         <>
           {/* Summary metrics */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <div className="rounded-[10px] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+            <div className={`${CARD_CLASS} p-4`}>
               <p className="text-xs text-brand-grey-dark">Total Sessions</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">{campaignStats.total_sessions}</p>
             </div>
-            <div className="rounded-[10px] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+            <div className={`${CARD_CLASS} p-4`}>
               <p className="text-xs text-brand-grey-dark">Completion Rate</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">
                 {(campaignStats.completion_rate * 100).toFixed(1)}%
               </p>
             </div>
-            <div className="rounded-[10px] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+            <div className={`${CARD_CLASS} p-4`}>
               <p className="text-xs text-brand-grey-dark">Avg Calls / Session</p>
               <p className="mt-1 text-2xl font-semibold tabular-nums">{campaignStats.avg_calls_per_session.toFixed(1)}</p>
             </div>
-            <div className="rounded-[10px] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+            <div className={`${CARD_CLASS} p-4`}>
               <p className="text-xs text-brand-grey-dark">Connection Type</p>
               <p className="mt-1 text-sm font-medium">
                 {campaignStats.connection_type_breakdown["webrtc"] ?? 0} WebRTC
@@ -87,7 +88,7 @@ export function CampaignStatsTab({
           </div>
 
           {/* Volume chart with date controls */}
-          <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+          <div className={`${CARD_CLASS} p-5`}>
             <div className="flex flex-wrap items-center gap-3 mb-4">
               <h3 className="text-sm font-medium flex-1">Call Volume</h3>
               <input
@@ -151,7 +152,7 @@ export function CampaignStatsTab({
 
           {/* Per-target breakdown */}
           {campaignStats.per_target.length > 0 && (
-            <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+            <div className={CARD_CLASS}>
               <div className="border-b px-5 py-3">
                 <h3 className="text-sm font-medium">Per-Target Breakdown</h3>
               </div>
@@ -184,7 +185,7 @@ export function CampaignStatsTab({
 
           {/* Call Quality panel — only shown when Twilio Voice Insights data exists */}
           {qualityData && qualityData.calls_with_quality > 0 && (
-            <div className="rounded-[10px] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+            <div className={`${CARD_CLASS} p-5`}>
               <h3 className="text-sm font-medium mb-4">Call Quality (Voice Insights)</h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>

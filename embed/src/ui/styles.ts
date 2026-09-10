@@ -41,12 +41,16 @@ export function injectStyles(): void {
     .pl-card {
       background: #ffffff;
       border: 1px solid #E4E6EC;
-      border-radius: 12px;
+      border-radius: 10px;
       padding: 24px;
       width: 100%;
       max-width: 400px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.08);
     }
+
+    .pl-card ::selection { background: rgba(242,84,45,0.18); }
+    .pl-card input { caret-color: #F2542D; }
+    .pl-card a:visited { color: inherit; }
 
     /* ── Buttons ──────────────────────────────────────────────────────── */
     .pl-btn {
@@ -55,7 +59,7 @@ export function injectStyles(): void {
       justify-content: center;
       gap: 8px;
       padding: 10px 20px;
-      border-radius: 8px;
+      border-radius: 7px;
       font-size: 15px;
       font-weight: 600;
       cursor: pointer;
@@ -114,10 +118,12 @@ export function injectStyles(): void {
 
     /* ── Timer ────────────────────────────────────────────────────────── */
     .pl-timer {
-      font-variant-numeric: tabular-nums;
       color: #53565B;
       font-size: 13px;
       margin-bottom: 16px;
+    }
+    .pl-timer, .pl-status {
+      font-variant-numeric: tabular-nums;
     }
 
     /* ── Actions row ──────────────────────────────────────────────────── */
@@ -225,7 +231,7 @@ export function injectStyles(): void {
       padding: 10px 12px;
       min-height: 44px;
       border: 1px solid #E4E6EC;
-      border-radius: 8px;
+      border-radius: 7px;
       background: #fff;
       cursor: pointer;
       display: flex;
@@ -264,7 +270,7 @@ export function injectStyles(): void {
       align-items: center;
       gap: 6px;
       padding: 8px 16px;
-      border-radius: 8px;
+      border-radius: 7px;
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;

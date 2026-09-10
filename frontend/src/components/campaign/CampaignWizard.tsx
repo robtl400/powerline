@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import client from "@/api/client";
 import { getErrorDetail } from "@/lib/api-error";
-import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { BUTTON_PRIMARY, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 import { useCampaignData } from "@/hooks/useCampaignData";
 import { CampaignAudioTab } from "./CampaignAudioTab";
 import { CampaignTargetsTab } from "./CampaignTargetsTab";
@@ -105,7 +105,7 @@ function WizardBody({
             </button>
             <button
               onClick={() => onStepChange(3)}
-              className="px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+              className={BUTTON_PRIMARY}
             >
               Continue
             </button>
@@ -155,7 +155,7 @@ function WizardBody({
           <div className="flex gap-3 mt-8 pt-6 border-t border-brand-border">
             <button
               onClick={() => onStepChange(4)}
-              className="px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+              className={BUTTON_PRIMARY}
             >
               Continue
             </button>
@@ -179,7 +179,7 @@ function WizardBody({
                   <button
                     onClick={handleGoLive}
                     disabled={goLiveSaving}
-                    className="px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                    className={BUTTON_PRIMARY}
                   >
                     {goLiveSaving ? "Going live…" : "Set to Live"}
                   </button>
@@ -199,7 +199,7 @@ function WizardBody({
                 <p className="text-sm text-brand-orange font-medium">Campaign is live!</p>
                 <button
                   onClick={() => navigate(`/campaigns/${campaignId}/edit`)}
-                  className="w-fit px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+                  className={`${BUTTON_PRIMARY} w-fit`}
                 >
                   Finish
                 </button>
@@ -307,7 +307,7 @@ export default function CampaignWizard() {
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              className={BUTTON_PRIMARY}
             >
               {saving ? "Creating…" : "Continue"}
             </button>

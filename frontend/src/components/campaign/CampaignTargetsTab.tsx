@@ -8,9 +8,11 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { INPUT_CLASS } from "@/lib/styles";
+import { UserPlus } from "lucide-react";
+import { BUTTON_PRIMARY, CARD_CLASS, INPUT_CLASS } from "@/lib/styles";
 import type { ImportResult, Target, TargetForm } from "@/types/campaign";
 import { SortableTargetRow } from "./SortableTargetRow";
+import { EmptyState } from "@/components/EmptyState";
 import { Modal } from "@/components/Modal";
 import { PhoneInput } from "@/components/PhoneInput";
 
@@ -216,7 +218,31 @@ export function CampaignTargetsTab({
       )}
 
       {targets.length === 0 && (
-        <p className="text-brand-grey-dark text-sm mb-4">No targets yet.</p>
+        <div className={`${CARD_CLASS} mb-4`}>
+          <EmptyState
+            icon={UserPlus}
+            title="No targets yet"
+            description="Add the people supporters will be connected to, one at a time or from a CSV."
+            action={
+              readOnly ? undefined : (
+                <>
+                  <button
+                    onClick={() => setAddingTarget(true)}
+                    className={BUTTON_PRIMARY}
+                  >
+                    Add Target
+                  </button>
+                  <button
+                    onClick={() => setImportOpen(true)}
+                    className="px-4 py-2 border border-brand-border rounded-control text-sm text-brand-grey-dark hover:bg-page-bg transition-colors"
+                  >
+                    Import CSV
+                  </button>
+                </>
+              )
+            }
+          />
+        </div>
       )}
 
       {/* Edit target inline */}
@@ -257,7 +283,7 @@ export function CampaignTargetsTab({
           <div className="flex gap-2">
             <button
               onClick={handleSaveTargetEdit}
-              className="px-4 py-1.5 bg-brand-orange text-white rounded-md text-sm font-medium"
+              className={BUTTON_PRIMARY}
             >
               Save
             </button>
@@ -315,7 +341,7 @@ export function CampaignTargetsTab({
                 !targetForm.phone_number ||
                 !targetForm.location
               }
-              className="px-4 py-1.5 bg-brand-orange text-white rounded-md text-sm font-medium disabled:opacity-50"
+              className={BUTTON_PRIMARY}
             >
               Add
             </button>
@@ -497,7 +523,7 @@ export function CampaignTargetsTab({
                 <button
                   onClick={handleImportSubmit}
                   disabled={!importFile || !requiredMapped || importLoading}
-                  className="px-4 py-1.5 bg-brand-orange text-white rounded-md text-sm font-medium disabled:opacity-50"
+                  className={BUTTON_PRIMARY}
                 >
                   {importLoading ? "Importing…" : "Import"}
                 </button>
@@ -525,13 +551,13 @@ export function CampaignTargetsTab({
         <div className="flex gap-2">
           <button
             onClick={cancelDeleteTarget}
-            className="px-4 py-2 border border-brand-border rounded-[7px] text-sm"
+            className="px-4 py-2 border border-brand-border rounded-control text-sm"
           >
             Cancel
           </button>
           <button
             onClick={confirmDeleteTarget}
-            className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium"
+            className={BUTTON_PRIMARY}
           >
             Remove
           </button>

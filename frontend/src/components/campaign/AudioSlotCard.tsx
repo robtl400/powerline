@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Play } from "lucide-react";
 import client from "@/api/client";
-import { FOCUS_RING, INPUT_CLASS } from "@/lib/styles";
+import { CARD_CLASS, FOCUS_RING, INPUT_CLASS } from "@/lib/styles";
 import type { AudioRecording } from "@/types/campaign";
 
 type Tab = "record" | "upload" | "tts";
@@ -40,6 +40,7 @@ export function AudioSlotCard({
 
   // ── Tab state ─────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>(iosLt16 ? "upload" : "record");
+  const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
 
   // ── Record tab state ──────────────────────────────────────────────────────
   const [recordState, setRecordState] = useState<RecordState>("idle");
@@ -81,14 +82,19 @@ export function AudioSlotCard({
   }, []);
 
   // ── Tab keyboard nav ──────────────────────────────────────────────────────
+  function selectTab(tab: Tab) {
+    setActiveTab(tab);
+    tabRefs.current[tab]?.focus();
+  }
+
   function handleTabKeyDown(e: React.KeyboardEvent) {
     const allTabs: Tab[] = ["record", "upload", "tts"];
     const enabledTabs = allTabs.filter((t) => !(t === "record" && iosLt16));
     const idx = enabledTabs.indexOf(activeTab);
-    if (e.key === "ArrowRight") setActiveTab(enabledTabs[(idx + 1) % enabledTabs.length]);
-    if (e.key === "ArrowLeft") setActiveTab(enabledTabs[(idx - 1 + enabledTabs.length) % enabledTabs.length]);
-    if (e.key === "Home") setActiveTab(enabledTabs[0]);
-    if (e.key === "End") setActiveTab(enabledTabs[enabledTabs.length - 1]);
+    if (e.key === "ArrowRight") selectTab(enabledTabs[(idx + 1) % enabledTabs.length]);
+    if (e.key === "ArrowLeft") selectTab(enabledTabs[(idx - 1 + enabledTabs.length) % enabledTabs.length]);
+    if (e.key === "Home") selectTab(enabledTabs[0]);
+    if (e.key === "End") selectTab(enabledTabs[enabledTabs.length - 1]);
   }
 
   // ── Record functions ──────────────────────────────────────────────────────
@@ -282,7 +288,7 @@ export function AudioSlotCard({
   ];
 
   return (
-    <div className="rounded-[10px] border border-brand-border bg-white p-4 space-y-4 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]">
+    <div className={`${CARD_CLASS} p-4 space-y-4`}>
       {/* Header */}
       <div>
         <p className="text-sm font-semibold text-brand-black">{label}</p>
@@ -303,6 +309,9 @@ export function AudioSlotCard({
             {tabs.map((t) => (
               <button
                 key={t.key}
+                ref={(el) => {
+                  tabRefs.current[t.key] = el;
+                }}
                 role="tab"
                 aria-selected={activeTab === t.key}
                 aria-controls={`audiotab-panel-${t.key}`}
@@ -362,7 +371,7 @@ export function AudioSlotCard({
                     {waveHeights.map((h, i) => (
                       <div
                         key={i}
-                        className="w-[4px] rounded-full bg-brand-gum transition-all duration-75"
+                        className="w-[4px] rounded-full bg-brand-gum transition-[height] duration-75"
                         style={{ height: `${h}px` }}
                       />
                     ))}
@@ -370,7 +379,7 @@ export function AudioSlotCard({
                   <button
                     onClick={stopRecording}
                     aria-label="Stop recording"
-                    className={`px-4 py-1.5 bg-brand-grey-dark text-white rounded-[7px] text-xs font-medium ${FOCUS_RING}`}
+                    className={`px-4 py-1.5 bg-brand-grey-dark text-white rounded-control text-xs font-medium ${FOCUS_RING}`}
                   >
                     Stop recording
                   </button>
@@ -397,13 +406,13 @@ export function AudioSlotCard({
                     <button
                       onClick={saveRecording}
                       disabled={recordSaving}
-                      className={`px-4 py-1.5 bg-brand-orange text-white rounded-[7px] text-xs font-medium disabled:opacity-50 ${FOCUS_RING}`}
+                      className={`inline-flex min-h-[44px] items-center justify-center px-4 py-1.5 bg-brand-orange text-white rounded-control text-xs font-medium disabled:opacity-50 ${FOCUS_RING}`}
                     >
                       {recordSaving ? "Saving…" : "Save recording"}
                     </button>
                     <button
                       onClick={discardRecording}
-                      className={`px-4 py-1.5 border border-brand-border text-brand-grey-dark rounded-[7px] text-xs ${FOCUS_RING}`}
+                      className={`px-4 py-1.5 border border-brand-border text-brand-grey-dark rounded-control text-xs ${FOCUS_RING}`}
                     >
                       Discard
                     </button>
@@ -525,7 +534,7 @@ export function AudioSlotCard({
             <button
               onClick={saveTts}
               disabled={ttsSaving || !ttsInput.trim()}
-              className={`px-4 py-1.5 bg-brand-orange text-white rounded-[7px] text-xs font-medium disabled:opacity-50 ${FOCUS_RING}`}
+              className={`inline-flex min-h-[44px] items-center justify-center px-4 py-1.5 bg-brand-orange text-white rounded-control text-xs font-medium disabled:opacity-50 ${FOCUS_RING}`}
             >
               {ttsSaving ? "Saving…" : "Save as audio"}
             </button>

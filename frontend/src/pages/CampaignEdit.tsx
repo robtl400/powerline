@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { PAGE_HEADING } from "@/lib/styles";
+import { LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
 import { useCampaignData } from "@/hooks/useCampaignData";
 import { CAMPAIGN_STATUS_COLORS } from "@/lib/constants";
 import { CampaignAudioTab } from "@/components/campaign/CampaignAudioTab";
@@ -33,23 +33,25 @@ export default function CampaignEdit() {
   return (
     <div className="max-w-3xl">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="mb-6 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-3">
         <button
           onClick={() => navigate("/campaigns")}
-          className="text-brand-grey-dark hover:text-brand-black text-sm"
+          className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
         >
           ← Campaigns
         </button>
-        <h1 className={PAGE_HEADING}>
-          {isNew ? "New Campaign" : data.form.name || "Edit Campaign"}
-        </h1>
-        {!isNew && (
-          <span
-            className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[data.status] ?? ""}`}
-          >
-            {data.status}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          <h1 className={PAGE_HEADING}>
+            {isNew ? "New Campaign" : data.form.name || "Edit Campaign"}
+          </h1>
+          {!isNew && (
+            <span
+              className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[data.status] ?? ""}`}
+            >
+              {data.status}
+            </span>
+          )}
+        </div>
       </div>
 
       {data.error && (

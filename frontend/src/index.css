@@ -44,8 +44,33 @@
   * {
     @apply border-border;
   }
+  html {
+    scrollbar-color: #92918f #f4f5f7;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: 'DM Sans', sans-serif;
+  }
+
+  ::selection {
+    background: rgba(242, 84, 45, 0.18);
+  }
+
+  h1,
+  h2 {
+    text-wrap: balance;
+  }
+
+  a:visited {
+    color: inherit;
+  }
+  nav a:visited {
+    color: inherit;
+  }
+
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: #f2542d;
   }
 }

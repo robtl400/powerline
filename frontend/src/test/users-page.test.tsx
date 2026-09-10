@@ -2,7 +2,7 @@
  * Page tests for Users: role-gated controls and the PATCH /users/{id} row actions.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -156,6 +156,49 @@ describe("Users — staff", () => {
     expect(screen.queryByLabelText("Role for Sam Staff")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Deactivate" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Activate" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Users — narrow viewport", () => {
+  function mockNarrowViewport(narrow: boolean) {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: narrow,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }))
+    );
+  }
+
+  beforeEach(() => {
+    setCurrentUser(ADMIN);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders a card per user instead of the table", async () => {
+    mockNarrowViewport(true);
+    await renderUsers();
+
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByText("sam@example.com")).toBeInTheDocument();
+    expect(screen.getByLabelText("Role for Sam Staff")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Deactivate" })).toHaveLength(2);
+  });
+
+  it("keeps the table from sm up", async () => {
+    mockNarrowViewport(false);
+    await renderUsers();
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
   });
 });
 

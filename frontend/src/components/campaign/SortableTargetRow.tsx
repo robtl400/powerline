@@ -1,6 +1,7 @@
 import { GripVertical } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { LINK_BUTTON } from "@/lib/styles";
 import type { Target } from "@/types/campaign";
 
 export function SortableTargetRow({
@@ -43,20 +44,20 @@ export function SortableTargetRow({
       </td>
       <td className="px-3 py-2 font-medium">{target.name}</td>
       <td className="px-3 py-2 text-brand-grey-dark">{target.title}</td>
-      <td className="px-3 py-2 text-brand-grey-dark font-mono text-xs">{target.phone_number}</td>
+      <td className="px-3 py-2 text-brand-grey-dark font-mono text-xs tabular-nums">{target.phone_number}</td>
       <td className="px-3 py-2 text-brand-grey-dark">{target.location}</td>
       <td className="px-3 py-2 text-right space-x-2">
         {!readOnly && (
           <>
             <button
               onClick={() => onEdit(target)}
-              className="text-brand-orange text-sm hover:underline"
+              className={`${LINK_BUTTON} px-2 text-brand-orange`}
             >
               Edit
             </button>
             <button
               onClick={() => onDelete(target.id)}
-              className="text-brand-grey-dark text-sm hover:underline"
+              className={`${LINK_BUTTON} px-2 text-brand-grey-dark`}
             >
               Delete
             </button>

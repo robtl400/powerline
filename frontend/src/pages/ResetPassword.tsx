@@ -3,13 +3,11 @@ import axios from "axios";
 import { Link } from "react-router-dom";
 import client from "@/api/client";
 import { getErrorDetail } from "@/lib/api-error";
-import { FOCUS_RING, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { BUTTON_PRIMARY, CARD_CLASS, FOCUS_RING, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 
-const CARD_CLASS =
-  "w-full max-w-sm space-y-6 rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] border border-brand-border p-8";
+const AUTH_CARD_CLASS = `w-full max-w-sm space-y-6 ${CARD_CLASS} p-8`;
 
-const BUTTON_CLASS =
-  "w-full rounded-[7px] bg-brand-orange px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50";
+const BUTTON_CLASS = `${BUTTON_PRIMARY} w-full`;
 
 const PASSWORD_POLICY = "12–128 characters, including at least one letter and one digit.";
 
@@ -63,7 +61,7 @@ export default function ResetPassword() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-page-bg">
-      <div className={CARD_CLASS}>
+      <div className={AUTH_CARD_CLASS}>
         <div className="space-y-1">
           <h1 className={PAGE_HEADING}>Reset password</h1>
           {!done && (
@@ -82,7 +80,7 @@ export default function ResetPassword() {
             </p>
             <Link
               to="/login"
-              className={`flex min-h-[44px] items-center justify-center rounded-[7px] bg-brand-orange px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 ${FOCUS_RING}`}
+              className={`flex min-h-[44px] items-center justify-center rounded-control bg-brand-orange px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 ${FOCUS_RING}`}
             >
               Sign in
             </Link>

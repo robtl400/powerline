@@ -150,6 +150,7 @@ async def list_campaigns(
     _: CurrentUser,
     db: DB,
     status: CampaignStatus | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=100),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=200, le=500),
 ) -> list[CampaignResponse]:
@@ -167,6 +168,9 @@ async def list_campaigns(
     )
     if status:
         stmt = stmt.where(Campaign.status == status)
+    if q and q.strip():
+        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        stmt = stmt.where(Campaign.name.ilike(f"%{term}%", escape="\\"))
     stmt = stmt.order_by(Campaign.created_at.desc()).offset(skip).limit(limit)
 
     rows = await db.execute(stmt)

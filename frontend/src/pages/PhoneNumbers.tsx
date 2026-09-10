@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
+import { Phone } from "lucide-react";
 import client from "@/api/client";
-import { TRUST_STATUS_COLORS, TRUST_STATUS_LABELS, FALLBACK_BADGE_COLOR } from "@/lib/constants";
-import { INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import {
+  CAPABILITY_BADGE_COLOR,
+  TRUST_STATUS_COLORS,
+  TRUST_STATUS_LABELS,
+  FALLBACK_BADGE_COLOR,
+} from "@/lib/constants";
+import { BUTTON_PRIMARY, CARD_CLASS, INPUT_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
+import { EmptyTableRow } from "@/components/EmptyState";
 
 interface PhoneNumber {
   id: string;
@@ -83,7 +90,7 @@ export default function PhoneNumbers() {
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="rounded-md bg-brand-orange px-4 py-2 text-sm font-medium text-white hover:bg-brand-orange/90 disabled:opacity-50"
+          className={BUTTON_PRIMARY}
         >
           {syncing ? "Syncing…" : "Sync from Twilio"}
         </button>
@@ -93,7 +100,7 @@ export default function PhoneNumbers() {
       {loading && <p className="text-sm text-brand-grey-dark">Loading…</p>}
 
       {!loading && !error && (
-        <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
+        <div className={`${CARD_CLASS} overflow-x-auto`}>
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-page-bg text-brand-grey-dark">
@@ -107,18 +114,25 @@ export default function PhoneNumbers() {
             </thead>
             <tbody>
               {phoneNumbers.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-8 text-center text-sm text-brand-grey-dark"
-                  >
-                    No phone numbers. Click "Sync from Twilio" to import.
-                  </td>
-                </tr>
+                <EmptyTableRow
+                  colSpan={6}
+                  icon={Phone}
+                  title="No phone numbers configured"
+                  description="Numbers you own in Twilio can be imported and assigned to campaigns."
+                  action={
+                    <button
+                      onClick={handleSync}
+                      disabled={syncing}
+                      className={BUTTON_PRIMARY}
+                    >
+                      {syncing ? "Syncing…" : "Sync from Twilio"}
+                    </button>
+                  }
+                />
               )}
               {phoneNumbers.map((pn) => (
                 <tr key={pn.id} className="border-b last:border-0">
-                  <td className="px-4 py-3 font-mono text-xs">{pn.number}</td>
+                  <td className="px-4 py-3 font-mono text-xs tabular-nums">{pn.number}</td>
                   <td className="px-4 py-3 text-brand-grey-dark">
                     {pn.label || "—"}
                   </td>
@@ -130,7 +144,7 @@ export default function PhoneNumbers() {
                         .map(([cap]) => (
                           <span
                             key={cap}
-                            className="inline-block rounded px-1.5 py-0.5 text-xs uppercase bg-[#F2542D]/10 text-[#F2542D]"
+                            className={`inline-block rounded px-1.5 py-0.5 text-xs uppercase ${CAPABILITY_BADGE_COLOR}`}
                           >
                             {cap}
                           </span>
@@ -151,7 +165,7 @@ export default function PhoneNumbers() {
                         setSelectedCampaignId("");
                         setAssignError(null);
                       }}
-                      className="text-brand-orange text-sm hover:underline"
+                      className={`${LINK_BUTTON} px-2 text-brand-orange`}
                     >
                       Assign
                     </button>
@@ -189,7 +203,7 @@ export default function PhoneNumbers() {
             <button
               onClick={handleAssign}
               disabled={!selectedCampaignId || assigning}
-              className="rounded-md bg-brand-orange px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              className={BUTTON_PRIMARY}
             >
               {assigning ? "Assigning…" : "Assign"}
             </button>

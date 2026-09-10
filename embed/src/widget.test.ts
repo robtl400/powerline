@@ -412,6 +412,15 @@ describe("injected styles", () => {
     const styleEl = document.getElementById("pl-widget-styles");
     expect(styleEl?.textContent ?? "").not.toMatch(/#(dc2626|ef4444|b91c1c|f87171)/i);
   });
+
+  it("scopes selection and link surfaces to the widget card", () => {
+    document.getElementById("pl-widget-styles")?.remove();
+    injectStyles();
+
+    const css = document.getElementById("pl-widget-styles")?.textContent ?? "";
+    expect(css).not.toMatch(/transition:\s*all\b/);
+    expect(css).toContain("::selection");
+  });
 });
 
 describe("renderIdle icons", () => {

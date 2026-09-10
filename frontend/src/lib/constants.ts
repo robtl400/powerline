@@ -39,6 +39,14 @@ export const TRUST_STATUS_LABELS: Record<string, string> = {
   unknown:           "Unknown",
 };
 
+export const USER_STATUS_COLORS: Record<string, string> = {
+  active:   "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
+  inactive: "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
+};
+
+// Phone-number capability tags are descriptive, not actionable — neutral grey.
+export const CAPABILITY_BADGE_COLOR = "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]";
+
 export const FALLBACK_BADGE_COLOR = "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]";
 
 // Campaign status machine — mirrors backend VALID_TRANSITIONS

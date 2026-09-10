@@ -42,7 +42,7 @@ describe("CampaignTabs", () => {
     }
   });
 
-  it("moves selection with ArrowRight", () => {
+  it("moves selection and focus with ArrowRight", () => {
     render(<Harness />);
 
     fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
@@ -50,5 +50,31 @@ describe("CampaignTabs", () => {
     const tabs = screen.getAllByRole("tab");
     expect(tabs[0]).toHaveAttribute("aria-selected", "false");
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(tabs[1]);
+  });
+
+  it("moves focus to the first and last tab with Home and End", () => {
+    render(<Harness />);
+    const tablist = screen.getByRole("tablist");
+
+    fireEvent.keyDown(tablist, { key: "End" });
+    let tabs = screen.getAllByRole("tab");
+    expect(tabs[4]).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(tabs[4]);
+
+    fireEvent.keyDown(tablist, { key: "Home" });
+    tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(tabs[0]);
+  });
+
+  it("wraps backwards with ArrowLeft and takes focus with it", () => {
+    render(<Harness />);
+
+    fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowLeft" });
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs[4]).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(tabs[4]);
   });
 });

@@ -46,4 +46,25 @@ describe("AudioSlotCard", () => {
       screen.getByRole("button", { name: /Upload audio file/ }).className
     ).toContain("focus-visible:ring-2");
   });
+
+  it("moves selection and focus with the arrow keys", () => {
+    renderCard();
+    const tablist = screen.getByRole("tablist");
+
+    fireEvent.keyDown(tablist, { key: "ArrowRight" });
+
+    let tabs = screen.getAllByRole("tab");
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(tabs[1]);
+
+    fireEvent.keyDown(tablist, { key: "End" });
+    tabs = screen.getAllByRole("tab");
+    expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(tabs[2]);
+
+    fireEvent.keyDown(tablist, { key: "Home" });
+    tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    expect(document.activeElement).toBe(tabs[0]);
+  });
 });

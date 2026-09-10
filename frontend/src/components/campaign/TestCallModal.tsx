@@ -1,5 +1,6 @@
 import { Modal } from "@/components/Modal";
 import { PhoneInput } from "@/components/PhoneInput";
+import { BUTTON_PRIMARY } from "@/lib/styles";
 
 export function TestCallModal({
   isOpen,
@@ -38,7 +39,7 @@ export function TestCallModal({
         <button
           onClick={handleTestCall}
           disabled={testCallState === "loading" || !testPhone.trim()}
-          className="px-4 py-2 bg-brand-orange text-white rounded-[7px] text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity whitespace-nowrap"
+          className={`${BUTTON_PRIMARY} whitespace-nowrap`}
         >
           {testCallState === "loading" ? "Calling…" : "Call Me"}
         </button>

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { FOCUS_RING, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { BUTTON_PRIMARY, CARD_CLASS, FOCUS_RING, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 
 export default function Login() {
   const { login } = useAuth();
@@ -25,7 +25,7 @@ export default function Login() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-page-bg">
-      <div className="w-full max-w-sm space-y-6 rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] border border-brand-border p-8">
+      <div className={`w-full max-w-sm space-y-6 ${CARD_CLASS} p-8`}>
         <div className="space-y-1">
           <h1 className={PAGE_HEADING}>Powerline</h1>
           <p className="text-sm text-brand-grey-dark">Sign in to your account</p>
@@ -68,7 +68,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-[7px] bg-brand-orange px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className={`${BUTTON_PRIMARY} w-full`}
           >
             {isLoading ? "Signing in…" : "Sign in"}
           </button>

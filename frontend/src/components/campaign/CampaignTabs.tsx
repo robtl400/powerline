@@ -13,6 +13,7 @@ export function CampaignTabs({
   onChange: (tab: CampaignTab) => void;
 }) {
   const stripRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Partial<Record<CampaignTab, HTMLButtonElement | null>>>({});
   const [overflowing, setOverflowing] = useState(false);
 
   useEffect(() => {
@@ -37,13 +38,18 @@ export function CampaignTabs({
     };
   }, []);
 
+  function select(tab: CampaignTab) {
+    onChange(tab);
+    tabRefs.current[tab]?.focus();
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     const idx = CAMPAIGN_TABS.indexOf(activeTab);
-    if (e.key === "ArrowRight") onChange(CAMPAIGN_TABS[(idx + 1) % CAMPAIGN_TABS.length]);
+    if (e.key === "ArrowRight") select(CAMPAIGN_TABS[(idx + 1) % CAMPAIGN_TABS.length]);
     if (e.key === "ArrowLeft")
-      onChange(CAMPAIGN_TABS[(idx - 1 + CAMPAIGN_TABS.length) % CAMPAIGN_TABS.length]);
-    if (e.key === "Home") onChange(CAMPAIGN_TABS[0]);
-    if (e.key === "End") onChange(CAMPAIGN_TABS[CAMPAIGN_TABS.length - 1]);
+      select(CAMPAIGN_TABS[(idx - 1 + CAMPAIGN_TABS.length) % CAMPAIGN_TABS.length]);
+    if (e.key === "Home") select(CAMPAIGN_TABS[0]);
+    if (e.key === "End") select(CAMPAIGN_TABS[CAMPAIGN_TABS.length - 1]);
   }
 
   return (
@@ -61,6 +67,9 @@ export function CampaignTabs({
         {CAMPAIGN_TABS.map((tab) => (
           <button
             key={tab}
+            ref={(el) => {
+              tabRefs.current[tab] = el;
+            }}
             id={`campaign-tab-${tab}`}
             role="tab"
             type="button"

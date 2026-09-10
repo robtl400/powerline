@@ -30,6 +30,7 @@ in this file is locked. When in doubt, this file wins over inline code.
 - **Black = wordmark and bold display text only.**
 - **Orange is never used for error states** — use `brand-grey-dark` + icon.
 - **Orange is never used for success states** — use `brand-gum`.
+- **Badges that describe rather than act are grey** — phone-number capability tags use `CAPABILITY_BADGE_COLOR`, user status uses `USER_STATUS_COLORS` (active = gum, inactive = grey). Nothing wears orange unless it is an action or a live status.
 - **`brand-grey-light` is not used for text below 18px** (3.15:1 on white fails WCAG AA) — use `brand-grey-dark` for hints, captions and table meta. `brand-grey-light` stays available for large text, borders and decorative use.
 
 ### Status Chip Specs
@@ -63,9 +64,11 @@ Font: **DM Sans** (Google Fonts — already loaded)
 ## Spacing & Shape
 
 - **Focus ring:** every interactive element carries `FOCUS_RING` from `styles.ts` — `focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black focus-visible:ring-offset-2`
-- **Minimum touch target:** `44px` on tabs, drawer controls and standalone text links
-- **Border radius:** `8px` for inputs, chips, and small elements; `10px` for cards and modals
-- **Card shadow:** `0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)`
+- **Minimum touch target:** `44px` on every interactive element — tabs, drawer controls, filter selects and inputs, row buttons and standalone text links. Text-style actions use `LINK_BUTTON`, which carries the hit area without changing the text size
+- **Border radius:** use the tokens, never a bracket literal — `rounded-field` (`8px`) for inputs and small elements, `rounded-control` (`7px`) for buttons and nav items, `rounded-card` (`10px`) for cards and modals
+- **Card shadow:** `shadow-card` — `0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)`
+- **Transitions:** name the property — `transition-colors`, `transition-opacity`, `transition-[height]`. Never `transition-all`
+- **Numeric columns and stat tiles** carry `tabular-nums` — targets, call counts, durations, dates and phone numbers
 - **Sidebar width:** `220px` (both desktop sidebar and mobile drawer)
 - **Page padding:** `28px` desktop, `16px` mobile
 - **Stat cards:** 4-column grid on desktop, 2-column on mobile
@@ -154,11 +157,30 @@ Use the **exact same SVG** as desktop — `preserveAspectRatio="none"` handles s
 - Right-edge fade gradient renders only while the strip is scrollable — tracked by a scroll listener and `ResizeObserver` on a `data-overflow` attribute
 - Tab minimum touch target: `min-height: 44px`
 
+### Mobile User Cards (/users)
+Below `sm` the users table is replaced by one card per user — name, email, phone, then the role select, status chip and Deactivate/Activate control, all bound to the same handlers as the table row. The breakpoint is read with `useMediaQuery` (`frontend/src/hooks/useMediaQuery.ts`), which falls back to the wide layout wherever `matchMedia` is unavailable.
+
+### Back Links on Mobile
+`CampaignEdit` and `CallLog` headers stack `flex-col sm:flex-row`: below `sm` the back link sits on its own line above the page title, and the status chip stays beside the title.
+
 ### Mobile Defaults (all other pages)
 - Tables: full-width with `overflow-x: auto`
 - Modals: `max-width: min(480px, 90vw)`
 - Filter bars and tab rows wrap or stack vertically
 - Full-width buttons in modals
+
+---
+
+## Component: Search Field
+
+**Used on:** `/campaigns`, beside the status filter tabs (right-aligned, wraps below them on mobile).
+
+- `INPUT_CLASS` + `min-h-[44px]`, `sm:w-[240px]`, `type="search"`, placeholder `"Search campaigns…"`
+- `aria-label="Search campaigns"` — the tab strip is the only visible label context
+- Debounced **250 ms** before the request fires; the term goes out as the `q` query param
+- **Escape clears the field** (and therefore the filter)
+- Backend: `GET /campaigns?q=` matches `Campaign.name` case-insensitively (`ilike`), `max_length=100`, with `%` and `_` escaped so a typed wildcard stays literal
+- Zero matches use the empty state `"No campaigns match your search"` — never the "No campaigns yet" copy, which would read as data loss
 
 ---
 
@@ -325,10 +347,10 @@ All pages must conform to this design system:
 | `/login` | Centred white card; `PAGE_HEADING` h1; "Forgot password?" text link (`brand-grey-dark`, underline on hover, 44px tap area) below the Sign in button |
 | `/reset-password` | Public. Same card as `/login`. Step 1 email → code sent; step 2 8-digit code (`inputMode="numeric"`, `autoComplete="one-time-code"`) + new password with the policy as helper text; errors in `brand-grey-dark`; success shows a "Sign in" link |
 | `/dashboard` | Stat cards 4-col desktop / 2-col mobile; campaign table with correct status chips; no green |
-| `/campaigns` | Status filter tabs; campaign list; correct status chips |
+| `/campaigns` | Status filter tabs + search field; campaign name links to `/campaigns/:id/edit`; Resume wizard on draft rows, Edit on all others; correct status chips |
 | `/campaigns/:id` | 5-tab edit view; PhoneInput in Targets; AudioSlotCard in Audio; "Make active" gated |
 | `/phone-numbers` | Table + assign panel; horizontal scroll on mobile |
-| `/users` | PhoneInput in invite modal; table header = `bg-page-bg`; active chip = gum |
+| `/users` | PhoneInput in invite modal; table header = `bg-page-bg`; status chip from `USER_STATUS_COLORS` (active = gum, inactive = grey); one card per user below `sm` |
 | `/blocklist` | Table; horizontal scroll on mobile |
 | `/call-log` | Table + filter; horizontal scroll on mobile; filter bar stacks on mobile |
 
@@ -338,15 +360,27 @@ All pages must conform to this design system:
 
 All empty states must have: (1) brief explanation of why it's empty, (2) a primary action where applicable, (3) muted tone — use `brand-grey-dark` text, no large illustrations.
 
+**Component:** `frontend/src/components/EmptyState.tsx` — one shape for all of them.
+
+```tsx
+<EmptyState title="No targets yet" description="…" icon={UserPlus} action={<button>Add Target</button>} />
+<EmptyTableRow colSpan={5} title="No call sessions yet" description="…" />
+```
+
+`EmptyState` renders a centred stack: optional lucide icon (`brand-grey-light`), 13px `brand-grey-dark` title, 11px description, then the action node. `EmptyTableRow` wraps it in a `<tr>/<td colSpan>` so tables keep their header. Do not hand-roll a fourth shape.
+
 | Page / Context | Empty message | Primary action |
 |---|---|---|
-| `/campaigns` — zero campaigns | `"No campaigns yet"` (13px, `brand-grey-dark`) | `"Create campaign"` button (orange) |
-| `/dashboard` — Live Campaigns table empty | `"No live campaigns"` — render small muted row spanning all columns | `"View all campaigns"` link to `/campaigns` |
-| `/users` — zero users | `"No users yet"` (13px, `brand-grey-dark`) | None — the Invite button in the header is the action |
-| `/phone-numbers` — zero numbers | `"No phone numbers configured"` (13px, `brand-grey-dark`) | None |
-| `/blocklist` — zero entries | `"No blocked numbers or emails"` (13px, `brand-grey-dark`) | None |
-| `/call-log` — zero results (filtered) | `"No sessions match your filters"` (13px, `brand-grey-dark`) | `"Clear filters"` inline link in `brand-orange` |
-| `/call-log` — zero results (no filter) | `"No call sessions yet"` (13px, `brand-grey-dark`) | None |
+| `/campaigns` — zero campaigns | `"No campaigns yet"` | `"Create campaign"` button (orange) |
+| `/campaigns` — zero search matches | `"No campaigns match your search"` | None — clear the search field |
+| `/campaigns/:id` targets tab — zero targets | `"No targets yet"` | `"Add Target"` (orange) + `"Import CSV"` (secondary) |
+| `/dashboard` — call volume chart, no calls | `"No calls recorded yet"` | None |
+| `/dashboard` — Live Campaigns table empty | `"No live campaigns"` | `"View all campaigns"` link to `/campaigns` |
+| `/users` — zero users | `"No users yet"` | None — the Invite button in the header is the action |
+| `/phone-numbers` — zero numbers | `"No phone numbers configured"` | `"Sync from Twilio"` button (orange) |
+| `/blocklist` — zero entries | `"No blocked numbers or IP addresses"` | `"Add Entry"` button (orange, admin only) |
+| `/call-log` — zero results (filtered) | `"No sessions match your filters"` | `"Clear filters"` inline link in `brand-orange` |
+| `/call-log` — zero results (no filter) | `"No call sessions yet"` | None |
 | AudioSlotCard — no active version | Show tab picker immediately with hint above: `"No audio yet — record, upload, or generate a script"` (11px, `brand-grey-dark`) | (tabs themselves are the action) |
 
 ---
@@ -367,6 +401,13 @@ colors: {
 }
 ```
 
+Shape tokens live beside them, so no shape value is ever written as a bracket literal:
+
+```js
+borderRadius: { card: '10px', control: '7px', field: '8px' },
+boxShadow:    { card: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)' },
+```
+
 ---
 
 ## CSS Token Corrections (index.css)
@@ -385,6 +426,18 @@ colors: {
 }
 ```
 
+### Browser-Surface Theming (index.css)
+
+The chrome the browser draws for us is themed too, so nothing falls back to a system default that is off-palette:
+
+```css
+html      { scrollbar-color: #92918f #f4f5f7; }
+::selection { background: rgba(242, 84, 45, 0.18); }
+h1, h2    { text-wrap: balance; }
+a:visited, nav a:visited { color: inherit; }   /* visited links never turn purple */
+input, textarea, [contenteditable] { caret-color: #f2542d; }
+```
+
 ---
 
 ## Token Migration — Deprecated Patterns
@@ -397,20 +450,31 @@ These shadcn/Tailwind defaults were used before this design system was locked. *
 | `bg-background` | `bg-white` (surfaces) or `bg-page-bg` (page) |
 | `text-muted-foreground` | `text-brand-grey-dark` (any text below 18px) or `text-brand-grey-light` (18px+ only) |
 | `border-border` | `border-brand-border` |
-| `rounded-lg border bg-card shadow-sm` | `rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)]` |
+| `rounded-lg border bg-card shadow-sm` | `CARD_CLASS` from `styles.ts` |
+| `rounded-[10px]` / `rounded-[7px]` / `rounded-[8px]` | `rounded-card` / `rounded-control` / `rounded-field` |
+| `transition-all` | the property that actually animates — `transition-colors`, `transition-opacity` |
 | `text-destructive` | `text-brand-grey-dark` + error icon (never orange, never red) |
 | `bg-[#53565B] text-white` (table headers) | `bg-page-bg text-brand-grey-dark` |
 | `text-amber-600` | `text-brand-grey-dark` |
 
 ---
 
-## INPUT_CLASS (styles.ts)
+## Shared class strings (styles.ts)
 
 ```ts
 export const INPUT_CLASS =
-  "w-full px-3 py-2 rounded-lg border border-brand-border bg-white text-sm " +
+  "w-full px-3 py-2 rounded-field border border-brand-border bg-white text-sm " +
   "focus:outline-none focus:ring-2 focus:ring-brand-black focus:ring-offset-0";
+
+export const CARD_CLASS = "rounded-card bg-white border border-brand-border shadow-card";
+
+export const LINK_BUTTON =
+  "inline-flex min-h-[44px] items-center gap-1 rounded-control text-sm hover:underline " +
+  FOCUS_RING;
 ```
+
+- **`CARD_CLASS`** is the only way to build a white surface. Add padding and overflow at the call site (`` `${CARD_CLASS} p-5` ``); never re-type the radius, border and shadow.
+- **`LINK_BUTTON`** is every text-style action in tables, table headers, filter bars and back links — Resume wizard, Edit, Manage, Assign, Remove, View all, Clear filters, `← Campaigns`. It carries the 44px hit area and the hover underline; the caller adds the colour (`text-brand-orange` for actions, `text-brand-grey-dark` for neutral ones).
 
 ---
 

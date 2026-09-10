@@ -1,6 +1,6 @@
 import { AlertTriangle, Check, Phone } from "lucide-react";
 import { STATUS_LABELS } from "@/lib/constants";
-import { INPUT_CLASS } from "@/lib/styles";
+import { BUTTON_PRIMARY, INPUT_CLASS } from "@/lib/styles";
 import type { CampaignChecklist, CampaignForm } from "@/types/campaign";
 
 type TabType = "settings" | "targets" | "audio" | "embed" | "stats";
@@ -247,7 +247,7 @@ export function CampaignSettingsTab({
           </p>
           <button
             onClick={onOpenTestCall}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+            className={`${BUTTON_PRIMARY} gap-2`}
           >
             <Phone size={16} aria-hidden="true" />
             Open Test Call
@@ -261,7 +261,7 @@ export function CampaignSettingsTab({
           <button
             onClick={handleSave}
             disabled={saving || !form.name.trim()}
-            className="px-5 py-2 bg-brand-orange text-white rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+            className={BUTTON_PRIMARY}
           >
             {saving ? "Saving…" : "Save Campaign"}
           </button>
@@ -291,7 +291,7 @@ export function CampaignSettingsTab({
               <button
                 key={s}
                 onClick={() => setPendingStatus(s)}
-                className={`px-3 py-1.5 rounded text-sm font-medium border-2 transition-colors capitalize ${
+                className={`inline-flex min-h-[44px] items-center justify-center px-3 py-1.5 rounded text-sm font-medium border-2 transition-colors capitalize ${
                   pendingStatus === s
                     ? "border-brand-orange bg-brand-orange/10"
                     : "border-brand-border hover:border-brand-orange/50"
@@ -305,7 +305,7 @@ export function CampaignSettingsTab({
             <div className="flex gap-2">
               <button
                 onClick={confirmStatusChange}
-                className="px-4 py-1.5 bg-brand-orange text-white rounded-md text-sm font-medium"
+                className={BUTTON_PRIMARY}
               >
                 Confirm → {STATUS_LABELS[pendingStatus]}
               </button>

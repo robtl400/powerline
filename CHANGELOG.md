@@ -124,6 +124,24 @@ All notable changes to this project will be documented in this file.
 - **Mobile nav drawer is a modal dialog** — it shares `Modal`'s focus trap through a new `useDialogBehaviour` hook: `role="dialog" aria-modal="true"`, focus lands on the first nav link, Escape/scrim/nav activation close it, focus returns to the hamburger, and the hamburger reports `aria-expanded`.
 - **Embed End Call button on palette** — the Tailwind-red fill is replaced by a brand-orange outline treatment with an orange-tint hover, black focus ring and a phone-off icon; no red hex remains in the embed.
 
+### Fixed (live design review, medium impact)
+- **Touch targets below 44px** — sidebar Logout, dashboard Manage/View all, campaign Resume wizard/Edit, phone-number Assign, both back links, the Users role select and activation button, the call-log filter controls and the campaign status tabs all carry a 44px hit area via `LINK_BUTTON`, with text sizes unchanged.
+- **Users table unusable on mobile** — below `sm` each user renders as a card with name, email, phone, role select, status chip and the activation button, bound to the same handlers.
+- **Back link wrapping into the title** — the campaign and call-log headers stack on mobile, putting the back link on its own line while the status chip stays with the title.
+- **Weak action on campaign rows** — the campaign name links to its edit page, Resume wizard shows only on drafts, and every other row gets an explicit Edit action.
+- **Campaign search** — `/campaigns` gains a debounced search field backed by a `q` filter on `GET /campaigns` that matches names case-insensitively with wildcards escaped.
+- **One empty-state shape** — `EmptyState` / `EmptyTableRow` serve the dashboard chart and live-campaigns table, call log, users, phone numbers, blocklist, campaigns list and the targets tab.
+- **Orange only for actions** — phone-number capability tags use a neutral chip and the user status chip comes from a shared `USER_STATUS_COLORS` map.
+
+### Changed (design polish)
+- **Card styling is a token** — `CARD_CLASS` plus `rounded-card` / `rounded-control` / `rounded-field` and `shadow-card` Tailwind tokens replace every hand-written radius and shadow; the embed card and controls use the same 10px / 7px / 8px radii.
+- **Transitions name their property** — `transition-all` is gone; animated elements declare `transition-colors`, `transition-opacity` or `transition-[height]`.
+- **Numeric columns align** — `tabular-nums` on counts, durations, dates, phone numbers, stat tiles and the embed timer.
+- **Browser surfaces follow the palette** — themed selection highlight, orange caret, brand scrollbar colours and visited links that inherit their colour; scoped to `.pl-card` in the embed so host pages are untouched.
+- **Headings balance their line breaks** — `text-wrap: balance` on `h1` and `h2`.
+- **Roving tab focus follows selection** — arrow / Home / End keys on the campaign and audio tab strips move DOM focus to the selected tab.
+- **DESIGN.md documents the new primitives** — `CARD_CLASS`, `LINK_BUTTON`, `EmptyState`, the radius/shadow tokens, the search field, the mobile user cards and the browser-surface CSS; the blocklist empty-state copy is corrected.
+
 ### Changed (design system)
 - **Accessible modal dialogs** — a reusable `Modal` component with `role="dialog"`, `aria-modal`, Escape and backdrop dismissal, focus move-in/restore, and a Tab focus trap; adopted by the Test Call modal, the Users invite modal, and both delete confirmations.
 - **Native `confirm()` replaced** — removing a campaign target or a blocklist entry opens an in-app confirmation dialog with Cancel and Remove instead of the browser prompt.

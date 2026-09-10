@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useDialogBehaviour } from "@/hooks/useDialogBehaviour";
+import { CARD_CLASS } from "@/lib/styles";
 
 export function Modal({
   open,
@@ -34,7 +35,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`relative w-full max-w-[min(480px,90vw)] rounded-[10px] border border-brand-border bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] ${className}`}
+        className={`relative w-full max-w-[min(480px,90vw)] ${CARD_CLASS} p-6 ${className}`}
       >
         <h2 id={titleId} className="mb-4 pr-6 text-base font-semibold">
           {title}

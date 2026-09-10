@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { PhoneOff } from "lucide-react";
 import client from "@/api/client";
 import {
   CALL_SESSION_STATUS_COLORS,
@@ -7,7 +8,8 @@ import {
   FALLBACK_BADGE_COLOR,
 } from "@/lib/constants";
 import { formatDateTime } from "@/lib/formatters";
-import { PAGE_HEADING } from "@/lib/styles";
+import { CARD_CLASS, FOCUS_RING, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
+import { EmptyTableRow } from "@/components/EmptyState";
 
 interface CallSessionRow {
   id: string;
@@ -140,24 +142,24 @@ export default function CallLog() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-3">
         <button
           onClick={() => navigate(`/campaigns/${id}/edit`)}
-          className="text-sm text-brand-grey-dark hover:text-brand-black"
+          className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
         >
           ← {campaign?.name ?? "Campaign"}
         </button>
-        <span className="text-brand-grey-dark">/</span>
+        <span className="hidden text-brand-grey-dark sm:inline">/</span>
         <h1 className={PAGE_HEADING}>Call Log</h1>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] p-4">
+      <div className={`flex flex-wrap items-end gap-3 ${CARD_CLASS} p-4`}>
         <div>
           <label htmlFor="calllog-status" className="block text-xs text-brand-grey-dark mb-1">Status</label>
           <select
             id="calllog-status"
-            className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white min-w-[120px]"
+            className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white min-w-[120px] ${FOCUS_RING}`}
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -172,7 +174,7 @@ export default function CallLog() {
           <label htmlFor="calllog-type" className="block text-xs text-brand-grey-dark mb-1">Type</label>
           <select
             id="calllog-type"
-            className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white min-w-[140px]"
+            className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white min-w-[140px] ${FOCUS_RING}`}
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
           >
@@ -187,7 +189,7 @@ export default function CallLog() {
           <input
             id="calllog-start"
             type="date"
-            className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white"
+            className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white ${FOCUS_RING}`}
             value={startDate}
             max={endDate || undefined}
             onChange={(e) => setStartDate(e.target.value)}
@@ -198,7 +200,7 @@ export default function CallLog() {
           <input
             id="calllog-end"
             type="date"
-            className="text-sm border border-brand-border rounded px-2 py-1.5 bg-white"
+            className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white ${FOCUS_RING}`}
             value={endDate}
             min={startDate || undefined}
             max={new Date().toISOString().slice(0, 10)}
@@ -208,20 +210,20 @@ export default function CallLog() {
         <div className="flex gap-2 ml-auto">
           <button
             onClick={applyFilters}
-            className="px-3 py-1.5 bg-brand-orange text-white rounded text-sm hover:opacity-90 transition-opacity"
+            className={`inline-flex min-h-[44px] items-center px-3 py-1.5 bg-brand-orange text-white rounded-control text-sm hover:opacity-90 transition-opacity ${FOCUS_RING}`}
           >
             Apply
           </button>
           <button
             onClick={clearFilters}
-            className="px-3 py-1.5 border border-brand-border rounded text-sm hover:bg-page-bg transition-colors"
+            className={`inline-flex min-h-[44px] items-center px-3 py-1.5 border border-brand-border rounded-control text-sm hover:bg-page-bg transition-colors ${FOCUS_RING}`}
           >
             Clear
           </button>
           <button
             onClick={handleCsvExport}
             disabled={csvLoading}
-            className="px-3 py-1.5 border border-brand-border rounded text-sm hover:bg-page-bg transition-colors disabled:opacity-50"
+            className={`inline-flex min-h-[44px] items-center px-3 py-1.5 border border-brand-border rounded-control text-sm hover:bg-page-bg transition-colors disabled:opacity-50 ${FOCUS_RING}`}
           >
             {csvLoading ? "Exporting…" : "Export CSV"}
           </button>
@@ -235,7 +237,7 @@ export default function CallLog() {
       )}
 
       {/* Table */}
-      <div className="rounded-[10px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06),0_1px_2px_rgba(0,0,0,0.04)] overflow-x-auto">
+      <div className={`${CARD_CLASS} overflow-x-auto`}>
         <div className="border-b px-5 py-3 flex items-center justify-between">
           <p className="text-sm text-brand-grey-dark">
             {page.total} session{page.total !== 1 ? "s" : ""}
@@ -257,17 +259,30 @@ export default function CallLog() {
             </thead>
             <tbody>
               {page.items.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-sm text-brand-grey-dark">
-                    {hasActiveFilters ? (
-                      <>No sessions match your filters — <button onClick={clearFilters} className="text-brand-orange hover:underline">Clear filters</button></>
-                    ) : "No call sessions yet"}
-                  </td>
-                </tr>
+                <EmptyTableRow
+                  colSpan={5}
+                  icon={PhoneOff}
+                  title={hasActiveFilters ? "No sessions match your filters" : "No call sessions yet"}
+                  description={
+                    hasActiveFilters
+                      ? undefined
+                      : "Sessions appear here as supporters call through this campaign."
+                  }
+                  action={
+                    hasActiveFilters ? (
+                      <button
+                        onClick={clearFilters}
+                        className={`${LINK_BUTTON} px-2 text-brand-orange`}
+                      >
+                        Clear filters
+                      </button>
+                    ) : undefined
+                  }
+                />
               ) : (
                 page.items.map((row) => (
                   <tr key={row.id} className="border-b last:border-0 hover:bg-page-bg/50 transition-colors">
-                    <td className="px-5 py-3 font-mono text-xs text-brand-grey-dark">
+                    <td className="px-5 py-3 font-mono text-xs tabular-nums text-brand-grey-dark">
                       {formatDateTime(row.created_at)}
                     </td>
                     <td className="px-5 py-3">
@@ -300,7 +315,7 @@ export default function CallLog() {
           <button
             onClick={() => setSkip(Math.max(0, skip - PAGE_SIZE))}
             disabled={skip === 0}
-            className="px-3 py-1.5 border border-brand-border rounded hover:bg-page-bg disabled:opacity-40 transition-colors"
+            className={`inline-flex min-h-[44px] items-center px-3 py-1.5 border border-brand-border rounded-control hover:bg-page-bg disabled:opacity-40 transition-colors ${FOCUS_RING}`}
           >
             ← Previous
           </button>
@@ -310,7 +325,7 @@ export default function CallLog() {
           <button
             onClick={() => setSkip(skip + PAGE_SIZE)}
             disabled={skip + PAGE_SIZE >= page.total}
-            className="px-3 py-1.5 border border-brand-border rounded hover:bg-page-bg disabled:opacity-40 transition-colors"
+            className={`inline-flex min-h-[44px] items-center px-3 py-1.5 border border-brand-border rounded-control hover:bg-page-bg disabled:opacity-40 transition-colors ${FOCUS_RING}`}
           >
             Next →
           </button>
