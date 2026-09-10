@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -42,7 +43,7 @@ class CampaignStatsResponse(BaseModel):
 
 class CallSessionRow(BaseModel):
     id: uuid.UUID
-    created_at: str  # ISO datetime
+    created_at: datetime
     connection_type: str
     status: str
     call_count: int

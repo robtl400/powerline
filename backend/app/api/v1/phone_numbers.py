@@ -17,20 +17,6 @@ log = structlog.get_logger()
 router = APIRouter(prefix="/phone-numbers", tags=["phone-numbers"])
 
 
-def _to_response(pn: PhoneNumber) -> PhoneNumberResponse:
-    return PhoneNumberResponse(
-        id=pn.id,
-        created_at=pn.created_at,
-        number=pn.number,
-        twilio_sid=pn.twilio_sid,
-        provider=pn.provider,
-        label=pn.label,
-        capabilities=pn.capabilities,
-        trust_status=pn.trust_status,
-        trust_product_sid=pn.trust_product_sid,
-    )
-
-
 async def _get_phone_or_404(phone_id: uuid.UUID, db: AsyncSession) -> PhoneNumber:
     result = await db.execute(select(PhoneNumber).where(PhoneNumber.id == phone_id))
     pn = result.scalar_one_or_none()
@@ -46,7 +32,7 @@ async def sync_phone_numbers(
     _: AdminUser,
     db: DB,
     provider: Provider,
-) -> list[PhoneNumberResponse]:
+) -> list[PhoneNumber]:
     """Fetch all phone numbers from Twilio and upsert into the local database.
 
     Idempotent — safe to call repeatedly. Numbers are matched by twilio_sid.
@@ -88,7 +74,7 @@ async def sync_phone_numbers(
         await db.refresh(pn)
 
     log.info("phone_numbers_synced", count=len(results))
-    return [_to_response(pn) for pn in results]
+    return results
 
 
 @router.get("", response_model=list[PhoneNumberResponse])
@@ -97,11 +83,11 @@ async def list_phone_numbers(
     db: DB,
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=500),
-) -> list[PhoneNumberResponse]:
+) -> list[PhoneNumber]:
     result = await db.execute(
         select(PhoneNumber).order_by(PhoneNumber.created_at.desc()).offset(skip).limit(limit)
     )
-    return [_to_response(pn) for pn in result.scalars().all()]
+    return list(result.scalars().all())
 
 
 @router.post("/{phone_id}/assign", response_model=PhoneNumberResponse)
@@ -110,7 +96,7 @@ async def assign_phone_to_campaign(
     body: CampaignAssignRequest,
     _: AdminUser,
     db: DB,
-) -> PhoneNumberResponse:
+) -> PhoneNumber:
     """Assign a phone number to a campaign. A number can serve multiple campaigns.
 
     Idempotent — if the assignment already exists, returns the phone number unchanged.
@@ -136,4 +122,4 @@ async def assign_phone_to_campaign(
         ))
         await db.commit()
 
-    return _to_response(pn)
+    return pn

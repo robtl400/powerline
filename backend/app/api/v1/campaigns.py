@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DB, AdminUser, CurrentUser
-from app.api.v1.helpers import get_campaign_or_404, read_upload_limited
+from app.api.v1.helpers import get_campaign_or_404, get_live_campaign_or_404, read_upload_limited
 from app.models.audio import AudioRecording
 from app.models.call import Call
 from app.models.call_session import CallSession
@@ -292,11 +292,7 @@ async def get_campaign_public(
     Returns campaign metadata and target display info (no phone numbers).
     Only live campaigns are accessible.
     """
-    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
-    campaign = result.scalar_one_or_none()
-
-    if not campaign or campaign.status != "live":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found or not active")
+    campaign = await get_live_campaign_or_404(campaign_id, db)
 
     ct_result = await db.execute(
         select(CampaignTarget)

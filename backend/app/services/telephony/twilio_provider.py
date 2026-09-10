@@ -1,4 +1,4 @@
-"""Twilio implementation of the TelephonyProvider Protocol.
+"""Twilio telephony provider.
 
 All methods are synchronous — the Twilio SDK does not support async.
 Callers in async contexts must wrap calls with asyncio.get_running_loop().run_in_executor().

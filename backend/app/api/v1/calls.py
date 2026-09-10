@@ -15,12 +15,11 @@ from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import func, or_, select, update
 
 from app.api.deps import DB
-from app.api.v1.helpers import resolve_rep_or_422, resolve_target_ids
+from app.api.v1.helpers import get_live_campaign_or_404, resolve_rep_or_422, resolve_target_ids
 from app.config import settings
 from app.dependencies import get_client_ip
 from app.models.blocklist import BlocklistEntry
 from app.models.call_session import CallSession
-from app.models.campaign import Campaign
 from app.redis_client import get_redis
 from app.schemas.calls import CallCreateRequest, CallCreateResponse
 from app.services.call_state import get_campaign_caller_id, save_call_state
@@ -45,11 +44,7 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
     ceiling are all applied before any Twilio spend is incurred.
     """
     # 1. Validate campaign
-    result = await db.execute(select(Campaign).where(Campaign.id == body.campaign_id))
-    campaign = result.scalar_one_or_none()
-
-    if not campaign or campaign.status != "live":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found or not active")
+    campaign = await get_live_campaign_or_404(body.campaign_id, db)
 
     if not campaign.allow_phone_callback:
         raise HTTPException(

@@ -34,10 +34,6 @@ _MAX_VERSION_ATTEMPTS = 3
 _CONTENT_MISMATCH = "File content does not match an accepted audio format"
 
 
-def _to_response(r: AudioRecording) -> AudioRecordingResponse:
-    return AudioRecordingResponse.model_validate(r)
-
-
 def _looks_like_audio(head: bytes) -> bool:
     """True when the leading bytes match MP3, WAV, WebM or MP4/M4A.
 
@@ -116,7 +112,7 @@ async def upload_audio(
     file: UploadFile = File(...),
     campaign_id: uuid.UUID | None = Form(default=None),
     description: str | None = Form(default=None),
-) -> AudioRecordingResponse:
+) -> AudioRecording:
     """Upload an MP3 or WAV file to S3 and create an AudioRecording row.
 
     The new recording is NOT automatically activated — call PATCH /{id}/activate
@@ -148,10 +144,9 @@ async def upload_audio(
 
     url = await upload_audio_to_cloudinary(file_bytes, filename, file.content_type or "audio/mpeg")
 
-    recording = await _insert_versioned(
+    return await _insert_versioned(
         db, campaign_id, key, file_url=url, description=description
     )
-    return _to_response(recording)
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +158,7 @@ async def activate_audio(
     audio_id: uuid.UUID,
     _: AdminUser,
     db: DB,
-) -> AudioRecordingResponse:
+) -> AudioRecording:
     """Set this version as the active one for its (campaign_id, key) slot.
 
     The slot's rows are locked for the duration, so two concurrent activations
@@ -202,7 +197,7 @@ async def activate_audio(
     recording.is_active = True
     await db.commit()
     await db.refresh(recording)
-    return _to_response(recording)
+    return recording
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +211,7 @@ async def list_campaign_audio(
     db: DB,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, le=500),
-) -> list[AudioRecordingResponse]:
+) -> list[AudioRecording]:
     """List all AudioRecording rows for a campaign, ordered by key then version descending."""
     result = await db.execute(
         select(AudioRecording)
@@ -225,7 +220,7 @@ async def list_campaign_audio(
         .offset(skip)
         .limit(limit)
     )
-    return [_to_response(r) for r in result.scalars().all()]
+    return list(result.scalars().all())
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +235,7 @@ async def create_audio(
     body: AudioRecordingCreate,
     _: AdminUser,
     db: DB,
-) -> AudioRecordingResponse:
+) -> AudioRecording:
     """Create a new TTS AudioRecording version for a campaign+key pair.
 
     For file uploads use POST /audio/upload instead — this endpoint is
@@ -252,7 +247,6 @@ async def create_audio(
             detail=f"Invalid audio key. Valid keys: {sorted(AUDIO_KEYS)}",
         )
 
-    recording = await _insert_versioned(
+    return await _insert_versioned(
         db, campaign_id, body.key, tts_text=body.tts_text, description=body.description
     )
-    return _to_response(recording)

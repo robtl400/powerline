@@ -1,12 +1,11 @@
-"""Abstract telephony provider interface and shared return types.
+"""Shared telephony return types.
 
 Define return dataclasses here (not in provider files) so callers can import
-them alongside the provider Protocol without a circular import.
+them alongside the provider without a circular import.
 """
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Protocol, runtime_checkable
 
 
 @dataclasses.dataclass
@@ -30,14 +29,3 @@ class LookupResult:
     is_valid: bool
     line_type: str | None   # "mobile", "landline", "voip", "nonFixedVoip", "tollFree", or None
     raw: dict               # full API response for future use
-
-
-@runtime_checkable
-class TelephonyProvider(Protocol):
-    def create_call(self, to: str, from_: str, url: str, **kwargs: Any) -> CallResult: ...
-
-    def list_phone_numbers(self) -> list[PhoneNumberInfo]: ...
-
-    def validate_phone(self, number: str) -> LookupResult: ...
-
-    def validate_request(self, url: str, post_vars: dict, signature: str) -> bool: ...

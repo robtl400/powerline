@@ -58,6 +58,24 @@ async def get_campaign_or_404(campaign_id: uuid.UUID, db: AsyncSession) -> Campa
     return campaign
 
 
+async def get_live_campaign_or_404(campaign_id: uuid.UUID, db: AsyncSession) -> Campaign:
+    """Fetch a campaign by ID, or raise 404 unless it is live.
+
+    Public call paths must not distinguish a missing campaign from a paused or
+    draft one, so both answer with the same 404.
+
+    Raises:
+        HTTPException: 404 if the campaign does not exist or is not live.
+    """
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    campaign = result.scalar_one_or_none()
+    if not campaign or campaign.status != "live":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found or not active"
+        )
+    return campaign
+
+
 async def resolve_rep_or_422(rep_token: str | None, campaign_id: uuid.UUID) -> dict | None:
     """Return the server-stored rep record behind a rep_token.
 

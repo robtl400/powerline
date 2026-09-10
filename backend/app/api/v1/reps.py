@@ -7,12 +7,11 @@ import httpx
 import structlog
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select
 
 from app.api.deps import DB
+from app.api.v1.helpers import get_live_campaign_or_404
 from app.config import settings
 from app.dependencies import get_client_ip
-from app.models.campaign import Campaign
 from app.redis_client import get_redis
 from app.services.civic.google_civic import MissingApiKeyError
 from app.services.civic_service import issue_rep_tokens, lookup_reps
@@ -65,10 +64,7 @@ async def get_reps(
             detail="zip must be a 5-digit US postal code",
         )
 
-    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
-    campaign = result.scalar_one_or_none()
-    if not campaign or campaign.status != "live":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found or not active")
+    campaign = await get_live_campaign_or_404(campaign_id, db)
 
     await check_rate_limit(
         get_redis(),

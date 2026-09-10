@@ -48,6 +48,31 @@ _MAX_GATHER_ATTEMPTS = 2
 # Dial outcomes where the supporter never reached the target.
 _UNREACHED_STATUSES = frozenset({"busy", "no_answer", "failed", "canceled"})
 
+# Twilio's hyphenated dial statuses mapped to our underscore Call enum values.
+# Anything unrecognised is a failure, never a silent success.
+DIAL_STATUS_TO_CALL_STATUS = {
+    "completed": "completed",
+    "answered": "completed",
+    "busy": "busy",
+    "no-answer": "no_answer",
+    "failed": "failed",
+    "canceled": "canceled",
+    "in-progress": "in_progress",
+    "ringing": "ringing",
+    "queued": "queued",
+}
+
+# Parent-call statuses mapped to CallSession statuses. Statuses absent here are
+# intermediate and leave the session untouched.
+CALL_STATUS_TO_SESSION_STATUS = {
+    "in-progress": "in_progress",
+    "completed": "completed",
+    "failed": "failed",
+    "busy": "failed",
+    "no-answer": "failed",
+    "canceled": "failed",
+}
+
 
 def _hangup_xml() -> Response:
     """Return a plain hangup TwiML response for error paths."""
@@ -398,20 +423,7 @@ async def call_complete(
     idx: int = state["current_target_index"]
     campaign_id = uuid.UUID(state["campaign_id"])
 
-    # Map Twilio's hyphenated status to our underscore enum values. Anything
-    # unrecognised is a failure, never a silent success.
-    _status_map = {
-        "completed": "completed",
-        "answered": "completed",
-        "busy": "busy",
-        "no-answer": "no_answer",
-        "failed": "failed",
-        "canceled": "canceled",
-        "in-progress": "in_progress",
-        "ringing": "ringing",
-        "queued": "queued",
-    }
-    call_status = _status_map.get(dial_status, "failed")
+    call_status = DIAL_STATUS_TO_CALL_STATUS.get(dial_status, "failed")
 
     duplicate = False
     if dial_call_sid:
@@ -515,15 +527,7 @@ async def status_callback(
         log.warning("status_callback_bad_duration", call_sid=call_sid)
         call_duration = 0
 
-    _status_map = {
-        "in-progress": "in_progress",
-        "completed": "completed",
-        "failed": "failed",
-        "busy": "failed",
-        "no-answer": "failed",
-        "canceled": "failed",
-    }
-    session_status = _status_map.get(raw_status)
+    session_status = CALL_STATUS_TO_SESSION_STATUS.get(raw_status)
     if not session_status:
         # Intermediate states (queued, ringing) — nothing to update yet.
         log.debug("status_callback_skipped", call_sid=call_sid, raw_status=raw_status)

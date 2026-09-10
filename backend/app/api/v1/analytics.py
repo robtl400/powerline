@@ -276,7 +276,7 @@ async def list_campaign_calls(
     items = [
         CallSessionRow(
             id=row.id,
-            created_at=row.created_at.isoformat() if row.created_at else "",
+            created_at=row.created_at,
             connection_type=row.connection_type,
             status=row.status,
             call_count=row.call_count,

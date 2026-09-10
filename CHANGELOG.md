@@ -112,6 +112,14 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 - **Dead telephony code** — `LookupService`, the provider's `generate_access_token`/`generate_voice_grant`, the unused TwiML builders, the unused `CAMPAIGN_STATUS_CHIP` export, and import-logic tests for a `normalizePhone` that never existed in production code.
+- **Single-implementation abstractions** — the `RepLookupProvider` Protocol (no implementations, no consumers) and the `TelephonyProvider` Protocol (`TwilioProvider` was its only implementation and callers already used the concrete class); the shared dataclasses stay.
+- **`_to_response` wrappers in the audio, admin and phone-number routers** — every route declares `response_model=` and every response model sets `from_attributes=True`, so the routes return ORM objects and FastAPI does the conversion. Response bodies are unchanged.
+- **`PhoneFallbackClient` class in the embed** — replaced by a plain `submitPhoneFallback()` function with the same state transitions; `renderAudioCheck` no longer takes the two arguments it never read.
+
+### Changed (simplification)
+- **Live-campaign lookup consolidated** — `get_live_campaign_or_404` replaces four copies of the same fetch-and-404 block in the call, token, rep-lookup and public-campaign endpoints. Same 404 and detail message.
+- **Twilio status maps lifted to module constants** — `DIAL_STATUS_TO_CALL_STATUS` and `CALL_STATUS_TO_SESSION_STATUS` in the webhook router instead of dict literals rebuilt per request.
+- **Call-session timestamps typed as datetimes** — `CallSessionRow.created_at` is a `datetime`, so `GET /campaigns/{id}/calls` serializes it as `…T12:00:00Z` instead of `…T12:00:00+00:00`, matching every other timestamp the API returns. The CSV export is unchanged.
 
 ## [2.0.3.0] - 2026-03-21
 

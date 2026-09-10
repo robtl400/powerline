@@ -158,8 +158,7 @@ export function renderMicPermission(): string {
   </div>`;
 }
 
-export function renderAudioCheck(campaignId: string, baseUrl: string): string {
-  void campaignId; void baseUrl; // reserved for future polling
+export function renderAudioCheck(): string {
   return `<div class="pl-card" style="text-align:center">
     <p style="font-size:32px;margin:0 0 8px">🔇</p>
     <p class="pl-heading">Can't hear anything?</p>

@@ -3,34 +3,38 @@ import type { WidgetState } from "./types.js";
 
 type StateCallback = (state: WidgetState, data?: unknown) => void;
 
-/** Handles the phone-callback path: collects a phone number and POSTs to /calls/create. */
-export class PhoneFallbackClient {
-  constructor(
-    private readonly baseUrl: string,
-    private readonly campaignId: string,
-    private readonly onStateChange: StateCallback,
-    private readonly repToken?: string
-  ) {}
+export interface SubmitPhoneFallbackOptions {
+  baseUrl: string;
+  campaignId: string;
+  phoneNumber: string;
+  repToken?: string;
+  onStateChange: StateCallback;
+}
 
-  /** Submit a phone number and request a callback. */
-  async submit(phoneNumber: string): Promise<void> {
-    const cleaned = phoneNumber.trim();
-    if (!cleaned) {
-      this.onStateChange("error", "Please enter a phone number.");
-      return;
-    }
+/** Submit a phone number and request a callback. */
+export async function submitPhoneFallback({
+  baseUrl,
+  campaignId,
+  phoneNumber,
+  repToken,
+  onStateChange,
+}: SubmitPhoneFallbackOptions): Promise<void> {
+  const cleaned = phoneNumber.trim();
+  if (!cleaned) {
+    onStateChange("error", "Please enter a phone number.");
+    return;
+  }
 
-    this.onStateChange("loading");
+  onStateChange("loading");
 
-    try {
-      await createCall(this.baseUrl, this.campaignId, cleaned, this.repToken);
-      this.onStateChange("phone_pending");
-    } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : "Could not place the call. Please try again.";
-      this.onStateChange("error", msg);
-    }
+  try {
+    await createCall(baseUrl, campaignId, cleaned, repToken);
+    onStateChange("phone_pending");
+  } catch (err) {
+    const msg =
+      err instanceof Error
+        ? err.message
+        : "Could not place the call. Please try again.";
+    onStateChange("error", msg);
   }
 }

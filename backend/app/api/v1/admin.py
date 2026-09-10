@@ -25,10 +25,6 @@ from app.schemas.target import normalize_phone
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-def _to_response(e: BlocklistEntry) -> BlocklistResponse:
-    return BlocklistResponse.model_validate(e)
-
-
 # ---------------------------------------------------------------------------
 # GET /admin/dashboard
 # ---------------------------------------------------------------------------
@@ -116,7 +112,7 @@ async def list_blocklist(
     db: DB,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, le=500),
-) -> list[BlocklistResponse]:
+) -> list[BlocklistEntry]:
     """Return blocklist entries ordered by creation date descending."""
     result = await db.execute(
         select(BlocklistEntry)
@@ -124,7 +120,7 @@ async def list_blocklist(
         .offset(skip)
         .limit(limit)
     )
-    return [_to_response(e) for e in result.scalars().all()]
+    return list(result.scalars().all())
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +132,7 @@ async def create_blocklist_entry(
     body: BlocklistCreate,
     current_user: AdminUser,
     db: DB,
-) -> BlocklistResponse:
+) -> BlocklistEntry:
     """Add a phone number, phone hash and/or IP address to the blocklist.
 
     A phone number is normalized to E.164 and hashed the same way the public
@@ -162,7 +158,7 @@ async def create_blocklist_entry(
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
-    return _to_response(entry)
+    return entry
 
 
 # ---------------------------------------------------------------------------

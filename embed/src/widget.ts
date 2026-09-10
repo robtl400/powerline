@@ -1,9 +1,9 @@
 /**
  * PowerlineWidget — root state machine that owns the DOM and orchestrates
- * WebRTCClient / PhoneFallbackClient.
+ * WebRTCClient / submitPhoneFallback.
  */
 import { fetchCallCount, fetchCampaign, fetchReps, isRepsError } from "./api.js";
-import { PhoneFallbackClient } from "./phone-fallback.js";
+import { submitPhoneFallback } from "./phone-fallback.js";
 import { injectStyles } from "./ui/styles.js";
 import {
   formatElapsed,
@@ -46,7 +46,6 @@ export class PowerlineWidget {
   private state: WidgetState = "idle";
   private campaign: CampaignPublic | null = null;
   private webrtc: WebRTCClient | null = null;
-  private phoneFallback: PhoneFallbackClient | null = null;
 
   // Track connected state for timer re-renders
   private connectedData: ConnectedData | null = null;
@@ -189,10 +188,7 @@ export class PowerlineWidget {
         this.container.innerHTML = renderMicPermission();
         break;
       case "audio_check":
-        this.container.innerHTML = renderAudioCheck(
-          this.campaignId,
-          this.baseUrl
-        );
+        this.container.innerHTML = renderAudioCheck();
         break;
       case "complete":
         this.container.innerHTML = renderComplete(this.callsCompleted);
@@ -322,7 +318,6 @@ export class PowerlineWidget {
 
       case "end":
         this.webrtc?.end();
-        this.phoneFallback = null;
         break;
 
       case "copy-link": {
@@ -430,13 +425,13 @@ export class PowerlineWidget {
 
   private _submitPhone(phone: string): void {
     if (!this.campaign) return;
-    this.phoneFallback = new PhoneFallbackClient(
-      this.baseUrl,
-      this.campaignId,
-      this._onStateChange,
-      this.selectedRepToken ?? undefined
-    );
-    void this.phoneFallback.submit(phone);
+    void submitPhoneFallback({
+      baseUrl: this.baseUrl,
+      campaignId: this.campaignId,
+      phoneNumber: phone,
+      repToken: this.selectedRepToken ?? undefined,
+      onStateChange: this._onStateChange,
+    });
   }
 
   private _resetRepSelection(): void {
@@ -450,7 +445,6 @@ export class PowerlineWidget {
   private _destroyClients(): void {
     this.webrtc?.destroy();
     this.webrtc = null;
-    this.phoneFallback = null;
     this.connectedData = null;
   }
 }
