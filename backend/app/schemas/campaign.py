@@ -80,6 +80,7 @@ class CampaignResponse(BaseModel):
 
 class CampaignDetailResponse(CampaignResponse):
     targets: list[TargetInCampaign] = []
+    targets_total: int = 0
 
 
 class TargetPublicInfo(BaseModel):

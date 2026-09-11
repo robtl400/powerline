@@ -2,11 +2,11 @@
 
 import hashlib
 import uuid
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audio import AudioRecording
@@ -818,3 +818,153 @@ async def test_in_order_campaigns_keep_the_configured_order(
     await db.execute(delete(CallSession).where(CallSession.id == uuid.UUID(session_id)))
     await db.commit()
     await _drop_targets(db, ordered)
+
+
+# ---------------------------------------------------------------------------
+# GET /{id}: bounded target list
+# ---------------------------------------------------------------------------
+
+
+async def _add_targets(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, count: int
+) -> list[str]:
+    ids = []
+    for i in range(count):
+        resp = await client.post(
+            f"/api/v1/campaigns/{campaign.id}/targets",
+            json={
+                "name": f"Target {i}",
+                "title": "Rep",
+                "phone_number": f"+1202555{2000 + i:04d}",
+                "location": "WA-07",
+            },
+            headers=admin_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        ids.append(resp.json()["id"])
+    return ids
+
+
+async def test_get_campaign_caps_the_target_list_and_reports_the_total(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    ids = await _add_targets(client, campaign, admin_headers, 3)
+
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}?targets_limit=2", headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [t["id"] for t in body["targets"]] == ids[:2]
+    assert body["targets_total"] == 3
+    assert body["target_count"] == 3
+
+
+async def test_get_campaign_can_skip_the_target_list(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    await _add_targets(client, campaign, admin_headers, 2)
+
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}?include_targets=false", headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["targets"] == []
+    assert body["targets_total"] == 2
+
+
+async def test_get_campaign_rejects_an_unbounded_targets_limit(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}?targets_limit=5000", headers=admin_headers
+    )
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# PATCH: status transitions are applied conditionally
+# ---------------------------------------------------------------------------
+
+
+async def test_status_change_conflicts_when_the_campaign_moved_underneath(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, db: AsyncSession
+) -> None:
+    """draft -> live passes the transition check, but the row is already paused."""
+    from app.api.v1 import campaigns as campaigns_module
+
+    real_get = campaigns_module.get_campaign_or_404
+
+    async def stale_read(campaign_id, session):
+        fetched = await real_get(campaign_id, session)
+        await db.execute(
+            update(Campaign).where(Campaign.id == campaign_id).values(status="paused")
+        )
+        await db.commit()
+        return fetched
+
+    with patch.object(campaigns_module, "get_campaign_or_404", stale_read):
+        resp = await client.patch(
+            f"/api/v1/campaigns/{campaign.id}",
+            json={"status": "live"},
+            headers=admin_headers,
+        )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == "Campaign status changed, reload and try again"
+
+    fetched = await client.get(
+        f"/api/v1/campaigns/{campaign.id}?include_targets=false", headers=admin_headers
+    )
+    assert fetched.json()["status"] == "paused"
+
+
+async def test_status_change_and_other_fields_apply_together(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    new_name = f"Renamed {uuid.uuid4().hex[:8]}"
+    resp = await client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json={"status": "live", "name": new_name, "rate_limit": 4},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "live"
+    assert body["name"] == new_name
+    assert body["rate_limit"] == 4
+
+
+# ---------------------------------------------------------------------------
+# Target field lengths are bounded by the column widths
+# ---------------------------------------------------------------------------
+
+
+async def test_add_target_rejects_an_over_long_name(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets",
+        json={
+            "name": "N" * 201,
+            "title": "Rep",
+            "phone_number": "+12025551234",
+            "location": "CA-12",
+        },
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422
+
+
+async def test_update_target_rejects_an_over_long_title(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    target_id = (await _add_targets(client, campaign, admin_headers, 1))[0]
+
+    resp = await client.patch(
+        f"/api/v1/campaigns/{campaign.id}/targets/{target_id}",
+        json={"title": "T" * 101},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422

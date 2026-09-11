@@ -70,15 +70,11 @@ The dev stack bind-mounts `embed/dist` into the backend so edits to the widget o
 docker compose up --build
 ```
 
-Starts PostgreSQL, Redis, FastAPI backend, Vite dev server, Celery worker, and Celery beat.
+Starts PostgreSQL, Redis, FastAPI backend, Vite dev server, Celery worker, and Celery beat. A
+one-shot `migrate` service runs `alembic upgrade head` first; the backend and Celery containers
+wait for it to finish, so `up` leaves the schema current.
 
-### 4. Run migrations
-
-```bash
-docker compose exec backend alembic upgrade head
-```
-
-### 5. Create an admin user
+### 4. Create an admin user
 
 ```bash
 docker compose exec backend python -m app.cli create-admin \
@@ -87,7 +83,7 @@ docker compose exec backend python -m app.cli create-admin \
   --password yourpassword
 ```
 
-### 6. Open the app
+### 5. Open the app
 
 | Service | URL |
 |---------|-----|
@@ -162,10 +158,12 @@ The widget renders into `#powerline-widget` (or the element named by `data-conta
 
 ```bash
 cd embed && npm ci && npm run build
-# Output: embed/dist/powerline-embed.iife.js
+# Output: embed/dist/powerline-embed.iife.js (the widget) and
+#         embed/dist/powerline-embed-webrtc.iife.js (the Twilio Voice SDK,
+#         fetched by the widget only when a browser call starts)
 ```
 
-`Dockerfile.backend` runs this build in a Node stage and copies the result to `/app/embed-dist` in the API image, so production images ship the bundle. In development `docker compose` mounts `embed/dist` over that path for hot reload. Either way the backend serves it at `/static/` (set `EMBED_DIST_DIR` to serve it from elsewhere), and Caddy proxies `/static/*` through to the backend.
+`Dockerfile.backend` runs this build in a Node stage and copies the result to `/app/embed-dist` in the API image, so production images ship the bundle. In development `docker compose` mounts `embed/dist` over that path for hot reload. Either way the backend serves it at `/static/` (set `EMBED_DIST_DIR` to serve it from elsewhere), and Caddy proxies `/static/*` through to the backend. Because the bundle lives at one fixed URL, `/static/` responses carry `Cache-Control: public, max-age=300, must-revalidate` — embedding sites pick up a new bundle within five minutes.
 
 ### React integration
 
@@ -189,8 +187,9 @@ export function PowerlineWidget({ campaignId }: { campaignId: string }) {
 
 ## Production Deployment
 
-`docker-compose.prod.yml` is a standalone stack: Postgres, Redis, the API, a Celery worker and beat,
-a one-shot frontend build, and Caddy terminating TLS. Only Caddy publishes ports.
+`docker-compose.prod.yml` is a standalone stack: Postgres, Redis, a one-shot database migration, the
+API, a Celery worker and beat, a one-shot frontend build, and Caddy terminating TLS. Only Caddy
+publishes ports.
 
 ### 1. Point a domain at the host
 
@@ -216,33 +215,33 @@ Set at minimum:
 | `REDIS_URL` | `redis://redis:6379/0` |
 | `PUBLIC_BASE_URL` | `https://DOMAIN` |
 | `ADMIN_CORS_ORIGINS` | `https://DOMAIN` (or empty for same-origin only) |
+| `TRUSTED_PROXIES` | the Docker subnet Caddy runs on — see step 3 |
 | `TWILIO_*` | real credentials — startup refuses to run without them |
 
-### 3. Build and start
+### 3. Set TRUSTED_PROXIES
+
+Every rate limit keys on the client IP, which arrives via `X-Forwarded-For` from Caddy. That header
+is ignored unless the peer is listed in `TRUSTED_PROXIES`, and the API refuses to start in
+production without it — otherwise the whole internet shares one rate-limit bucket under Caddy's
+address. Compose networks come out of Docker's default `172.16.0.0/12` pool, which is a safe value
+here; to pin the exact subnet, create the network first and read it back:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d postgres
+docker network inspect powerline_default -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+# put that CIDR in .env as TRUSTED_PROXIES
+```
+
+### 4. Build and start
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-### 4. Set TRUSTED_PROXIES
+The one-shot `migrate` service runs `alembic upgrade head` before the API and Celery containers
+start, so there is no separate migration step.
 
-Every rate limit keys on the client IP, which arrives via `X-Forwarded-For` from Caddy. That header
-is ignored unless the peer is listed in `TRUSTED_PROXIES`, so until it is set the whole internet
-shares one rate-limit bucket under Caddy's address:
-
-```bash
-docker network inspect powerline_default -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
-# put that CIDR in .env as TRUSTED_PROXIES, then:
-docker compose -f docker-compose.prod.yml up -d backend
-```
-
-### 5. Run migrations
-
-```bash
-docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
-```
-
-### 6. Create the first admin
+### 5. Create the first admin
 
 ```bash
 docker compose -f docker-compose.prod.yml exec backend python -m app.cli create-admin \
@@ -251,12 +250,12 @@ docker compose -f docker-compose.prod.yml exec backend python -m app.cli create-
   --password 'a-strong-password'
 ```
 
-### 7. Point Twilio at the domain
+### 6. Point Twilio at the domain
 
 Set the TwiML App's Voice Request URL to `https://DOMAIN/webhooks/twilio/voice-app` and the Status
 Callback to `https://DOMAIN/webhooks/twilio/status-callback`.
 
-### 8. Verify
+### 7. Verify
 
 ```bash
 curl https://DOMAIN/api/v1/health
@@ -266,9 +265,10 @@ Then sign in at `https://DOMAIN`. Interactive docs are off in production unless 
 
 ### Redeploying
 
-`docker compose -f docker-compose.prod.yml up -d --build` rebuilds and restarts. The frontend build
-runs as a one-shot container that republishes `/srv` into the volume Caddy serves, so a frontend
-change needs no Caddy restart.
+`docker compose -f docker-compose.prod.yml up -d --build` rebuilds and restarts. Two one-shot
+containers run as part of it: `migrate` applies `alembic upgrade head` before the API and Celery
+containers start, and the frontend build republishes `/srv` into the volume Caddy serves, so a
+frontend change needs no Caddy restart. A release carrying new migrations needs nothing extra.
 
 ### Environment variables to set
 
@@ -276,12 +276,14 @@ change needs no Caddy restart.
 |----------|----------|-------|
 | `DATABASE_URL` | Yes | Use `postgresql+asyncpg://` scheme |
 | `REDIS_URL` | Yes | Used by Celery + call state |
-| `REDIS_PASSWORD` | Yes (prod) | Redis starts with `--requirepass`; the app appends it unless `REDIS_URL` already carries credentials |
+| `REDIS_PASSWORD` | Yes (prod) | Redis starts with `--requirepass`; the app and Celery both append it unless `REDIS_URL` already carries credentials |
+| `REDIS_MAXMEMORY` | Optional | Memory ceiling for the prod Redis container (default `256mb`). Eviction is off, so at the cap Redis rejects writes with an OOM error rather than dropping call state or rate-limit counters |
+| `TIMEZONE` | Optional | IANA zone used for dashboard/analytics day boundaries (default `UTC`); an unknown name refuses to start |
 | `DOMAIN` | Yes (prod) | Hostname Caddy serves and gets a certificate for |
 | `POSTGRES_PASSWORD` | Yes (prod) | Password for the bundled Postgres container |
 | `ENVIRONMENT` | Yes | `production` (default) or `development`; `development` relaxes webhook signature checks only when `TWILIO_AUTH_TOKEN` is unset |
 | `SECRET_KEY` | Yes | `openssl rand -hex 32` |
-| `TRUSTED_PROXIES` | Yes (prod) | Comma-separated IPs/CIDRs of your reverse proxies. `X-Forwarded-For` is ignored unless the peer is listed, so set it when running behind Caddy/ALB — otherwise every request is rate limited under the proxy's IP |
+| `TRUSTED_PROXIES` | Yes (prod) | Comma-separated IPs/CIDRs of your reverse proxies. `X-Forwarded-For` is ignored unless the peer is listed, so every request would be rate limited under the proxy's IP; production startup fails unless at least one entry parses |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Optional | Access-token lifetime (default 30) |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | Optional | Refresh-token lifetime (default 7) |
 | `DEFAULT_RATE_LIMIT` | Optional | Calls per hour per phone/IP when a campaign has no `rate_limit` (default 5) |

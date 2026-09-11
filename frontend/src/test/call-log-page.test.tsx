@@ -103,6 +103,14 @@ describe("CallLog — table", () => {
     expect(screen.getByText("← Senate Push")).toBeInTheDocument();
   });
 
+  it("asks for the campaign name without its target list", async () => {
+    await renderCallLog();
+
+    expect(mockClient.get).toHaveBeenCalledWith(
+      "/campaigns/campaign-1?include_targets=false"
+    );
+  });
+
   it("shows the empty state when nothing matches", async () => {
     mockClient.get.mockImplementation((url: string) =>
       url.includes("/calls?")

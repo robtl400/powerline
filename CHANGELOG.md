@@ -116,6 +116,36 @@ All notable changes to this project will be documented in this file.
 - **`_to_response` wrappers in the audio, admin and phone-number routers** — every route declares `response_model=` and every response model sets `from_attributes=True`, so the routes return ORM objects and FastAPI does the conversion. Response bodies are unchanged.
 - **`PhoneFallbackClient` class in the embed** — replaced by a plain `submitPhoneFallback()` function with the same state transitions; `renderAudioCheck` no longer takes the two arguments it never read.
 
+### Security (second review)
+- **Rate limiting is atomic** — `check_rate_limit` evicts, counts, admits and records in one Lua script, so a burst of concurrent requests cannot pass a ceiling together. An empty identifier is limited under a shared `unknown` bucket instead of skipping the check.
+- **Campaign call ceiling holds under load** — `reserve_call_slot` takes a transaction-scoped advisory lock on the campaign before counting sessions, and both public call paths create their session through one `start_call_session` helper, so `call_maximum` cannot be overshot by parallel requests.
+- **Representative numbers are canonicalised** — a looked-up rep's phone is normalised to US E.164 (extensions stripped) when the `rep_token` is issued; reps whose number cannot be dialed get no token, and a stored record that fails normalisation answers 422 at call time.
+- **`voice-app` blocklist and caller limits work** — the phone blocklist matches on the caller's hash; the webhook has its own `call-webhook` (phone hash) and `call-webhook-ip` (WebRTC client IP) budgets so `/calls/create` and the webhook no longer spend the same bucket; any HTTP error raised inside a Twilio webhook is answered with hangup TwiML instead of JSON.
+- **Outbound sessions verify the dialed number** — `voice-app` requires sha256 of Twilio's `To` to match the session's caller hash, and the CallSid bind is a compare-and-set (`SET NX`), so a leaked session id cannot be attached to another call.
+- **Refresh-token replay ends every session** — a consumed `jti` presented again after its 30-second grace window revokes all of the user's refresh tokens and bumps the session floor; within the grace window a second presentation (a second browser tab) receives the same successor token.
+- **Reset-code attempts are counted atomically** — wrong-code attempts increment in a Lua script bound to the code's TTL and destroy the code at 5; `POST /auth/reset-confirm` is also limited per email.
+- **Production requires `TRUSTED_PROXIES`** — startup refuses to run behind a proxy with an empty or unparseable proxy list, and validates `TIMEZONE` in every environment.
+- **Celery authenticates to Redis** — the broker and result backend URLs carry `REDIS_PASSWORD` when `REDIS_URL` has no credentials, so the worker and beat start under `--requirepass`.
+- **Request bodies are capped at the edge** — Caddy limits backend requests to 64 KB, audio uploads to 12 MB and CSV imports to 6 MB.
+- **Redis memory is bounded** — production Redis starts with `--maxmemory` (`REDIS_MAXMEMORY`, default 256mb) so `noeviction` takes effect.
+- **bcrypt runs off the event loop** — password hashing and verification use `asyncio.to_thread`; `create-admin` matches emails case-insensitively and enforces the password policy.
+
+### Fixed (second review)
+- **Migrations run on deploy** — a one-shot `migrate` service runs `alembic upgrade head` and the backend, worker and beat wait for it in both compose files.
+- **Migration 007 survives existing data** — duplicate audio versions are renumbered and extra active rows cleared before the unique constraints are created; FK-lookup indexes build `CONCURRENTLY`; the downgrade refuses with the colliding campaign names instead of failing on `campaigns_name_key`; the redundant `users_email_key` and `phone_numbers_number_key` constraints are dropped so `alembic check` reports only the pre-existing default drift.
+- **Migration 008** — partial unique index `ux_calls_session_dial_sid` on `(session_id, twilio_call_sid)`, `call_sessions` indexes on `created_at` and `(campaign_id, created_at)`, and partial indexes for the Voice Insights and rep-target cleanup queries, all built `CONCURRENTLY`.
+- **`call-complete` idempotency is enforced by the database** — a duplicate insert is caught as `IntegrityError` and answered with the same TwiML; a callback without `DialCallSid` is deduplicated per dialed index in the call state.
+- **`status-callback` never regresses a finished session** — status is written only while the session is not `completed` or `failed`; the duration still lands.
+- **A removed target no longer drops live calls** — `dial-target` skips a missing target and redirects to the next one, and `remove_target` keeps the row while its id appears in any live call state.
+- **CSV import** — a repeated `external_id` within one file updates the pending row instead of inserting twice; over-long cells are reported as row errors against the column limits shared with `TargetCreate`/`TargetUpdate` (which now answer 422); parsing and row validation run in a worker thread.
+- **Campaign status changes are atomic** — the transition is applied with a conditional `UPDATE` and answers 409 when the status changed underneath.
+- **Concurrent invites answer 409** — `create_user` treats a unique-index `IntegrityError` as the existing-email case.
+- **Call export streams** — `GET /campaigns/{id}/calls/export` streams rows through a server-side cursor with a 100,000-row cap and a trailing truncation marker.
+- **Campaign detail is bounded** — `GET /campaigns/{id}` accepts `include_targets` and `targets_limit` (default 500) and reports `targets_total`; the targets tab shows when the list is truncated and the call log fetches the campaign without targets.
+- **Embed bundle is cache-safe** — `/static/` responses carry `Cache-Control: public, max-age=300, must-revalidate` and the generated snippet pins `?v=<backend version>`.
+- **Embed loads the Voice SDK on demand** — the widget ships as a 29 KB bundle and fetches `powerline-embed-webrtc.iife.js` (the Twilio SDK) only when a browser call starts, falling back to the phone flow if the load fails.
+- **`test_auth.py` clears its rate-limit keys** so repeated runs within an hour no longer fail.
+
 ### Fixed (live design review, high impact)
 - **Campaign tabs reachable at 375px** — the five-tab strip scrolls horizontally with proximity snapping, a hidden scrollbar and a right-edge fade that appears only while the strip overflows; the tabs are a real `role="tablist"` with `aria-selected`, roving `tabIndex`, arrow/Home/End navigation and 44px touch targets.
 - **Password reset reachable from the UI** — a "Forgot password?" link under Sign in opens a public `/reset-password` page: email, then 8-digit code plus a new password, with the 400 detail, the 422 policy messages and the rate-limit message rendered in `brand-grey-dark` and a Sign in link on success.

@@ -7,22 +7,20 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import random
-import uuid
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import or_, select, update
 
 from app.api.deps import DB
-from app.api.v1.helpers import get_live_campaign_or_404, resolve_rep_or_422, resolve_target_ids
+from app.api.v1.helpers import get_live_campaign_or_404, start_call_session
 from app.config import settings
 from app.dependencies import get_client_ip
 from app.models.blocklist import BlocklistEntry
 from app.models.call_session import CallSession
 from app.redis_client import get_redis
 from app.schemas.calls import CallCreateRequest, CallCreateResponse
-from app.services.call_state import get_campaign_caller_id, save_call_state
+from app.services.call_state import get_campaign_caller_id
 from app.services.rate_limiter import check_rate_limit
 from app.services.telephony import get_provider
 
@@ -40,8 +38,9 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
     the intro and walks the supporter through each target.
 
     No auth required — this is a public endpoint called from org websites, so
-    the blocklist, per-phone and per-IP rate limits and the campaign's call
-    ceiling are all applied before any Twilio spend is incurred.
+    the blocklist and the per-phone and per-IP rate limits are applied before
+    any Twilio credential is used, and the campaign's call ceiling is claimed
+    in the same transaction that opens the session, before the outbound call.
     """
     # 1. Validate campaign
     campaign = await get_live_campaign_or_404(body.campaign_id, db)
@@ -71,18 +70,7 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
     await check_rate_limit(redis, "call", phone_hash, campaign.rate_limit)
     await check_rate_limit(redis, "call-ip", ip, campaign.rate_limit)
 
-    # 5. Campaign-wide call ceiling
-    if campaign.call_maximum is not None:
-        count_result = await db.execute(
-            select(func.count()).select_from(CallSession).where(CallSession.campaign_id == campaign.id)
-        )
-        if (count_result.scalar_one() or 0) >= campaign.call_maximum:
-            log.warning("calls_create_campaign_maximum", campaign_id=str(campaign.id))
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="This campaign has reached its call limit"
-            )
-
-    # 6. Twilio Lookup validation (only when credentials are present)
+    # 5. Twilio Lookup validation (only when credentials are present)
     if campaign.lookup_validate and settings.TWILIO_ACCOUNT_SID:
         loop = asyncio.get_running_loop()
         provider = get_provider()
@@ -104,49 +92,19 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
                 ),
             )
 
-    # 7. Load targets (DB campaign targets or the rep behind the caller's handle)
-    rep = await resolve_rep_or_422(body.rep_token, campaign.id)
-    target_ids = await resolve_target_ids(campaign, db, rep=rep)
-
-    if not target_ids:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Campaign has no targets configured")
-
-    if campaign.target_ordering == "shuffle" and rep is None:
-        random.shuffle(target_ids)
-
-    # 8. Persist CallSession
-    session_id = uuid.uuid4()
-    session = CallSession(
-        id=session_id,
-        campaign_id=campaign.id,
+    # 6. Claim a slot under the campaign ceiling, open the session, store its state
+    session_id = await start_call_session(
+        campaign,
+        db,
         connection_type="outbound_phone",
+        rep_token=body.rep_token,
+        client_ip=ip,
         caller_phone_hash=phone_hash,
         from_number=phone,
         referral_code=body.referral_code,
-        status="initiated",
-    )
-    db.add(session)
-    await db.commit()
-
-    log.info(
-        "call_session_created",
-        session_id=str(session_id),
-        campaign_id=str(campaign.id),
-        target_count=len(target_ids),
     )
 
-    # 9. Store call state in Redis (consumed by webhook chain)
-    state = {
-        "campaign_id": str(campaign.id),
-        "target_ids": target_ids,
-        "current_target_index": 0,
-        "caller_phone_hash": phone_hash,
-        "connection_type": "outbound_phone",
-        "client_ip": ip,
-    }
-    await save_call_state(session_id, state)
-
-    # 10. Place Twilio outbound call (skipped in dev when credentials are absent)
+    # 7. Place Twilio outbound call (skipped in dev when credentials are absent)
     if settings.TWILIO_ACCOUNT_SID and settings.PUBLIC_BASE_URL:
         caller_id = await get_campaign_caller_id(campaign.id, db)
         voice_url = (

@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+
+import client from "@/api/client";
 import { INPUT_CLASS } from "@/lib/styles";
 
 export function CampaignEmbedTab({
@@ -13,10 +16,33 @@ export function CampaignEmbedTab({
   copiedSnippet: string | null;
   onCopy: (key: string, text: string) => void;
 }) {
+  // The bundle is served with a long cache lifetime, so the snippet pins it to
+  // the backend release it was generated for.
+  const [version, setVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    client
+      .get<{ status: string; version: string }>("/health")
+      .then(({ data }) => {
+        if (!cancelled && data?.version) setVersion(data.version);
+      })
+      .catch(() => {
+        // An unreachable health check just means an unversioned snippet.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const scriptSrc =
+    `${embedApiUrl}/static/powerline-embed.iife.js` +
+    (version ? `?v=${encodeURIComponent(version)}` : "");
+
   const scriptSnippet =
 `<div id="powerline-widget"></div>
 <script
-  src="${embedApiUrl}/static/powerline-embed.iife.js"
+  src="${scriptSrc}"
   data-campaign="${campaignId}"
   data-api-url="${embedApiUrl}"
 ></script>`;
@@ -27,7 +53,7 @@ export function CampaignEmbedTab({
 export function PowerlineWidget() {
   useEffect(() => {
     const s = document.createElement('script');
-    s.src = '${embedApiUrl}/static/powerline-embed.iife.js';
+    s.src = '${scriptSrc}';
     s.dataset.campaign = '${campaignId}';
     s.dataset.apiUrl = '${embedApiUrl}';
     document.body.appendChild(s);
@@ -41,7 +67,7 @@ export function PowerlineWidget() {
 <style>body{margin:0;display:flex;justify-content:center;align-items:flex-start;padding:24px;background:#f9fafb;min-height:100vh}</style>
 </head><body>
 <div id="powerline-widget"></div>
-<script src="${embedApiUrl}/static/powerline-embed.iife.js" data-campaign="${campaignId}" data-api-url="${embedApiUrl}"></script>
+<script src="${scriptSrc}" data-campaign="${campaignId}" data-api-url="${embedApiUrl}"></script>
 </body></html>`;
 
   return (

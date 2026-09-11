@@ -163,7 +163,7 @@ async def test_voice_app_returns_gather_twiml(
     # Step 2: simulate Twilio calling voice-app (phone callback path uses query param)
     webhook_resp = await client.post(
         f"/webhooks/twilio/voice-app?session_id={session_id}",
-        data={"CallSid": "CAsmoke0001", "From": "+12025550144"},
+        data={"CallSid": "CAsmoke0001", "From": "+12025550144", "To": "+12025550144"},
     )
     assert webhook_resp.status_code == 200, webhook_resp.text
     assert webhook_resp.headers["content-type"] == "application/xml"
@@ -309,7 +309,7 @@ async def test_call_complete_writes_failure_statuses(
     # Step 2: advance to in_progress via voice-app (phone callback path)
     va_resp = await client.post(
         f"/webhooks/twilio/voice-app?session_id={session_id}",
-        data={"CallSid": call_sid, "From": phone},
+        data={"CallSid": call_sid, "From": phone, "To": phone},
     )
     assert va_resp.status_code == 200, va_resp.text
 

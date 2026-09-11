@@ -69,6 +69,7 @@ function baseCampaign(): CampaignDetail {
     talking_points: "Be polite",
     embed_config: { target_levels: ["federal"], theme: "light" },
     targets: [target("t1", "Alpha", 0), target("t2", "Bravo", 1)],
+    targets_total: 2,
   };
 }
 
@@ -119,8 +120,18 @@ describe("useCampaignData — load", () => {
     });
     expect(result.current.status).toBe("draft");
     expect(result.current.targets.map((t) => t.id)).toEqual(["t1", "t2"]);
+    expect(result.current.targetsTotal).toBe(2);
     expect(result.current.targetLevels).toEqual(["federal"]);
     expect(result.current.error).toBeNull();
+  });
+
+  it("keeps the full target count when the response is truncated", async () => {
+    campaign = { ...campaign, targets_total: 750 };
+
+    const { result } = await mountHook();
+
+    expect(result.current.targets).toHaveLength(2);
+    expect(result.current.targetsTotal).toBe(750);
   });
 
   it("reports a load failure", async () => {
@@ -212,6 +223,19 @@ describe("useCampaignData — drag reorder", () => {
     expect(result.current.targets.map((t) => t.id)).toEqual(["t1", "t2"]);
   });
 
+  it("refuses to reorder a truncated target list", async () => {
+    campaign = { ...campaign, targets_total: 750 };
+    const { result } = await mountHook();
+
+    await act(async () => {
+      await result.current.handleDragEnd(drag);
+    });
+
+    expect(mockClient.patch).not.toHaveBeenCalled();
+    expect(result.current.targets.map((t) => t.id)).toEqual(["t1", "t2"]);
+    expect(result.current.targetError).toMatch(/whole target list/);
+  });
+
   it("ignores a drop back onto the same row", async () => {
     const { result } = await mountHook();
 
@@ -257,6 +281,7 @@ describe("useCampaignData — CSV import", () => {
     campaign = {
       ...campaign,
       targets: [...campaign.targets, target("t3", "Charlie", 2)],
+      targets_total: 3,
     };
 
     await act(async () => {
@@ -276,6 +301,7 @@ describe("useCampaignData — CSV import", () => {
       errors: [],
     });
     expect(result.current.targets.map((t) => t.id)).toEqual(["t1", "t2", "t3"]);
+    expect(result.current.targetsTotal).toBe(3);
   });
 
   it("leaves the target list alone when nothing was imported", async () => {

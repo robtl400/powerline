@@ -7,6 +7,26 @@
 		Referrer-Policy strict-origin-when-cross-origin
 	}
 
+	# Body caps sit above the app's own limits (10 MB audio, 5 MB CSV) so
+	# oversized uploads are cut off at the edge, with headroom for multipart
+	# framing. Every other backend route takes JSON only.
+	@audio_upload path /api/v1/audio/upload
+	@target_import path /api/v1/campaigns/*/targets/import
+	@backend_json {
+		path /api/* /webhooks/* /static/* /docs* /openapi.json
+		not path /api/v1/audio/upload /api/v1/campaigns/*/targets/import
+	}
+
+	request_body @audio_upload {
+		max_size 12MB
+	}
+	request_body @target_import {
+		max_size 6MB
+	}
+	request_body @backend_json {
+		max_size 64KB
+	}
+
 	@backend path /api/* /webhooks/* /static/* /docs* /openapi.json
 	handle @backend {
 		reverse_proxy backend:8000 {

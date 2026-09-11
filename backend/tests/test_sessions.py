@@ -11,11 +11,24 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
-from app.services.auth import hash_password, refresh_key, session_floor_key
+from app.services.auth import (
+    decode_token,
+    hash_password,
+    refresh_grace_key,
+    refresh_key,
+    session_floor_key,
+)
 
 PASSWORD = "sessionpass123"
 NEW_PASSWORD = "rotatedpass456"
-RATE_SCOPES = ("login-ip", "login-email", "reset-request", "reset-request-ip", "reset-confirm-ip")
+RATE_SCOPES = (
+    "login-ip",
+    "login-email",
+    "reset-request",
+    "reset-request-ip",
+    "reset-confirm-email",
+    "reset-confirm-ip",
+)
 
 
 async def _clear_rate_keys(redis) -> None:
@@ -46,10 +59,16 @@ async def session_user(db: AsyncSession, redis) -> AsyncGenerator[User, None]:
     await db.refresh(user)
     yield user
 
-    keys = [key async for key in redis.scan_iter(match=refresh_key(str(user.id), "*"))]
+    keys: list[str] = []
+    for pattern in (refresh_key(str(user.id), "*"), refresh_grace_key(str(user.id), "*")):
+        keys.extend([key async for key in redis.scan_iter(match=pattern)])
     if keys:
         await redis.delete(*keys)
-    await redis.delete(session_floor_key(str(user.id)), f"reset:{user.email.lower()}")
+    await redis.delete(
+        session_floor_key(str(user.id)),
+        f"reset:{user.email.lower()}",
+        f"reset_attempts:{user.email.lower()}",
+    )
     await db.execute(delete(User).where(User.id == user.id))
     await db.commit()
 
@@ -62,9 +81,7 @@ async def _login(client: AsyncClient, user: User) -> dict:
     return resp.json()
 
 
-async def test_refresh_rotates_and_rejects_the_reused_token(
-    client: AsyncClient, session_user: User
-) -> None:
+async def test_refresh_rotates_the_token(client: AsyncClient, session_user: User) -> None:
     tokens = await _login(client, session_user)
 
     first = await client.post(
@@ -74,13 +91,62 @@ async def test_refresh_rotates_and_rejects_the_reused_token(
     rotated = first.json()["refresh_token"]
     assert rotated != tokens["refresh_token"]
 
+    still_good = await client.post("/api/v1/auth/refresh", json={"refresh_token": rotated})
+    assert still_good.status_code == 200
+
+
+async def test_second_refresh_inside_the_grace_window_gets_the_same_successor(
+    client: AsyncClient, session_user: User
+) -> None:
+    """Two tabs refreshing at once must not leave one of them holding a dead token."""
+    tokens = await _login(client, session_user)
+
+    first = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    second = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    successor = first.json()["refresh_token"]
+    assert second.json()["refresh_token"] == successor
+    assert second.json()["access_token"] != first.json()["access_token"]
+
+    headers = {"Authorization": f"Bearer {second.json()['access_token']}"}
+    assert (await client.get("/api/v1/users/me", headers=headers)).status_code == 200
+
+    still_good = await client.post("/api/v1/auth/refresh", json={"refresh_token": successor})
+    assert still_good.status_code == 200
+
+
+async def test_replay_after_the_grace_window_ends_every_session(
+    client: AsyncClient, session_user: User, redis
+) -> None:
+    """A replayed jti means the chain is stolen, so every session for the user dies."""
+    tokens = await _login(client, session_user)
+    jti = decode_token(tokens["refresh_token"])["jti"]
+
+    rotation = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert rotation.status_code == 200
+    successor = rotation.json()["refresh_token"]
+    headers = {"Authorization": f"Bearer {rotation.json()['access_token']}"}
+    assert (await client.get("/api/v1/users/me", headers=headers)).status_code == 200
+
+    await redis.delete(refresh_grace_key(str(session_user.id), jti))
+
     replay = await client.post(
         "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
     )
     assert replay.status_code == 401
 
-    still_good = await client.post("/api/v1/auth/refresh", json={"refresh_token": rotated})
-    assert still_good.status_code == 200
+    assert (
+        await client.post("/api/v1/auth/refresh", json={"refresh_token": successor})
+    ).status_code == 401
+    assert (await client.get("/api/v1/users/me", headers=headers)).status_code == 401
 
 
 async def test_refresh_rejects_a_token_never_registered(

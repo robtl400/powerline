@@ -6,13 +6,16 @@ and the webhook bindings that tie a Twilio call to its session.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
+import secrets
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.blocklist import BlocklistEntry
@@ -21,13 +24,23 @@ from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
-from app.services.call_state import load_call_state
+from app.services.call_state import load_call_state, save_call_state
 from app.services.civic_service import issue_rep_tokens
 from app.services.telephony.base import CallResult
 
 TEST_IP = "127.0.0.1"
 
 REP_PHONE = "+12025550777"
+
+# Callers fired together at one campaign's call ceiling.
+CEILING_PHONES = [
+    "+12025550221",
+    "+12025550222",
+    "+12025550223",
+    "+12025550224",
+    "+12025550225",
+    "+12025550226",
+]
 
 # Every caller number this module dials, so their per-phone buckets can be
 # cleared between tests and between suite runs.
@@ -41,6 +54,11 @@ MODULE_PHONES = [
     "+12025550206",
     "+12025550207",
     "+12025550208",
+    "+12025550209",
+    "+12025550210",
+    "+12025550211",
+    "+12025550212",
+    *CEILING_PHONES,
 ]
 
 
@@ -60,11 +78,14 @@ async def clear_rate_buckets(redis):
     """Drop every rate-limit bucket this module touches, before and after."""
     keys = [
         f"rate:call-ip:{TEST_IP}",
+        f"rate:call-webhook-ip:{TEST_IP}",
         f"rate:token:{TEST_IP}",
         f"rate:reps:{TEST_IP}",
     ]
     keys += [
-        f"rate:call:{hashlib.sha256(phone.encode()).hexdigest()}" for phone in MODULE_PHONES
+        f"rate:{scope}:{hashlib.sha256(phone.encode()).hexdigest()}"
+        for scope in ("call", "call-webhook")
+        for phone in MODULE_PHONES
     ]
     await redis.delete(*keys)
     yield
@@ -263,6 +284,89 @@ async def test_rep_token_from_another_campaign_is_rejected(
     assert resp.status_code == 422
 
 
+async def test_display_format_rep_phone_is_dialed_in_e164(
+    client: AsyncClient,
+    db: AsyncSession,
+    live_campaign: Campaign,
+) -> None:
+    """A rep's published number is canonicalised before it can be dialed."""
+    lookup_result = [
+        {
+            "name": "Sen. Display",
+            "title": "U.S. Senator",
+            "phone": "(202) 555-0144 ext. 7",
+            "level": "federal",
+        },
+    ]
+    with patch("app.api.v1.reps.lookup_reps", new_callable=AsyncMock) as lookup:
+        lookup.return_value = lookup_result
+        reps_resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=90210")
+
+    assert reps_resp.status_code == 200, reps_resp.text
+    rep_token = reps_resp.json()["reps"][0]["rep_token"]
+
+    resp = await client.post(
+        "/api/v1/calls/create",
+        json={
+            "campaign_id": str(live_campaign.id),
+            "phone_number": "+12025550209",
+            "rep_token": rep_token,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert await _dialed_phone(db, resp.json()["session_id"]) == "+12025550144"
+
+
+async def test_undialable_rep_phone_is_dropped_and_never_dialed(
+    client: AsyncClient,
+    live_campaign: Campaign,
+    redis,
+) -> None:
+    """A rep with no usable US number gets no handle, and a planted one is refused."""
+    candidates = [
+        ("Sen. Dialable", "(202) 555-0310"),
+        ("Sen. Foreign", "+442071838750"),
+        ("Sen. Garbled", "call the main office"),
+    ]
+    issued = await issue_rep_tokens(
+        str(live_campaign.id),
+        [
+            {"name": name, "title": "U.S. Senator", "phone": phone, "level": "federal"}
+            for name, phone in candidates
+        ],
+    )
+    assert [rep["name"] for rep in issued] == ["Sen. Dialable"]
+
+    planted = secrets.token_urlsafe(24)
+    await redis.set(
+        f"rep_token:{planted}",
+        json.dumps(
+            {
+                "campaign_id": str(live_campaign.id),
+                "phone": "+442071838750",
+                "name": "Sen. Foreign",
+                "title": "U.S. Senator",
+                "level": "federal",
+            }
+        ),
+        ex=60,
+    )
+
+    try:
+        resp = await client.post(
+            "/api/v1/calls/create",
+            json={
+                "campaign_id": str(live_campaign.id),
+                "phone_number": "+12025550210",
+                "rep_token": planted,
+            },
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"] == "Invalid or expired representative selection"
+    finally:
+        await redis.delete(f"rep_token:{planted}")
+
+
 async def test_reps_response_carries_token_not_phone(
     client: AsyncClient,
     live_campaign: Campaign,
@@ -423,6 +527,36 @@ async def test_call_maximum_reached_returns_429(
     assert token_resp.status_code == 429, token_resp.text
 
 
+async def test_call_maximum_holds_under_concurrent_requests(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """Twice the ceiling, fired at once, still admits exactly the ceiling."""
+    campaign, _ = campaign_with_target
+    ceiling = len(CEILING_PHONES) // 2
+    campaign.call_maximum = ceiling
+    campaign.rate_limit = 100  # keep the per-IP bucket out of this test's way
+    await db.commit()
+
+    responses = await asyncio.gather(
+        *(
+            client.post(
+                "/api/v1/calls/create",
+                json={"campaign_id": str(campaign.id), "phone_number": phone},
+            )
+            for phone in CEILING_PHONES
+        )
+    )
+    statuses = sorted(resp.status_code for resp in responses)
+    assert statuses == [200] * ceiling + [429] * ceiling, statuses
+
+    count_result = await db.execute(
+        select(func.count()).select_from(CallSession).where(CallSession.campaign_id == campaign.id)
+    )
+    assert count_result.scalar_one() == ceiling
+
+
 # ---------------------------------------------------------------------------
 # Webhook session binding
 # ---------------------------------------------------------------------------
@@ -472,13 +606,13 @@ async def test_voice_app_rejects_second_call_sid(
 
     first = await client.post(
         f"/webhooks/twilio/voice-app?session_id={session_id}",
-        data={"CallSid": "CAbound001", "From": phone},
+        data={"CallSid": "CAbound001", "From": phone, "To": phone},
     )
     assert "<Gather" in first.text
 
     second = await client.post(
         f"/webhooks/twilio/voice-app?session_id={session_id}",
-        data={"CallSid": "CAattacker001", "From": phone},
+        data={"CallSid": "CAattacker001", "From": phone, "To": phone},
     )
     assert "<Hangup" in second.text
     assert "<Gather" not in second.text
@@ -536,7 +670,7 @@ async def test_call_complete_is_idempotent_per_dial_call_sid(
 
     await client.post(
         f"/webhooks/twilio/voice-app?session_id={session_id}",
-        data={"CallSid": "CAdup001", "From": phone},
+        data={"CallSid": "CAdup001", "From": phone, "To": phone},
     )
 
     payload = {
@@ -583,7 +717,7 @@ async def test_unknown_dial_status_is_recorded_as_failed(
 
     await client.post(
         f"/webhooks/twilio/voice-app?session_id={session_id}",
-        data={"CallSid": "CAunknown001", "From": phone},
+        data={"CallSid": "CAunknown001", "From": phone, "To": phone},
     )
 
     cc_resp = await client.post(
@@ -603,3 +737,153 @@ async def test_unknown_dial_status_is_recorded_as_failed(
     call = result.scalar_one()
     assert call.status == "failed"
     assert call.duration == 0
+
+
+# ---------------------------------------------------------------------------
+# voice-app: the dialed number, and webhook rate limits of its own
+# ---------------------------------------------------------------------------
+
+
+async def test_voice_app_rejects_a_call_dialed_to_another_number(
+    client: AsyncClient,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """A phone session belongs to the number Twilio was told to dial, and no other."""
+    campaign, _ = campaign_with_target
+    phone = "+12025550211"
+
+    create_resp = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": phone},
+    )
+    assert create_resp.status_code == 200, create_resp.text
+    session_id = create_resp.json()["session_id"]
+
+    resp = await client.post(
+        f"/webhooks/twilio/voice-app?session_id={session_id}",
+        data={"CallSid": "CAdialed001", "From": phone, "To": "+12025559998"},
+    )
+    assert resp.status_code == 200
+    assert "<Hangup" in resp.text
+    assert "<Gather" not in resp.text
+
+
+async def test_voice_app_does_not_spend_the_budget_calls_create_already_spent(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """The webhook counts under its own scope, so one callback costs one call."""
+    campaign, _ = campaign_with_target
+    campaign.rate_limit = 1
+    await db.commit()
+    phone = "+12025550212"
+
+    create_resp = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": phone},
+    )
+    assert create_resp.status_code == 200, create_resp.text
+    session_id = create_resp.json()["session_id"]
+
+    spent = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": phone},
+    )
+    assert spent.status_code == 429, spent.text
+
+    resp = await client.post(
+        f"/webhooks/twilio/voice-app?session_id={session_id}",
+        data={"CallSid": "CAbudget001", "From": phone, "To": phone},
+    )
+    assert resp.status_code == 200
+    assert "<Gather" in resp.text
+
+
+async def test_webrtc_webhook_limit_is_counted_per_ip_and_answered_in_twiml(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """A fresh session id per call earns no extra calls, and the 429 speaks TwiML."""
+    campaign, _ = campaign_with_target
+    campaign.rate_limit = 2
+    await db.commit()
+
+    responses = []
+    for i in range(3):
+        token_resp = await client.post(
+            "/api/v1/tokens/voice",
+            json={"campaign_id": str(campaign.id)},
+        )
+        assert token_resp.status_code == 200, token_resp.text
+        session_id = token_resp.json()["session_id"]
+
+        responses.append(
+            await client.post(
+                "/webhooks/twilio/voice-app",
+                data={
+                    "session_id": session_id,
+                    "CallSid": f"CAwebrtc00{i}",
+                    "From": f"client:{session_id}",
+                },
+            )
+        )
+
+    assert "<Gather" in responses[0].text
+    assert "<Gather" in responses[1].text
+
+    limited = responses[2]
+    assert limited.status_code == 200
+    assert "<Hangup" in limited.text
+    assert "<Gather" not in limited.text
+    assert limited.headers["content-type"].startswith("application/xml")
+    assert "Too many requests" not in limited.text
+
+
+# ---------------------------------------------------------------------------
+# Deleting a target out from under a live call
+# ---------------------------------------------------------------------------
+
+
+async def test_remove_target_keeps_a_row_a_live_call_still_needs(
+    client: AsyncClient,
+    db: AsyncSession,
+    redis,
+    admin_headers: dict[str, str],
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """A target queued in a live session is detached from the campaign, not deleted."""
+    campaign, target = campaign_with_target
+    session_id = uuid.uuid4()
+
+    await save_call_state(
+        session_id,
+        {
+            "campaign_id": str(campaign.id),
+            "target_ids": [str(target.id)],
+            "current_target_index": 0,
+            "caller_phone_hash": "",
+            "connection_type": "webrtc",
+            "client_ip": TEST_IP,
+        },
+    )
+
+    try:
+        resp = await client.delete(
+            f"/api/v1/campaigns/{campaign.id}/targets/{target.id}",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 204, resp.text
+    finally:
+        await redis.delete(f"call_session:{session_id}")
+
+    still_there = await db.scalar(select(Target.id).where(Target.id == target.id))
+    assert still_there == target.id
+
+    attached = await db.scalar(
+        select(func.count())
+        .select_from(CampaignTarget)
+        .where(CampaignTarget.target_id == target.id)
+    )
+    assert attached == 0

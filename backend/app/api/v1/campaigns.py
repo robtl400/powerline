@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import io
 import json
@@ -5,12 +6,12 @@ import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.deps import DB, AdminUser, CurrentUser
 from app.api.v1.helpers import get_campaign_or_404, get_live_campaign_or_404, read_upload_limited
@@ -36,7 +37,7 @@ from app.schemas.campaign import (
     TargetPublicInfo,
 )
 from app.schemas.target import ImportResult, ImportRowError, ReorderRequest, TargetCreate, TargetInCampaign, TargetUpdate
-from app.schemas.target import normalize_phone
+from app.schemas.target import MAX_LENGTHS, normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -340,30 +341,35 @@ async def get_campaign(
     campaign_id: uuid.UUID,
     _: CurrentUser,
     db: DB,
+    include_targets: bool = Query(default=True),
+    targets_limit: int = Query(default=500, ge=1, le=2000),
 ) -> CampaignDetailResponse:
-    result = await db.execute(
-        select(Campaign)
-        .where(Campaign.id == campaign_id)
-        .options(selectinload(Campaign.campaign_targets))
-    )
+    """Campaign detail. `targets` holds at most `targets_limit` rows in campaign order;
+    `targets_total` reports how many the campaign has."""
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
     campaign = result.scalar_one_or_none()
     if not campaign:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
 
+    targets_total = await _get_target_count(campaign_id, db)
+
     targets_in_campaign: list[TargetInCampaign] = []
-    if campaign.campaign_targets:
-        target_ids = [ct.target_id for ct in campaign.campaign_targets]
-        t_result = await db.execute(select(Target).where(Target.id.in_(target_ids)))
-        targets_by_id = {t.id: t for t in t_result.scalars().all()}
+    if include_targets and targets_total:
+        rows = await db.execute(
+            select(Target, CampaignTarget.order)
+            .join(CampaignTarget, CampaignTarget.target_id == Target.id)
+            .where(CampaignTarget.campaign_id == campaign_id)
+            .order_by(CampaignTarget.order)
+            .limit(targets_limit)
+        )
+        targets_in_campaign = [_target_to_response(target, order) for target, order in rows.all()]
 
-        targets_in_campaign = [
-            _target_to_response(targets_by_id[ct.target_id], ct.order)
-            for ct in campaign.campaign_targets
-            if ct.target_id in targets_by_id
-        ]
-
-    base = _campaign_to_response(campaign, len(targets_in_campaign))
-    return CampaignDetailResponse(**base.model_dump(), targets=targets_in_campaign)
+    base = _campaign_to_response(campaign, targets_total)
+    return CampaignDetailResponse(
+        **base.model_dump(),
+        targets=targets_in_campaign,
+        targets_total=targets_total,
+    )
 
 
 @router.patch("/{campaign_id}", response_model=CampaignResponse)
@@ -377,12 +383,27 @@ async def update_campaign(
     updates = body.model_dump(exclude_unset=True)
 
     if "status" in updates:
-        new_status = updates["status"]
-        allowed = VALID_TRANSITIONS.get(campaign.status, [])
+        new_status = updates.pop("status")
+        current_status = campaign.status
+        allowed = VALID_TRANSITIONS.get(current_status, [])
         if new_status not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Cannot transition from '{campaign.status}' to '{new_status}'. Allowed: {allowed}",
+                detail=f"Cannot transition from '{current_status}' to '{new_status}'. Allowed: {allowed}",
+            )
+
+        # Guard the transition against the status the check was made on, so a
+        # concurrent change cannot be overwritten by this stale decision.
+        transition = await db.execute(
+            update(Campaign)
+            .where(Campaign.id == campaign_id, Campaign.status == current_status)
+            .values(status=new_status, updated_at=datetime.now(timezone.utc))
+        )
+        if transition.rowcount == 0:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Campaign status changed, reload and try again",
             )
 
     for field, value in updates.items():
@@ -479,35 +500,28 @@ return 0
 """
 
 
-async def _do_import(
-    campaign_id: uuid.UUID,
-    file: UploadFile,
-    db: AsyncSession,
-    redis: object,
-) -> ImportResult:
-    """Core import logic — called inside the per-campaign Redis lock."""
-    content = await read_upload_limited(file, _MAX_CSV_BYTES)
+class _ImportRow(NamedTuple):
+    """One CSV row that passed validation, ready to insert or upsert."""
 
-    if content is None:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds 5 MB limit")
+    name: str
+    title: str
+    phone_number: str
+    location: str
+    external_id: str | None
+    target_metadata: dict
 
-    if not content:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
 
-    filename = (file.filename or "").lower()
-    content_type = (file.content_type or "").lower()
-    if not filename.endswith(".csv") and "csv" not in content_type and "text/plain" not in content_type:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a CSV")
-
+def _parse_import_csv(content: bytes) -> tuple[list[_ImportRow], list[ImportRowError]]:
+    """Decode and validate the upload. Pure CPU work — run off the event loop."""
     try:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be UTF-8 encoded")
 
     reader = csv.DictReader(io.StringIO(text))
-    rows = list(reader)
+    raw_rows = list(reader)
 
-    if not rows:
+    if not raw_rows:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV has no data rows")
 
     headers = {h.lower().strip() for h in (reader.fieldnames or [])}
@@ -518,34 +532,10 @@ async def _do_import(
             detail=f"CSV missing required columns: {', '.join(sorted(missing))}",
         )
 
-    campaign = await get_campaign_or_404(campaign_id, db)
-
-    # Load existing targets in this campaign keyed by external_id for upsert lookup
-    existing_result = await db.execute(
-        select(Target, CampaignTarget)
-        .join(CampaignTarget, CampaignTarget.target_id == Target.id)
-        .where(
-            CampaignTarget.campaign_id == campaign_id,
-            Target.external_id.isnot(None),
-        )
-    )
-    existing_by_ext_id: dict[str, Target] = {
-        row.Target.external_id: row.Target for row in existing_result.all()
-    }
-
-    # Current max order for appending new targets
-    max_order_result = await db.execute(
-        select(func.coalesce(func.max(CampaignTarget.order), -1)).where(
-            CampaignTarget.campaign_id == campaign_id
-        )
-    )
-    next_order = max_order_result.scalar_one() + 1
-
+    parsed: list[_ImportRow] = []
     errors: list[ImportRowError] = []
-    new_targets: list[Target] = []
-    updated_count = 0
 
-    for idx, raw_row in enumerate(rows):
+    for idx, raw_row in enumerate(raw_rows):
         row_num = idx + 2  # 1-based, +1 for header
 
         # DictReader parks unmatched trailing cells under the None restkey and
@@ -576,27 +566,110 @@ async def _do_import(
             continue
 
         external_id = row.get("external_id") or None
-        extra_cols = {k: v for k, v in row.items() if k not in _KNOWN_FIELDS and v}
-        target_metadata = extra_cols if extra_cols else {}
 
-        # Upsert: update existing if external_id matches
-        if external_id and external_id in existing_by_ext_id:
-            existing = existing_by_ext_id[external_id]
-            existing.name = row["name"]
-            existing.title = row["title"]
-            existing.phone_number = phone
-            existing.location = row["location"]
-            existing.target_metadata = target_metadata
+        # Validate field lengths against the column widths
+        values = {
+            "name": row["name"],
+            "title": row["title"],
+            "phone_number": phone,
+            "location": row["location"],
+            "external_id": external_id or "",
+        }
+        over_long = [
+            f"{field} exceeds {MAX_LENGTHS[field]} characters"
+            for field, value in values.items()
+            if len(value) > MAX_LENGTHS[field]
+        ]
+        if over_long:
+            errors.append(ImportRowError(row=row_num, error="; ".join(over_long)))
+            continue
+
+        extra_cols = {k: v for k, v in row.items() if k not in _KNOWN_FIELDS and v}
+
+        parsed.append(_ImportRow(
+            name=row["name"],
+            title=row["title"],
+            phone_number=phone,
+            location=row["location"],
+            external_id=external_id,
+            target_metadata=extra_cols if extra_cols else {},
+        ))
+
+    return parsed, errors
+
+
+async def _do_import(
+    campaign_id: uuid.UUID,
+    file: UploadFile,
+    db: AsyncSession,
+    redis: object,
+) -> ImportResult:
+    """Core import logic — called inside the per-campaign Redis lock."""
+    content = await read_upload_limited(file, _MAX_CSV_BYTES)
+
+    if content is None:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File exceeds 5 MB limit")
+
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").lower()
+    if not filename.endswith(".csv") and "csv" not in content_type and "text/plain" not in content_type:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a CSV")
+
+    parsed_rows, errors = await asyncio.to_thread(_parse_import_csv, content)
+
+    campaign = await get_campaign_or_404(campaign_id, db)
+
+    # Load existing targets in this campaign keyed by external_id for upsert lookup
+    existing_result = await db.execute(
+        select(Target, CampaignTarget)
+        .join(CampaignTarget, CampaignTarget.target_id == Target.id)
+        .where(
+            CampaignTarget.campaign_id == campaign_id,
+            Target.external_id.isnot(None),
+        )
+    )
+    existing_by_ext_id: dict[str, Target] = {
+        row.Target.external_id: row.Target for row in existing_result.all()
+    }
+
+    # Current max order for appending new targets
+    max_order_result = await db.execute(
+        select(func.coalesce(func.max(CampaignTarget.order), -1)).where(
+            CampaignTarget.campaign_id == campaign_id
+        )
+    )
+    next_order = max_order_result.scalar_one() + 1
+
+    new_targets: list[Target] = []
+    updated_count = 0
+
+    for row in parsed_rows:
+        # Upsert: update existing if external_id matches. Targets built earlier in
+        # this file join the map too, so a repeated external_id updates the pending
+        # row rather than inserting a second one.
+        if row.external_id and row.external_id in existing_by_ext_id:
+            existing = existing_by_ext_id[row.external_id]
+            existing.name = row.name
+            existing.title = row.title
+            existing.phone_number = row.phone_number
+            existing.location = row.location
+            existing.target_metadata = row.target_metadata
             updated_count += 1
         else:
-            new_targets.append(Target(
-                name=row["name"],
-                title=row["title"],
-                phone_number=phone,
-                location=row["location"],
-                external_id=external_id,
-                target_metadata=target_metadata,
-            ))
+            target = Target(
+                name=row.name,
+                title=row.title,
+                phone_number=row.phone_number,
+                location=row.location,
+                external_id=row.external_id,
+                target_metadata=row.target_metadata,
+            )
+            new_targets.append(target)
+            if row.external_id:
+                existing_by_ext_id[row.external_id] = target
 
     # Bulk insert new targets
     if new_targets:
@@ -751,8 +824,10 @@ async def remove_target(
 ) -> None:
     """Detach a target from a campaign, deleting the row only when nothing else needs it.
 
-    A target still attached to another campaign, or referenced by a logged Call,
-    is kept so call history keeps resolving to a named official.
+    A target still attached to another campaign, referenced by a logged Call,
+    or queued in a call that is happening right now is kept: call history keeps
+    resolving to a named official, and a supporter mid-session still hears the
+    official they were promised.
     """
     target, ct = await _get_target_in_campaign_or_404(campaign_id, target_id, db)
 
@@ -767,7 +842,33 @@ async def remove_target(
     logged_calls = await db.scalar(
         select(func.count()).select_from(Call).where(Call.target_id == target_id)
     )
+
+    in_a_live_call = False
     if not other_campaigns and not logged_calls:
+        # Call state lives in Redis under call_session:{session_id} and holds the
+        # target_ids the session will still dial. SCAN is bounded by the sessions
+        # alive inside the 2-hour state TTL, and only runs when the row would
+        # otherwise be deleted.
+        redis = get_redis()
+        wanted = str(target_id)
+        async for key in redis.scan_iter(match="call_session:*", count=100):
+            raw = await redis.get(key)
+            if not raw:
+                continue
+            try:
+                live_state = json.loads(raw)
+            except ValueError:
+                continue
+            if wanted in (live_state.get("target_ids") or []):
+                in_a_live_call = True
+                logger.info(
+                    "target %s detached from campaign %s but kept: a live call still dials it",
+                    wanted,
+                    campaign_id,
+                )
+                break
+
+    if not other_campaigns and not logged_calls and not in_a_live_call:
         await db.delete(target)
 
     campaign = await get_campaign_or_404(campaign_id, db)

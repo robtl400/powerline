@@ -99,6 +99,7 @@ export default function CampaignEdit() {
         {!isNew && activeTab === "targets" && (
           <CampaignTargetsTab
             targets={data.targets}
+            targetsTotal={data.targetsTotal}
             addingTarget={data.addingTarget}
             setAddingTarget={data.setAddingTarget}
             targetForm={data.targetForm}

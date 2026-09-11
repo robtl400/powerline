@@ -5,13 +5,14 @@ import uuid
 import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
 from app.models.user import User
 from app.redis_client import get_redis
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
-from app.services.auth import hash_password, revoke_user_sessions
+from app.services.auth import hash_password_async, revoke_user_sessions
 from app.services.sms import send_sms
 
 log = structlog.get_logger()
@@ -57,20 +58,30 @@ async def create_user(
     db: DB,
     _: AdminUser,
 ) -> User:
+    duplicate = HTTPException(
+        status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
+    )
+
     existing = await db.execute(select(User).where(func.lower(User.email) == body.email).limit(1))
     if existing.scalars().first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        raise duplicate
 
     temp_password = None if body.password else secrets.token_urlsafe(12)
     user = User(
         email=body.email,
         name=body.name,
         phone=body.phone,
-        hashed_password=hash_password(body.password or temp_password),
+        hashed_password=await hash_password_async(body.password or temp_password),
         role=body.role,
     )
     db.add(user)
-    await db.commit()
+    # Two invites for one address can both clear the check above; the unique
+    # index is what actually settles it.
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise duplicate
     await db.refresh(user)
 
     if temp_password:

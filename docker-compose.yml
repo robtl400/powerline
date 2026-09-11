@@ -25,6 +25,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # One-shot: brings the schema up to date. Everything that touches the
+  # database waits for this to exit successfully.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      target: dev
+    restart: "no"
+    volumes:
+      - ./backend:/app
+      - ./VERSION:/etc/powerline/VERSION:ro
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic upgrade head
+
   backend:
     build:
       context: .
@@ -41,6 +59,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     # Reached through Caddy on port 80; run tests with `docker compose exec backend`.
     # Only the dev stack trusts every forwarding hop — production sets
     # TRUSTED_PROXIES to the real proxy addresses instead.
@@ -94,6 +114,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: celery -A app.celery_app worker --loglevel=info
 
   celery-beat:
@@ -111,6 +133,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: celery -A app.celery_app beat --loglevel=info
 
 volumes:

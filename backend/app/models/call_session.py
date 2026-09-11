@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -10,6 +10,10 @@ from app.db import Base
 
 class CallSession(Base):
     __tablename__ = "call_sessions"
+    __table_args__ = (
+        Index("ix_call_sessions_created_at", "created_at"),
+        Index("ix_call_sessions_campaign_created", "campaign_id", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

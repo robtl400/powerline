@@ -2,11 +2,14 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.config import settings
+from app.redis_client import redis_url_with_password
+
+_broker_url = redis_url_with_password(settings.REDIS_URL, settings.REDIS_PASSWORD)
 
 celery_app = Celery(
     "powerline",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
+    broker=_broker_url,
+    backend=_broker_url,
     include=["app.tasks.insights", "app.tasks.cleanup"],
 )
 

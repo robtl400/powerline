@@ -28,6 +28,7 @@ const FIELD_LABELS: Record<string, string> = {
 
 export function CampaignTargetsTab({
   targets,
+  targetsTotal = 0,
   targetLevels = [],
   onTargetLevelsChange,
   addingTarget,
@@ -66,6 +67,7 @@ export function CampaignTargetsTab({
   readOnly = false,
 }: {
   targets: Target[];
+  targetsTotal?: number;
   targetLevels?: string[];
   onTargetLevelsChange?: (levels: string[]) => void;
   addingTarget: boolean;
@@ -107,6 +109,7 @@ export function CampaignTargetsTab({
   const [errorsExpanded, setErrorsExpanded] = useState(false);
 
   const requiredMapped = REQUIRED_FIELDS.every((f) => importColumnMap[f]);
+  const truncated = targets.length < targetsTotal;
 
   function handleFileDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -176,6 +179,13 @@ export function CampaignTargetsTab({
         <div className="mb-3 px-3 py-2 rounded border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
           {targetError}
         </div>
+      )}
+
+      {truncated && (
+        <p className="mb-3 px-3 py-2 rounded border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
+          Showing the first {targets.length} of {targetsTotal} targets. The remaining{" "}
+          {targetsTotal - targets.length} are not listed here; re-import the CSV to change them.
+        </p>
       )}
 
       {targets.length > 0 && (

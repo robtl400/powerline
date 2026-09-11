@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import secrets
 
 import structlog
 
 from app.redis_client import get_redis
+from app.schemas.calls import _to_us_e164
 from app.services.civic.google_civic import MissingApiKeyError
 from app.services.civic.router import LevelRouter
 
@@ -15,7 +17,29 @@ log = structlog.get_logger()
 REPS_CACHE_TTL = 86400  # 24 hours
 REP_TOKEN_TTL = 3600  # 1 hour — matches the widget's usable selection window
 
+# Trailing extension on a published office line, e.g. "202-224-3121 ext. 5",
+# "(512) 463-0100 x1234". A rep is reached on the main line, so the extension
+# is not part of the number that gets dialed.
+_EXTENSION_RE = re.compile(r"[\s,;.]*(?:extension|ext|x)\.?\s*\d+\s*$", re.IGNORECASE)
+
 _router = LevelRouter()
+
+
+def normalize_rep_phone(value: str | None) -> str | None:
+    """Return a representative's published number in E.164, or None if undialable.
+
+    Civic providers publish numbers in display form — "(202) 224-3121",
+    "202-224-3121 ext. 5" — so the extension is dropped and what remains goes
+    through the same US-only E.164 rule that every other number in the system
+    is held to.
+    """
+    candidate = _EXTENSION_RE.sub("", (value or "").strip())
+    if not candidate:
+        return None
+    try:
+        return _to_us_e164(candidate)
+    except ValueError:
+        return None
 
 
 def _configured_levels(embed_config: dict) -> list[str]:
@@ -60,9 +84,11 @@ async def lookup_reps(zip_code: str, campaign_id: str, embed_config: dict) -> li
 async def issue_rep_tokens(campaign_id: str, reps: list[dict]) -> list[dict]:
     """Replace each rep's phone number with an opaque single-campaign handle.
 
-    The phone number is stored server-side under `rep_token:{token}` and never
-    reaches the client, so a caller can only dial numbers the lookup returned
-    for the campaign they are calling on behalf of.
+    The phone number is canonicalised to E.164 and stored server-side under
+    `rep_token:{token}`; it never reaches the client, so a caller can only dial
+    numbers the lookup returned for the campaign they are calling on behalf of.
+    A rep whose published number is not a dialable US line gets no token, so
+    the widget cannot offer a selection the call path would refuse.
 
     Returns the reps with a `rep_token` key added and `phone` removed.
     """
@@ -70,10 +96,17 @@ async def issue_rep_tokens(campaign_id: str, reps: list[dict]) -> list[dict]:
     issued: list[dict] = []
 
     for rep in reps:
+        phone = normalize_rep_phone(rep.get("phone"))
+        if not phone:
+            log.warning(
+                "rep_phone_undialable", campaign_id=campaign_id, name=rep.get("name", "")
+            )
+            continue
+
         token = secrets.token_urlsafe(24)
         record = {
             "campaign_id": campaign_id,
-            "phone": rep.get("phone", ""),
+            "phone": phone,
             "name": rep.get("name", ""),
             "title": rep.get("title", ""),
             "level": rep.get("level", ""),

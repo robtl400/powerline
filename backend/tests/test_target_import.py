@@ -292,3 +292,70 @@ async def test_import_lock_is_released_when_still_owned(
     )
     assert resp.status_code == 200
     assert await redis.get(lock_key) is None
+
+
+DUPLICATE_EXTERNAL_ID_CSV = """\
+name,title,phone_number,location,external_id
+First Row,Representative,+12025551001,CA-12,rep-001
+Second Row,Senator,+12025551002,CA-13,rep-001
+"""
+
+
+async def test_import_collapses_a_repeated_external_id_within_one_file(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, db: AsyncSession
+) -> None:
+    """Two rows sharing an external_id produce one target; the later row wins."""
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets/import",
+        files=_csv_file(DUPLICATE_EXTERNAL_ID_CSV),
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["imported"] == 1
+    assert data["updated"] == 1
+    assert data["errors"] == []
+
+    ct_result = await db.execute(
+        select(CampaignTarget).where(CampaignTarget.campaign_id == campaign.id)
+    )
+    cts = ct_result.scalars().all()
+    assert len(cts) == 1
+
+    t_result = await db.execute(select(Target).where(Target.id == cts[0].target_id))
+    target = t_result.scalar_one()
+    assert target.name == "Second Row"
+    assert target.title == "Senator"
+    assert target.location == "CA-13"
+    assert target.phone_number == "+12025551002"
+
+
+async def test_import_over_long_cell_fails_only_that_row(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, db: AsyncSession
+) -> None:
+    """A cell wider than its column is a row error, not a failed import."""
+    over_long_name = "N" * 201
+    csv_content = (
+        "name,title,phone_number,location\n"
+        "Rep Smith,Representative,+12025551001,CA-12\n"
+        f"{over_long_name},Representative,+12025551002,CA-13\n"
+        "Rep Doe,Representative,+12025551003,NY-10\n"
+    )
+
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets/import",
+        files=_csv_file(csv_content),
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["imported"] == 2
+    assert data["updated"] == 0
+    assert len(data["errors"]) == 1
+    assert data["errors"][0]["row"] == 3
+    assert data["errors"][0]["error"] == "name exceeds 200 characters"
+
+    ct_result = await db.execute(
+        select(CampaignTarget).where(CampaignTarget.campaign_id == campaign.id)
+    )
+    assert len(ct_result.scalars().all()) == 2

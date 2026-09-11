@@ -132,3 +132,26 @@ def build_goodbye(audio: AudioConfig, context: dict) -> str:
     _add_audio(r, audio, context)
     r.hangup()
     return str(r)
+
+
+def build_redirect(redirect_url: str) -> str:
+    """TwiML that sends the call straight on to another webhook, silently.
+
+    Used when a step has nothing to say to the caller — skipping a target whose
+    row is gone, for instance — and only needs the flow to continue.
+    """
+    r = VoiceResponse()
+    r.redirect(redirect_url, method="POST")
+    return str(r)
+
+
+def build_hangup() -> str:
+    """TwiML that ends the call without playing anything.
+
+    The answer for every webhook path that cannot continue: an unusable
+    session, a blocked caller, an error. Twilio speaks XML, so even failures
+    are answered with a valid document.
+    """
+    r = VoiceResponse()
+    r.hangup()
+    return str(r)

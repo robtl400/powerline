@@ -75,7 +75,7 @@ export default function CallLog() {
   useEffect(() => {
     if (!id) return;
     client
-      .get<CampaignBasic>(`/campaigns/${id}`)
+      .get<CampaignBasic>(`/campaigns/${id}?include_targets=false`)
       .then((res) => setCampaign(res.data))
       .catch(() => null);
   }, [id]);

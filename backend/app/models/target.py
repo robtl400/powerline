@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,6 +10,13 @@ from app.db import Base
 
 class Target(Base):
     __tablename__ = "targets"
+    __table_args__ = (
+        Index(
+            "ix_targets_rep_lookup",
+            "created_at",
+            postgresql_where=text("external_id = 'rep_lookup'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

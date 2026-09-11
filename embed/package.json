@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Powerline embeddable call-campaign widget",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite build --watch",
+    "build": "vite build && vite build --config vite.webrtc.config.ts",
+    "dev": "vite build --config vite.webrtc.config.ts && vite build --watch",
     "test": "vitest run"
   },
   "dependencies": {

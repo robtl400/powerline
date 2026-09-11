@@ -20,7 +20,11 @@ import {
   renderPhonePending,
   renderRepSelection,
 } from "./ui/templates.js";
-import { WebRTCClient } from "./webrtc.js";
+import {
+  loadWebRTCClient,
+  type WebRTCClientConstructor,
+} from "./webrtc-loader.js";
+import type { WebRTCClient } from "./webrtc.js";
 import type {
   CampaignPublic,
   ConnectedData,
@@ -400,17 +404,7 @@ export class PowerlineWidget {
     const useWebRTC = supportsWebRTC && this.campaign.allow_webrtc;
 
     if (useWebRTC) {
-      this.webrtc = new WebRTCClient(
-        this.baseUrl,
-        this.campaign,
-        this._onStateChange,
-        this._onTimerTick,
-        this.selectedRepToken ?? undefined,
-        this.selectedRepName
-          ? { name: this.selectedRepName, title: this.selectedRepTitle ?? "" }
-          : undefined
-      );
-      void this.webrtc.start();
+      void this._startWebRTCCall();
     } else if (this.campaign.allow_phone_callback) {
       // No WebRTC support — jump straight to phone input.
       this.state = "phone_input";
@@ -421,6 +415,47 @@ export class PowerlineWidget {
         "Browser calling is not supported on this device and phone callback is disabled."
       );
     }
+  }
+
+  /**
+   * Fetch the companion WebRTC bundle, then hand the call to it. A bundle that
+   * will not load is treated like a browser without WebRTC support.
+   */
+  private async _startWebRTCCall(): Promise<void> {
+    const campaign = this.campaign;
+    if (!campaign) return;
+
+    this._onStateChange("loading");
+
+    let WebRTCClientCtor: WebRTCClientConstructor;
+    try {
+      WebRTCClientCtor = await loadWebRTCClient(this.baseUrl);
+    } catch {
+      if (campaign.allow_phone_callback) {
+        this._onStateChange("phone_input");
+      } else {
+        this._onStateChange(
+          "error",
+          "Browser calling could not be loaded. Please reload the page and try again."
+        );
+      }
+      return;
+    }
+
+    // The visitor may have navigated the widget elsewhere while it downloaded.
+    if (this.campaign !== campaign || this.state !== "loading") return;
+
+    this.webrtc = new WebRTCClientCtor(
+      this.baseUrl,
+      campaign,
+      this._onStateChange,
+      this._onTimerTick,
+      this.selectedRepToken ?? undefined,
+      this.selectedRepName
+        ? { name: this.selectedRepName, title: this.selectedRepTitle ?? "" }
+        : undefined
+    );
+    void this.webrtc.start();
   }
 
   private _submitPhone(phone: string): void {

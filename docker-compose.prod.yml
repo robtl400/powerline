@@ -26,10 +26,13 @@ services:
     restart: unless-stopped
     # noeviction: call state and rate-limit counters must not be dropped under
     # memory pressure — losing them silently un-limits the public endpoints.
+    # At the cap Redis rejects writes instead, which surfaces as errors.
     command:
       - redis-server
       - --requirepass
       - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-256mb}
       - --maxmemory-policy
       - noeviction
     volumes:
@@ -39,6 +42,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # One-shot: brings the schema up to date. Everything that touches the
+  # database waits for this to exit successfully.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      target: production
+    restart: "no"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic upgrade head
 
   backend:
     build:
@@ -53,6 +71,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
 
   celery-worker:
@@ -68,6 +88,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: celery -A app.celery_app worker --loglevel=info
 
   celery-beat:
@@ -83,6 +105,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: celery -A app.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
 
   # One-shot: publishes the built admin SPA into the volume Caddy serves.

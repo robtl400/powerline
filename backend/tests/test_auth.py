@@ -1,8 +1,27 @@
 """Smoke tests for auth endpoints."""
 
+from collections.abc import AsyncGenerator
+
+import pytest
 from httpx import AsyncClient
 
 from app.models.user import User
+
+RATE_SCOPES = ("login-ip", "login-email", "reset-confirm-email", "reset-confirm-ip")
+
+
+@pytest.fixture(autouse=True)
+async def clean_rate_limits(redis) -> AsyncGenerator[None, None]:
+    """Drop auth counters — every test client request shares one IP."""
+    for scope in RATE_SCOPES:
+        keys = [key async for key in redis.scan_iter(match=f"rate:{scope}:*")]
+        if keys:
+            await redis.delete(*keys)
+    yield
+    for scope in RATE_SCOPES:
+        keys = [key async for key in redis.scan_iter(match=f"rate:{scope}:*")]
+        if keys:
+            await redis.delete(*keys)
 
 
 async def test_login_returns_tokens(client: AsyncClient, admin_user: User) -> None:

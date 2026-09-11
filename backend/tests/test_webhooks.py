@@ -10,9 +10,10 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.blocklist import BlocklistEntry
 from app.models.call import Call
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
@@ -38,9 +39,11 @@ MODULE_PHONES = [
 @pytest.fixture(autouse=True)
 async def clear_rate_buckets(redis):
     """Drop every rate-limit bucket this module touches, before and after."""
-    keys = [f"rate:call-ip:{TEST_IP}"]
+    keys = [f"rate:call-ip:{TEST_IP}", f"rate:call-webhook-ip:{TEST_IP}"]
     keys += [
-        f"rate:call:{hashlib.sha256(phone.encode()).hexdigest()}" for phone in MODULE_PHONES
+        f"rate:{scope}:{hashlib.sha256(phone.encode()).hexdigest()}"
+        for scope in ("call", "call-webhook")
+        for phone in MODULE_PHONES
     ]
     await redis.delete(*keys)
     yield
@@ -245,6 +248,30 @@ async def test_completed_with_a_call_marks_session_completed(
     assert result.one() == ("completed", 44)
 
 
+async def test_in_progress_after_completed_leaves_the_session_completed(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A late or retried in-progress callback cannot reopen a finished session."""
+    _, _, session, call_sid = flow
+    await db.execute(
+        update(CallSession).where(CallSession.id == session.id).values(status="completed")
+    )
+    await db.commit()
+
+    resp = await client.post(
+        "/webhooks/twilio/status-callback",
+        data={"CallSid": call_sid, "CallStatus": "in-progress", "CallDuration": "9"},
+    )
+    assert resp.status_code == 200
+
+    result = await db.execute(
+        select(CallSession.status, CallSession.duration).where(CallSession.id == session.id)
+    )
+    assert result.one() == ("completed", 9)
+
+
 async def test_busy_status_still_maps_to_failed(
     client: AsyncClient,
     db: AsyncSession,
@@ -365,7 +392,7 @@ async def test_dial_target_past_the_last_target_says_goodbye(
     assert "<Dial" not in resp.text
 
 
-async def test_dial_target_hangs_up_when_the_target_row_is_gone(
+async def test_dial_target_says_goodbye_when_the_last_target_row_is_gone(
     client: AsyncClient,
     flow: tuple[Campaign, Target, CallSession, str],
 ) -> None:
@@ -383,6 +410,120 @@ async def test_dial_target_hangs_up_when_the_target_row_is_gone(
     assert resp.status_code == 200
     assert "<Hangup" in resp.text
     assert "<Dial" not in resp.text
+
+
+async def test_dial_target_skips_a_deleted_target_and_moves_to_the_next(
+    client: AsyncClient,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A target deleted mid-session costs that one call, not the whole session."""
+    _, target, session, call_sid = flow
+    state = await load_call_state(str(session.id))
+    state["target_ids"] = [str(uuid.uuid4()), str(target.id)]
+    state["current_target_index"] = 0
+    await save_call_state(session.id, state)
+
+    skipped = await client.post(
+        f"/webhooks/twilio/dial-target?session_id={session.id}",
+        data={"CallSid": call_sid},
+    )
+    assert skipped.status_code == 200
+    assert "<Redirect" in skipped.text
+    assert "dial-target" in skipped.text
+    assert "<Hangup" not in skipped.text
+
+    state = await load_call_state(str(session.id))
+    assert state["current_target_index"] == 1
+
+    dialed = await client.post(
+        f"/webhooks/twilio/dial-target?session_id={session.id}",
+        data={"CallSid": call_sid},
+    )
+    assert "<Dial" in dialed.text
+    assert target.phone_number in dialed.text
+
+
+# ---------------------------------------------------------------------------
+# call-complete: one Call row per dialed leg
+# ---------------------------------------------------------------------------
+
+
+async def test_call_complete_answers_a_preexisting_call_row_as_a_duplicate(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A leg already in the calls table is answered again, never logged twice."""
+    campaign, target, session, call_sid = flow
+    await _two_target_state(session.id, target.id, call_sid)
+
+    dial_sid = f"CAleg{uuid.uuid4().hex[:16]}"
+    db.add(Call(
+        session_id=session.id,
+        campaign_id=campaign.id,
+        target_id=target.id,
+        twilio_call_sid=dial_sid,
+        status="completed",
+        duration=31,
+    ))
+    await db.commit()
+
+    payload = {
+        "CallSid": call_sid,
+        "DialCallSid": dial_sid,
+        "DialCallStatus": "completed",
+        "DialCallDuration": "31",
+    }
+    first = await client.post(
+        f"/webhooks/twilio/call-complete?session_id={session.id}", data=payload
+    )
+    second = await client.post(
+        f"/webhooks/twilio/call-complete?session_id={session.id}", data=payload
+    )
+    assert first.status_code == 200
+    assert first.text == second.text
+
+    result = await db.execute(select(Call).where(Call.session_id == session.id))
+    assert len(result.scalars().all()) == 1
+
+    state = await load_call_state(str(session.id))
+    assert state["current_target_index"] == 0
+
+
+async def test_call_complete_without_a_dial_call_sid_logs_one_call_per_leg(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """With no leg SID to key on, the dialed index decides what is a retry."""
+    _, target, session, call_sid = flow
+    await _two_target_state(session.id, target.id, call_sid)
+
+    dial = await client.post(
+        f"/webhooks/twilio/dial-target?session_id={session.id}",
+        data={"CallSid": call_sid},
+    )
+    assert "<Dial" in dial.text
+
+    payload = {
+        "CallSid": call_sid,
+        "DialCallStatus": "completed",
+        "DialCallDuration": "20",
+    }
+    first = await client.post(
+        f"/webhooks/twilio/call-complete?session_id={session.id}", data=payload
+    )
+    second = await client.post(
+        f"/webhooks/twilio/call-complete?session_id={session.id}", data=payload
+    )
+    assert first.status_code == 200
+    assert first.text == second.text
+
+    result = await db.execute(select(Call).where(Call.session_id == session.id))
+    assert len(result.scalars().all()) == 1
+
+    state = await load_call_state(str(session.id))
+    assert state["current_target_index"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -429,3 +570,67 @@ async def test_voice_app_hangs_up_when_the_session_belongs_to_another_call(
     assert resp.status_code == 200
     assert "<Hangup" in resp.text
     assert "<Gather" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# voice-app: the blocklist
+# ---------------------------------------------------------------------------
+
+
+async def test_voice_app_hangs_up_on_a_blocklisted_phone_hash(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A number blocked after the session opened still never reaches a target."""
+    _, _, session, call_sid = flow
+    entry = BlocklistEntry(phone_hash=session.caller_phone_hash, reason="webhook test")
+    db.add(entry)
+    await db.commit()
+    entry_id = entry.id
+
+    try:
+        resp = await client.post(
+            f"/webhooks/twilio/voice-app?session_id={session.id}",
+            data={"CallSid": call_sid, "From": "+12025550999", "To": MODULE_PHONES[0]},
+        )
+        assert resp.status_code == 200
+        assert "<Hangup" in resp.text
+        assert "<Gather" not in resp.text
+    finally:
+        await db.execute(delete(BlocklistEntry).where(BlocklistEntry.id == entry_id))
+        await db.commit()
+
+
+async def test_voice_app_hangs_up_on_a_blocklisted_caller_without_a_stored_hash(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """With no hash in the state, the From number is hashed to match the blocklist."""
+    _, _, session, call_sid = flow
+    caller = MODULE_PHONES[1]
+
+    state = await load_call_state(str(session.id))
+    state["connection_type"] = "inbound_phone"
+    state["caller_phone_hash"] = ""
+    await save_call_state(session.id, state)
+
+    entry = BlocklistEntry(
+        phone_hash=hashlib.sha256(caller.encode()).hexdigest(), reason="webhook test"
+    )
+    db.add(entry)
+    await db.commit()
+    entry_id = entry.id
+
+    try:
+        resp = await client.post(
+            f"/webhooks/twilio/voice-app?session_id={session.id}",
+            data={"CallSid": call_sid, "From": caller},
+        )
+        assert resp.status_code == 200
+        assert "<Hangup" in resp.text
+        assert "<Gather" not in resp.text
+    finally:
+        await db.execute(delete(BlocklistEntry).where(BlocklistEntry.id == entry_id))
+        await db.commit()

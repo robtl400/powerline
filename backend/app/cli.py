@@ -8,16 +8,24 @@ Usage:
 import argparse
 import asyncio
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.db import AsyncSessionLocal
 from app.models.user import User
-from app.services.auth import hash_password
+from app.services.auth import hash_password, validate_password_strength
 
 
 async def _create_admin(email: str, phone: str, password: str) -> None:
+    email = email.strip().lower()
+
+    try:
+        validate_password_strength(password)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return
+
     async with AsyncSessionLocal() as db:
-        existing = await db.execute(select(User).where(User.email == email))
+        existing = await db.execute(select(User).where(func.lower(User.email) == email))
         if existing.scalar_one_or_none():
             print(f"Error: user with email {email} already exists.")
             return

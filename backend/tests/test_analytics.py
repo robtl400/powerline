@@ -1,6 +1,8 @@
 """Tests for the campaign analytics endpoints and their filter validation."""
 from __future__ import annotations
 
+import csv
+import io
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -10,6 +12,7 @@ from httpx import AsyncClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1 import analytics
 from app.config import settings
 from app.models.call import Call
 from app.models.call_session import CallSession
@@ -339,6 +342,69 @@ async def test_export_on_an_empty_campaign_is_a_header_only(
     )
     assert resp.status_code == 200
     assert len(resp.text.strip().splitlines()) == 1
+
+
+async def test_export_row_contents_match_the_seeded_sessions(
+    client: AsyncClient, seeded: tuple[Campaign, Target, Target], admin_headers: dict
+) -> None:
+    campaign, _, _ = seeded
+
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/calls/export", headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = list(csv.DictReader(io.StringIO(resp.text)))
+    # The three sessions share one created_at, so their order is not pinned.
+    assert {
+        (r["connection_type"], r["status"], r["call_count"], r["duration_seconds"])
+        for r in rows
+    } == {
+        ("webrtc", "completed", "2", "100"),
+        ("outbound_phone", "completed", "1", "200"),
+        ("webrtc", "failed", "2", ""),
+    }
+    assert all(r["created_at"] == SEEDED_AT.isoformat() for r in rows)
+    assert all(uuid.UUID(r["id"]) for r in rows)
+
+
+async def test_export_stops_at_the_row_cap_and_says_so(
+    client: AsyncClient,
+    seeded: tuple[Campaign, Target, Target],
+    admin_headers: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    campaign, _, _ = seeded
+    monkeypatch.setattr(analytics, "MAX_EXPORT_ROWS", 2)
+
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/calls/export", headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    lines = resp.text.strip().splitlines()
+    assert len(lines) == 4
+    assert lines[-1] == "# truncated: export is limited to 2 rows"
+
+    rows = list(csv.DictReader(io.StringIO("\n".join(lines[:-1]))))
+    assert len(rows) == 2
+
+
+async def test_export_under_the_cap_has_no_truncation_line(
+    client: AsyncClient,
+    seeded: tuple[Campaign, Target, Target],
+    admin_headers: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    campaign, _, _ = seeded
+    monkeypatch.setattr(analytics, "MAX_EXPORT_ROWS", 3)
+
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/calls/export", headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert "# truncated" not in resp.text
+    assert len(resp.text.strip().splitlines()) == 4
 
 
 # ---------------------------------------------------------------------------

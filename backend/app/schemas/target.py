@@ -3,7 +3,17 @@ from datetime import datetime
 
 import phonenumbers
 from phonenumbers import PhoneNumberFormat
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+# Column widths of app.models.target.Target. Every write path — the single-target
+# endpoints and the CSV import — bounds its input against these.
+MAX_LENGTHS: dict[str, int] = {
+    "name": 200,
+    "title": 100,
+    "phone_number": 20,
+    "location": 200,
+    "external_id": 100,
+}
 
 
 def normalize_phone(v: str) -> str:
@@ -13,15 +23,18 @@ def normalize_phone(v: str) -> str:
         raise ValueError("Invalid phone number — include country code (e.g. +12025551234)")
     if not phonenumbers.is_valid_number(parsed):
         raise ValueError("Phone number is not valid")
-    return phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    if len(e164) > MAX_LENGTHS["phone_number"]:
+        raise ValueError(f"Phone number exceeds {MAX_LENGTHS['phone_number']} characters")
+    return e164
 
 
 class TargetCreate(BaseModel):
-    name: str
-    title: str
+    name: str = Field(max_length=MAX_LENGTHS["name"])
+    title: str = Field(max_length=MAX_LENGTHS["title"])
     phone_number: str
-    location: str
-    external_id: str | None = None
+    location: str = Field(max_length=MAX_LENGTHS["location"])
+    external_id: str | None = Field(default=None, max_length=MAX_LENGTHS["external_id"])
     target_metadata: dict = {}
 
     @field_validator("phone_number")
@@ -31,11 +44,11 @@ class TargetCreate(BaseModel):
 
 
 class TargetUpdate(BaseModel):
-    name: str | None = None
-    title: str | None = None
+    name: str | None = Field(default=None, max_length=MAX_LENGTHS["name"])
+    title: str | None = Field(default=None, max_length=MAX_LENGTHS["title"])
     phone_number: str | None = None
-    location: str | None = None
-    external_id: str | None = None
+    location: str | None = Field(default=None, max_length=MAX_LENGTHS["location"])
+    external_id: str | None = Field(default=None, max_length=MAX_LENGTHS["external_id"])
     target_metadata: dict | None = None
 
     @field_validator("phone_number")

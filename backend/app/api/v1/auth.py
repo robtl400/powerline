@@ -25,14 +25,16 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.services.auth import (
-    consume_refresh_jti,
+    RefreshOutcome,
     create_access_token,
     decode_token,
     hash_password,
+    hash_password_async,
     issue_refresh_token,
     refresh_key,
     revoke_user_sessions,
-    verify_password,
+    rotate_refresh_token,
+    verify_password_async,
 )
 from app.services.rate_limiter import check_rate_limit
 from app.services.sms import send_sms
@@ -43,6 +45,23 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 RESET_CODE_TTL = 600  # 10 minutes
 RESET_MAX_ATTEMPTS = 5
 
+# Counts one wrong code and destroys the code once the attempts run out, in a
+# single atomic step: parallel guesses cannot share a stale count between them.
+# The counter expires with the code it guards. Returns {attempts, destroyed}.
+_RESET_ATTEMPT_LUA = """
+local attempts = redis.call('INCR', KEYS[2])
+local ttl = redis.call('TTL', KEYS[1])
+if ttl <= 0 then
+    ttl = tonumber(ARGV[1])
+end
+if attempts >= tonumber(ARGV[2]) then
+    redis.call('DEL', KEYS[1], KEYS[2])
+    return {attempts, 1}
+end
+redis.call('EXPIRE', KEYS[2], ttl)
+return {attempts, 0}
+"""
+
 # Compared against when the email is unknown so that a failed login costs the
 # same time whether or not the account exists.
 _DUMMY_HASH = hash_password("dummy-password")
@@ -51,6 +70,14 @@ _DUMMY_HASH = hash_password("dummy-password")
 def _email_fingerprint(email: str) -> str:
     """Truncated hash of an email, safe to put in logs."""
     return hashlib.sha256(email.encode()).hexdigest()[:12]
+
+
+def _reset_key(email: str) -> str:
+    return f"reset:{email}"
+
+
+def _reset_attempts_key(email: str) -> str:
+    return f"reset_attempts:{email}"
 
 
 async def _user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -78,10 +105,10 @@ async def login(
     user = await _user_by_email(db, email)
 
     if user is None:
-        verify_password(body.password, _DUMMY_HASH)
+        await verify_password_async(body.password, _DUMMY_HASH)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    if not verify_password(body.password, user.hashed_password) or not user.is_active:
+    if not await verify_password_async(body.password, user.hashed_password) or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     user_id = str(user.id)
@@ -95,8 +122,12 @@ async def login(
 async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> AccessTokenResponse:
     """Exchange a refresh token for a new pair, retiring the token that was used.
 
-    Each refresh token is registered in Redis and consumed on use, so replaying
-    one — from a stolen copy, or after logout — is rejected.
+    Each refresh token is registered in Redis and consumed on use. For a short
+    grace window after it is consumed, presenting it again returns the same
+    successor token and a fresh access token, so two tabs refreshing at once
+    both end up holding the live token. Past that window a second presentation
+    is a replay — a stolen copy, or a token used after logout — and it ends
+    every session the user has, on the assumption the chain is compromised.
     """
     invalid = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
@@ -117,13 +148,15 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> A
         raise invalid
 
     redis = get_redis()
-    if not await consume_refresh_jti(redis, str(user.id), jti):
+    rotation = await rotate_refresh_token(redis, str(user.id), jti)
+    if rotation.outcome is RefreshOutcome.REPLAYED:
+        await revoke_user_sessions(redis, str(user.id))
         log.warning("refresh_token_replayed", user_id=str(user.id))
         raise invalid
 
     return AccessTokenResponse(
         access_token=create_access_token(str(user.id)),
-        refresh_token=await issue_refresh_token(redis, str(user.id)),
+        refresh_token=rotation.token,
     )
 
 
@@ -164,7 +197,7 @@ async def reset_request(
         redis, "reset-request-ip", get_client_ip(request), settings.AUTH_RATE_LIMIT
     )
 
-    key = f"reset:{email}"
+    key = _reset_key(email)
     if await redis.exists(key):
         return
 
@@ -175,7 +208,8 @@ async def reset_request(
         return
 
     code = f"{secrets.randbelow(10**8):08d}"
-    await redis.setex(key, RESET_CODE_TTL, json.dumps({"code": code, "attempts": 0}))
+    await redis.delete(_reset_attempts_key(email))
+    await redis.setex(key, RESET_CODE_TTL, json.dumps({"code": code}))
 
     try:
         await _send_sms_async(user.phone, f"Your Powerline reset code is: {code}")
@@ -190,7 +224,11 @@ async def reset_confirm(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    email = body.email.lower()
     redis = get_redis()
+
+    # Rate limits run before the lookup so an unknown email costs the same.
+    await check_rate_limit(redis, "reset-confirm-email", email, settings.AUTH_RATE_LIMIT)
     await check_rate_limit(
         redis, "reset-confirm-ip", get_client_ip(request), settings.AUTH_RATE_LIMIT
     )
@@ -199,8 +237,8 @@ async def reset_confirm(
         status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired code"
     )
 
-    email = body.email.lower()
-    key = f"reset:{email}"
+    key = _reset_key(email)
+    attempts_key = _reset_attempts_key(email)
     raw = await redis.get(key)
     if not raw:
         raise invalid
@@ -208,27 +246,24 @@ async def reset_confirm(
     try:
         stored = json.loads(raw)
         code = str(stored["code"])
-        attempts = int(stored.get("attempts", 0))
     except (TypeError, ValueError, KeyError):
-        await redis.delete(key)
+        await redis.delete(key, attempts_key)
         raise invalid
 
     if not hmac.compare_digest(code.encode(), body.code.encode()):
-        attempts += 1
-        ttl = await redis.ttl(key)
-        if attempts >= RESET_MAX_ATTEMPTS or ttl is None or ttl <= 0:
-            await redis.delete(key)
+        _, destroyed = await redis.eval(
+            _RESET_ATTEMPT_LUA, 2, key, attempts_key, RESET_CODE_TTL, RESET_MAX_ATTEMPTS
+        )
+        if destroyed:
             log.warning("reset_code_locked_out", email_fingerprint=_email_fingerprint(email))
-        else:
-            await redis.setex(key, ttl, json.dumps({"code": code, "attempts": attempts}))
         raise invalid
 
     user = await _user_by_email(db, email)
     if not user or not user.is_active:
         raise invalid
 
-    user.hashed_password = hash_password(body.new_password)
+    user.hashed_password = await hash_password_async(body.new_password)
     await db.commit()
 
-    await redis.delete(key)
+    await redis.delete(key, attempts_key)
     await revoke_user_sessions(redis, str(user.id))

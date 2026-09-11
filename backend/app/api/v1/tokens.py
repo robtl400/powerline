@@ -6,22 +6,19 @@ on org websites on behalf of supporters.
 from __future__ import annotations
 
 import asyncio
-import random
 import uuid
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.api.deps import DB
-from app.api.v1.helpers import get_live_campaign_or_404, resolve_rep_or_422, resolve_target_ids
+from app.api.v1.helpers import get_live_campaign_or_404, start_call_session
 from app.config import settings
 from app.dependencies import get_client_ip
 from app.models.blocklist import BlocklistEntry
-from app.models.call_session import CallSession
 from app.redis_client import get_redis
 from app.schemas.tokens import VoiceTokenRequest, VoiceTokenResponse
-from app.services.call_state import save_call_state
 from app.services.rate_limiter import check_rate_limit
 
 log = structlog.get_logger()
@@ -48,7 +45,8 @@ async def create_voice_token(
             → same webhook chain as phone callback path
 
     No auth required — the blocklist and both rate limits are applied before
-    any session is created or any Twilio credential is used.
+    any session is created or any Twilio credential is used, and the campaign's
+    call ceiling is claimed in the same transaction that opens the session.
     """
     # 1. Blocklist check by client IP — silent 403
     ip = get_client_ip(request)
@@ -72,57 +70,16 @@ async def create_voice_token(
     await check_rate_limit(redis, "token", ip, _TOKEN_RATE_LIMIT)
     await check_rate_limit(redis, "token-campaign", str(campaign.id), _TOKEN_CAMPAIGN_LIMIT)
 
-    # 4. Campaign-wide call ceiling
-    if campaign.call_maximum is not None:
-        count_result = await db.execute(
-            select(func.count()).select_from(CallSession).where(CallSession.campaign_id == campaign.id)
-        )
-        if (count_result.scalar_one() or 0) >= campaign.call_maximum:
-            log.warning("tokens_voice_campaign_maximum", campaign_id=str(campaign.id))
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="This campaign has reached its call limit"
-            )
-
-    # 5. Load targets (DB campaign targets or the rep behind the caller's handle)
-    rep = await resolve_rep_or_422(body.rep_token, campaign.id)
-    target_ids = await resolve_target_ids(campaign, db, rep=rep)
-
-    if not target_ids:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Campaign has no targets configured")
-
-    if campaign.target_ordering == "shuffle" and rep is None:
-        random.shuffle(target_ids)
-
-    # 6. Persist CallSession
-    session_id = uuid.uuid4()
-    session = CallSession(
-        id=session_id,
-        campaign_id=campaign.id,
+    # 4. Claim a slot under the campaign ceiling, open the session, store its state
+    session_id = await start_call_session(
+        campaign,
+        db,
         connection_type="webrtc",
-        status="initiated",
-    )
-    db.add(session)
-    await db.commit()
-
-    log.info(
-        "webrtc_session_created",
-        session_id=str(session_id),
-        campaign_id=str(campaign.id),
-        target_count=len(target_ids),
+        rep_token=body.rep_token,
+        client_ip=ip,
     )
 
-    # 7. Store call state in Redis (consumed by webhook chain)
-    state = {
-        "campaign_id": str(campaign.id),
-        "target_ids": target_ids,
-        "current_target_index": 0,
-        "caller_phone_hash": "",
-        "connection_type": "webrtc",
-        "client_ip": ip,
-    }
-    await save_call_state(session_id, state)
-
-    # 8. Generate Twilio Access Token with VoiceGrant (skipped in dev when key absent)
+    # 5. Generate Twilio Access Token with VoiceGrant (skipped in dev when key absent)
     if settings.TWILIO_API_KEY_SID:
         loop = asyncio.get_running_loop()
         try:

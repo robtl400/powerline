@@ -91,7 +91,7 @@ async def test_api_error_with_stale_cache_returns_cached_data(
     live_campaign: Campaign,
 ) -> None:
     """When Redis has a cached result, endpoint returns it without calling lookup_reps."""
-    stale = [{"name": "Stale Rep", "title": "Senator", "phone": "+10000000001", "level": "federal"}]
+    stale = [{"name": "Stale Rep", "title": "Senator", "phone": "+12025550901", "level": "federal"}]
 
     redis = get_redis()
     await redis.set(

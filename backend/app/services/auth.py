@@ -1,5 +1,8 @@
+import asyncio
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import bcrypt
@@ -11,6 +14,10 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
 ALGORITHM = "HS256"
+
+# How long a consumed refresh token keeps answering with its successor, so two
+# tabs refreshing at the same moment are not mistaken for a stolen token.
+REFRESH_GRACE_SECONDS = 30
 
 PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 128
@@ -46,6 +53,16 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(_bcrypt_input(plain), hashed.encode())
 
 
+async def hash_password_async(password: str) -> str:
+    """Hash off the event loop — bcrypt burns ~100ms of CPU per call."""
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    """Verify off the event loop — bcrypt burns ~100ms of CPU per call."""
+    return await asyncio.to_thread(verify_password, plain, hashed)
+
+
 def refresh_token_ttl() -> int:
     """Refresh-token lifetime in seconds."""
     return settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
@@ -53,6 +70,10 @@ def refresh_token_ttl() -> int:
 
 def refresh_key(user_id: str, jti: str) -> str:
     return f"refresh:{user_id}:{jti}"
+
+
+def refresh_grace_key(user_id: str, jti: str) -> str:
+    return f"refresh_grace:{user_id}:{jti}"
 
 
 def session_floor_key(user_id: str) -> str:
@@ -105,18 +126,82 @@ async def issue_refresh_token(redis: "Redis", user_id: str) -> str:
     return token
 
 
-async def consume_refresh_jti(redis: "Redis", user_id: str, jti: str) -> bool:
-    """Delete a registered jti, returning whether it was still valid."""
-    return bool(await redis.delete(refresh_key(user_id, jti)))
+class RefreshOutcome(StrEnum):
+    """What presenting a refresh token's jti turned out to be."""
+
+    CONSUMED = "consumed"
+    GRACE = "grace"
+    REPLAYED = "replayed"
+
+
+@dataclass(frozen=True)
+class RefreshRotation:
+    """The result of rotating a refresh token; `token` is None on a replay."""
+
+    outcome: RefreshOutcome
+    token: str | None = None
+
+
+# Retires the presented jti and records its successor, or reports what the jti
+# already is. Runs as one atomic step so two simultaneous presentations cannot
+# both see an unconsumed jti, and so a concurrent second presentation never
+# lands in the gap between the delete and the grace marker.
+_ROTATE_LUA = """
+if redis.call('DEL', KEYS[1]) == 1 then
+    redis.call('SETEX', KEYS[2], ARGV[2], ARGV[1])
+    return {'consumed', ''}
+end
+local successor = redis.call('GET', KEYS[2])
+if successor then
+    return {'grace', successor}
+end
+return {'replayed', ''}
+"""
+
+
+async def rotate_refresh_token(redis: "Redis", user_id: str, jti: str) -> RefreshRotation:
+    """Retire a presented refresh jti and return the token that replaces it.
+
+    A jti that was still registered is consumed and its successor is recorded
+    under a short grace window; presenting the same jti again inside that
+    window hands back the same successor, which is what a second browser tab
+    racing the first one needs. A jti that is neither registered nor inside its
+    grace window is a replay.
+    """
+    successor = create_refresh_token(user_id)
+    successor_jti = decode_token(successor)["jti"]
+    await redis.setex(refresh_key(user_id, successor_jti), refresh_token_ttl(), "1")
+
+    outcome, recorded = await redis.eval(
+        _ROTATE_LUA,
+        2,
+        refresh_key(user_id, jti),
+        refresh_grace_key(user_id, jti),
+        successor,
+        REFRESH_GRACE_SECONDS,
+    )
+
+    if outcome == RefreshOutcome.CONSUMED:
+        return RefreshRotation(RefreshOutcome.CONSUMED, successor)
+
+    await redis.delete(refresh_key(user_id, successor_jti))
+
+    if outcome == RefreshOutcome.GRACE:
+        return RefreshRotation(RefreshOutcome.GRACE, recorded)
+    return RefreshRotation(RefreshOutcome.REPLAYED)
 
 
 async def revoke_user_sessions(redis: "Redis", user_id: str) -> None:
     """End every session for a user: refresh tokens and outstanding access tokens.
 
     The session floor is compared against each access token's `iat`, so tokens
-    already in the wild stop working without waiting for their expiry.
+    already in the wild stop working without waiting for their expiry. Grace
+    markers go with the refresh tokens, so no retired jti can still hand out a
+    successor once the sessions behind it are gone.
     """
-    keys = [key async for key in redis.scan_iter(match=refresh_key(user_id, "*"))]
+    keys: list[str] = []
+    for pattern in (refresh_key(user_id, "*"), refresh_grace_key(user_id, "*")):
+        keys.extend([key async for key in redis.scan_iter(match=pattern)])
     if keys:
         await redis.delete(*keys)
     floor = datetime.now(timezone.utc).timestamp()

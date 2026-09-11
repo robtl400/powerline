@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -10,6 +10,20 @@ from app.db import Base
 
 class Call(Base):
     __tablename__ = "calls"
+    __table_args__ = (
+        Index(
+            "ux_calls_session_dial_sid",
+            "session_id",
+            "twilio_call_sid",
+            unique=True,
+            postgresql_where=text("twilio_call_sid <> ''"),
+        ),
+        Index(
+            "ix_calls_insights_candidates",
+            "created_at",
+            postgresql_where=text("status = 'completed' AND quality_details IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

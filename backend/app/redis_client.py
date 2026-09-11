@@ -6,7 +6,7 @@ access is needed (webhooks, auth, rate limiting, call state).
 """
 from __future__ import annotations
 
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import redis.asyncio as aioredis
 
@@ -19,6 +19,21 @@ def connection_kwargs(url: str, password: str) -> dict:
     if password and "@" not in urlsplit(url).netloc:
         kwargs["password"] = password
     return kwargs
+
+
+def redis_url_with_password(url: str, password: str) -> str:
+    """Return url with password injected, for clients that take only a URL.
+
+    Celery configures its broker and backend from a URL string alone, so the
+    password has to travel inside it. Same rule as connection_kwargs: a URL
+    that already carries credentials wins.
+    """
+    parts = urlsplit(url)
+    if not password or "@" in parts.netloc:
+        return url
+    return urlunsplit(
+        parts._replace(netloc=f":{quote(password, safe='')}@{parts.netloc}")
+    )
 
 
 def get_redis() -> aioredis.Redis:

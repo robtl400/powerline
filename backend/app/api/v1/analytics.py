@@ -10,13 +10,15 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
 from app.api.deps import DB, CurrentUser
 from app.api.v1.helpers import get_campaign_or_404, local_timezone
@@ -38,6 +40,76 @@ router = APIRouter(prefix="/campaigns", tags=["analytics"])
 SessionStatus = Literal["initiated", "in_progress", "completed", "failed"]
 ConnectionType = Literal["webrtc", "outbound_phone", "inbound_phone"]
 
+# Ceiling on rows written by the CSV export. Hitting it ends the file with a
+# comment line so the caller can tell a truncated export from a complete one.
+MAX_EXPORT_ROWS = 100_000
+
+# Rows accumulate in a StringIO until it holds at least this many characters,
+# then the buffer is drained into the response and reused.
+EXPORT_CHUNK_CHARS = 32_768
+
+EXPORT_FIELDS = [
+    "id",
+    "created_at",
+    "connection_type",
+    "status",
+    "call_count",
+    "duration_seconds",
+]
+
+
+def _drain(buffer: io.StringIO) -> str:
+    """Return everything written to ``buffer`` and reset it for reuse."""
+    chunk = buffer.getvalue()
+    buffer.seek(0)
+    buffer.truncate(0)
+    return chunk
+
+
+async def _stream_export_rows(
+    db: AsyncSession, stmt: Select[Any]
+) -> AsyncGenerator[str, None]:
+    """Yield the export CSV chunk by chunk, reading the result set as it arrives.
+
+    The AsyncSession comes from a dependency with ``yield``; FastAPI keeps that
+    dependency's exit stack open around the sending of the response, so the
+    session and its server-side cursor stay usable until the last chunk.
+    """
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=EXPORT_FIELDS)
+    writer.writeheader()
+    yield _drain(buffer)
+
+    cap = MAX_EXPORT_ROWS
+    written = 0
+    truncated = False
+
+    result = await db.stream(stmt.limit(cap + 1))
+    try:
+        async for row in result:
+            if written == cap:
+                truncated = True
+                break
+            writer.writerow({
+                "id": str(row.id),
+                "created_at": row.created_at.isoformat() if row.created_at else "",
+                "connection_type": row.connection_type,
+                "status": row.status,
+                "call_count": row.call_count,
+                "duration_seconds": row.duration or "",
+            })
+            written += 1
+            if buffer.tell() >= EXPORT_CHUNK_CHARS:
+                yield _drain(buffer)
+    finally:
+        await result.close()
+
+    tail = _drain(buffer)
+    if tail:
+        yield tail
+    if truncated:
+        yield f"# truncated: export is limited to {cap} rows\n"
+
 
 # ---------------------------------------------------------------------------
 # GET /{id}/calls/export  — must be registered BEFORE /{id}/calls
@@ -53,7 +125,11 @@ async def export_calls_csv(
     start: str | None = Query(default=None, description="ISO date, e.g. 2026-01-01"),
     end: str | None = Query(default=None, description="ISO date, e.g. 2026-03-01"),
 ) -> StreamingResponse:
-    """Export call sessions as CSV. Accepts the same filters as GET /{id}/calls."""
+    """Export call sessions as CSV. Accepts the same filters as GET /{id}/calls.
+
+    Rows are streamed straight from the database cursor and capped at
+    MAX_EXPORT_ROWS; a capped export ends with a `#` comment line saying so.
+    """
     await get_campaign_or_404(campaign_id, db)
 
     stmt = (
@@ -73,29 +149,9 @@ async def export_calls_csv(
 
     stmt = _apply_session_filters(stmt, status, connection_type, start, end)
 
-    result = await db.execute(stmt)
-    rows = result.all()
-
-    output = io.StringIO()
-    writer = csv.DictWriter(
-        output,
-        fieldnames=["id", "created_at", "connection_type", "status", "call_count", "duration_seconds"],
-    )
-    writer.writeheader()
-    for row in rows:
-        writer.writerow({
-            "id": str(row.id),
-            "created_at": row.created_at.isoformat() if row.created_at else "",
-            "connection_type": row.connection_type,
-            "status": row.status,
-            "call_count": row.call_count,
-            "duration_seconds": row.duration or "",
-        })
-
-    output.seek(0)
     filename = f"calls-{campaign_id}.csv"
     return StreamingResponse(
-        iter([output.getvalue()]),
+        _stream_export_rows(db, stmt),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

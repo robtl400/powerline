@@ -11,17 +11,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchCallCount, fetchCampaign, fetchReps, isRepsError } from "./api.js";
 import { renderIdle } from "./ui/templates.js";
 import { injectStyles } from "./ui/styles.js";
-import { WebRTCClient } from "./webrtc.js";
+import { loadWebRTCClient } from "./webrtc-loader.js";
 import { PowerlineWidget } from "./widget.js";
 import type { CampaignPublic, ConnectedData, WidgetState } from "./types.js";
 
 /** Matches any emoji / pictographic character, so the widget never renders one. */
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
-
-vi.mock("@twilio/voice-sdk", () => ({
-  Device: vi.fn(),
-  Call: { Codec: { Opus: "opus", PCMU: "PCMU" } },
-}));
 
 const fakeCampaign: CampaignPublic = {
   id: "campaign-1",
@@ -42,7 +37,9 @@ vi.mock("./api.js", () => ({
   isRepsError: vi.fn(() => false),
 }));
 
-vi.mock("./webrtc.js", () => ({
+// The Twilio SDK ships in a companion bundle the widget loads on demand, so
+// the widget only ever sees the loader.
+const webrtc = vi.hoisted(() => ({
   WebRTCClient: vi.fn().mockImplementation(() => ({
     start: vi.fn(async () => {}),
     destroy: vi.fn(),
@@ -52,11 +49,16 @@ vi.mock("./webrtc.js", () => ({
   })),
 }));
 
+vi.mock("./webrtc-loader.js", () => ({
+  loadWebRTCClient: vi.fn(async () => webrtc.WebRTCClient),
+}));
+
 const mockFetchCampaign = vi.mocked(fetchCampaign);
 const mockFetchReps = vi.mocked(fetchReps);
 const mockFetchCallCount = vi.mocked(fetchCallCount);
 const mockIsRepsError = vi.mocked(isRepsError);
-const MockWebRTCClient = vi.mocked(WebRTCClient);
+const mockLoadWebRTCClient = vi.mocked(loadWebRTCClient);
+const MockWebRTCClient = webrtc.WebRTCClient;
 
 type StateDriver = (state: WidgetState, data?: unknown) => void;
 
@@ -250,12 +252,12 @@ describe("PowerlineWidget rep selection", () => {
     expect(button!.dataset.plTitle).toBe("U.S. Representative");
   });
 
-  it("hands the rep token and display info to the WebRTC client", () => {
+  it("hands the rep token and display info to the WebRTC client", async () => {
     container
       .querySelector<HTMLElement>('[data-pl-action="select-rep"]')!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    expect(MockWebRTCClient).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(MockWebRTCClient).toHaveBeenCalledTimes(1));
     const args = MockWebRTCClient.mock.calls[0];
     expect(args[4]).toBe("tok-1");
     expect(args[5]).toEqual({
@@ -508,5 +510,77 @@ describe("PowerlineWidget completion screen", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("PowerlineWidget on-demand WebRTC bundle", () => {
+  let container: HTMLElement;
+
+  /** Render the widget and press Call Now on the idle screen. */
+  async function callNow(campaign: CampaignPublic): Promise<void> {
+    document.body.innerHTML = "";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    mockFetchCampaign.mockResolvedValue(campaign);
+
+    const widget = new PowerlineWidget({
+      campaignId: "campaign-1",
+      container,
+    });
+    await widget.init();
+
+    container
+      .querySelector<HTMLElement>('[data-pl-action="call-now"]')!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("RTCPeerConnection", vi.fn());
+    MockWebRTCClient.mockClear();
+    mockLoadWebRTCClient.mockReset();
+    mockLoadWebRTCClient.mockResolvedValue(MockWebRTCClient);
+  });
+
+  it("does not fetch the bundle before a call starts", async () => {
+    document.body.innerHTML = "";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    mockFetchCampaign.mockResolvedValue(fakeCampaign);
+
+    await new PowerlineWidget({
+      campaignId: "campaign-1",
+      container,
+    }).init();
+
+    expect(mockLoadWebRTCClient).not.toHaveBeenCalled();
+  });
+
+  it("fetches the bundle from the API base when the call starts", async () => {
+    await callNow(fakeCampaign);
+
+    await vi.waitFor(() => expect(MockWebRTCClient).toHaveBeenCalledTimes(1));
+    expect(mockLoadWebRTCClient).toHaveBeenCalledWith("");
+  });
+
+  it("offers the phone fallback when the bundle will not load", async () => {
+    mockLoadWebRTCClient.mockRejectedValue(new Error("offline"));
+
+    await callNow(fakeCampaign);
+
+    await vi.waitFor(() =>
+      expect(container.innerHTML).toContain("We'll call you")
+    );
+    expect(MockWebRTCClient).not.toHaveBeenCalled();
+  });
+
+  it("shows an error when the bundle fails and there is no phone fallback", async () => {
+    mockLoadWebRTCClient.mockRejectedValue(new Error("offline"));
+
+    await callNow({ ...fakeCampaign, allow_phone_callback: false });
+
+    await vi.waitFor(() =>
+      expect(container.innerHTML).toContain("Browser calling could not be loaded")
+    );
+    expect(MockWebRTCClient).not.toHaveBeenCalled();
   });
 });

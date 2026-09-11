@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -23,6 +24,7 @@ RATE_SCOPES = (
     "login-email",
     "reset-request",
     "reset-request-ip",
+    "reset-confirm-email",
     "reset-confirm-ip",
 )
 NEW_PASSWORD = "newpassword123"
@@ -62,7 +64,9 @@ async def reset_user(db: AsyncSession, redis) -> AsyncGenerator[User, None]:
     await db.commit()
     await db.refresh(user)
     yield user
-    await redis.delete(f"reset:{user.email.lower()}")
+    await redis.delete(
+        f"reset:{user.email.lower()}", f"reset_attempts:{user.email.lower()}"
+    )
     await db.execute(delete(User).where(User.id == user.id))
     await db.commit()
 
@@ -96,7 +100,6 @@ async def test_reset_request_stores_code_and_sends_one_sms(
     stored = await _stored_reset(redis, reset_user.email)
     assert len(stored["code"]) == 8
     assert stored["code"].isdigit()
-    assert stored["attempts"] == 0
 
     assert auth_sms.call_count == 1
     assert stored["code"] in auth_sms.call_args.args[1]
@@ -145,6 +148,7 @@ async def test_reset_confirm_locks_out_after_five_wrong_codes(
         assert resp.json()["detail"] == "Invalid or expired code"
 
     assert await redis.get(f"reset:{reset_user.email.lower()}") is None
+    assert await redis.get(f"reset_attempts:{reset_user.email.lower()}") is None
 
     resp = await client.post(
         "/api/v1/auth/reset-confirm",
@@ -157,6 +161,26 @@ async def test_reset_confirm_locks_out_after_five_wrong_codes(
         json={"email": reset_user.email, "password": NEW_PASSWORD},
     )
     assert login.status_code == 401
+
+
+async def test_reset_confirm_rate_limited_per_email(client: AsyncClient, redis) -> None:
+    """The email counter stands on its own: clearing the IP counter does not lift it."""
+    email = f"unknown_{uuid.uuid4().hex[:8]}@test.example"
+    payload = {"email": email, "code": "00000000", "new_password": NEW_PASSWORD}
+
+    async def _clear_ip_counter() -> None:
+        keys = [key async for key in redis.scan_iter(match="rate:reset-confirm-ip:*")]
+        if keys:
+            await redis.delete(*keys)
+
+    for _ in range(settings.AUTH_RATE_LIMIT):
+        await _clear_ip_counter()
+        resp = await client.post("/api/v1/auth/reset-confirm", json=payload)
+        assert resp.status_code == 400
+
+    await _clear_ip_counter()
+    resp = await client.post("/api/v1/auth/reset-confirm", json=payload)
+    assert resp.status_code == 429
 
 
 async def test_reset_confirm_sets_new_password(
@@ -332,6 +356,41 @@ async def test_create_user_does_not_sms_a_supplied_password(
     finally:
         await db.execute(delete(User).where(User.email == email))
         await db.commit()
+
+
+async def test_create_user_conflicts_when_the_insert_loses_the_race(
+    client: AsyncClient,
+    admin_headers: dict,
+    users_sms: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A duplicate that slips past the pre-check is caught by the unique index."""
+    original_commit = AsyncSession.commit
+    commits = {"count": 0}
+
+    async def _first_commit_collides(self: AsyncSession) -> None:
+        commits["count"] += 1
+        if commits["count"] == 1:
+            raise IntegrityError(
+                "INSERT INTO users", {}, Exception("duplicate key value violates unique constraint")
+            )
+        await original_commit(self)
+
+    monkeypatch.setattr(AsyncSession, "commit", _first_commit_collides)
+
+    resp = await client.post(
+        "/api/v1/users",
+        headers=admin_headers,
+        json={
+            "email": f"race_{uuid.uuid4().hex[:8]}@test.example",
+            "name": "Race Loser",
+            "phone": "+12025551234",
+            "password": "racedpassword123",
+        },
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Email already registered"
+    assert users_sms.call_count == 0
 
 
 async def test_long_passwords_are_accepted_not_crashed(

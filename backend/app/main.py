@@ -1,11 +1,13 @@
 import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api.v1 import auth, calls, campaigns, health, phone_numbers, reps, tokens, users, webhooks
@@ -13,6 +15,7 @@ from app.api.v1.admin import router as admin_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.audio import router_audio, router_campaign_audio
 from app.config import settings
+from app.dependencies import _trusted_proxy_networks
 from app.version import __version__
 
 log = structlog.get_logger()
@@ -83,6 +86,23 @@ class PathScopedCORSMiddleware:
         await handler(scope, receive, send)
 
 
+STATIC_CACHE_CONTROL = "public, max-age=300, must-revalidate"
+
+
+class CachedStaticFiles(StaticFiles):
+    """Serve /static with a short, revalidating cache lifetime.
+
+    The embed bundle lives at one fixed URL, so a browser that caches it
+    indefinitely keeps calling the API with a stale widget. Five minutes plus
+    revalidation keeps embedding sites within one release of the API.
+    """
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = STATIC_CACHE_CONTROL
+        return response
+
+
 def docs_enabled() -> bool:
     """Interactive docs are on when forced on, or by default in development."""
     return settings.DOCS_ENABLED is True or (
@@ -103,8 +123,25 @@ def _validate_startup_config() -> None:
             "Generate one with: openssl rand -hex 32"
         )
 
+    try:
+        ZoneInfo(settings.TIMEZONE)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise RuntimeError(
+            f"TIMEZONE is not a known IANA timezone name: {settings.TIMEZONE!r}. "
+            "Use a name like UTC or America/New_York."
+        )
+
     if settings.is_development:
         return
+
+    if not _trusted_proxy_networks():
+        raise RuntimeError(
+            "TRUSTED_PROXIES must list at least one valid IP or CIDR in production — "
+            "X-Forwarded-For is ignored without it, so every request is rate limited "
+            "under the reverse proxy's own address. Set it to the subnet Caddy runs on: "
+            "docker network inspect powerline_default "
+            "-f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'"
+        )
 
     if not settings.TWILIO_AUTH_TOKEN:
         raise RuntimeError(
@@ -180,7 +217,7 @@ def create_app() -> FastAPI:
     # Server starts fine either way — the bundle is optional to the API.
     embed_dist = os.environ.get("EMBED_DIST_DIR", "/app/embed-dist")
     try:
-        app.mount("/static", StaticFiles(directory=embed_dist), name="static")
+        app.mount("/static", CachedStaticFiles(directory=embed_dist), name="static")
     except RuntimeError:
         if settings.is_development:
             log.warning("embed_static_missing", directory=embed_dist)

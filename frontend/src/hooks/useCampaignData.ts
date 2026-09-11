@@ -51,6 +51,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
 
   // ── Targets ────────────────────────────────────────────────────────────────
   const [targets, setTargets] = useState<Target[]>([]);
+  const [targetsTotal, setTargetsTotal] = useState(0);
   const [addingTarget, setAddingTarget] = useState(false);
   const [targetForm, setTargetForm] = useState<TargetForm>(emptyTargetForm());
   const [targetError, setTargetError] = useState<string | null>(null);
@@ -134,6 +135,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
         });
         setStatus(c.status);
         setTargets(c.targets);
+        setTargetsTotal(c.targets_total);
         const ec = c.embed_config ?? {};
         setEmbedConfig(ec);
         setTargetLevels((ec.target_levels as string[]) ?? []);
@@ -267,6 +269,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
         external_id: targetForm.external_id || null,
       });
       setTargets((prev) => [...prev, res.data]);
+      setTargetsTotal((n) => n + 1);
       setTargetForm(emptyTargetForm());
       setAddingTarget(false);
     } catch (e: unknown) {
@@ -288,6 +291,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     setPendingDeleteTarget(null);
     await client.delete(`/campaigns/${id}/targets/${target.id}`);
     setTargets((prev) => prev.filter((t) => t.id !== target.id));
+    setTargetsTotal((n) => Math.max(0, n - 1));
   }
 
   function startEditTarget(target: Target) {
@@ -327,6 +331,12 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id || !id) return;
+    if (targets.length < targetsTotal) {
+      setTargetError(
+        "Reordering needs the whole target list, and this campaign has more targets than are shown."
+      );
+      return;
+    }
     const oldIndex = targets.findIndex((t) => t.id === active.id);
     const newIndex = targets.findIndex((t) => t.id === over.id);
     const reordered = arrayMove(targets, oldIndex, newIndex).map((t, i) => ({
@@ -403,8 +413,9 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
 
       // Refresh targets list from API
       if (res.data.imported > 0 || res.data.updated > 0) {
-        const refreshed = await client.get<{ targets: Target[] }>(`/campaigns/${id}`);
+        const refreshed = await client.get<CampaignDetail>(`/campaigns/${id}`);
         setTargets(refreshed.data.targets);
+        setTargetsTotal(refreshed.data.targets_total);
       }
     } catch (e: unknown) {
       setImportError(getErrorDetail(e, "Import failed."));
@@ -493,6 +504,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     handleSave,
     // targets
     targets, setTargets,
+    targetsTotal,
     addingTarget, setAddingTarget,
     targetForm, setTargetForm,
     targetError, setTargetError,
