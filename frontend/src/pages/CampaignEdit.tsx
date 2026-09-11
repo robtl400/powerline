@@ -11,13 +11,11 @@ import { CampaignStatsTab } from "@/components/campaign/CampaignStatsTab";
 import { CampaignTargetsTab } from "@/components/campaign/CampaignTargetsTab";
 import { TestCallModal } from "@/components/campaign/TestCallModal";
 import { CampaignTabs, type CampaignTab } from "@/components/campaign/CampaignTabs";
-import CampaignWizard from "@/components/campaign/CampaignWizard";
 
 type TabType = CampaignTab;
 
 export default function CampaignEdit() {
   const { id } = useParams<{ id: string }>();
-  const isNew = !id;
   const navigate = useNavigate();
   const { user } = useAuth();
   const readOnly = user?.role !== "admin";
@@ -25,8 +23,6 @@ export default function CampaignEdit() {
   const [activeTab, setActiveTab] = useState<TabType>("settings");
 
   const data = useCampaignData(id, activeTab);
-
-  if (isNew) return <CampaignWizard />;
 
   if (data.loading) return <p className="text-brand-grey-dark">Loading…</p>;
 
@@ -41,16 +37,12 @@ export default function CampaignEdit() {
           ← Campaigns
         </button>
         <div className="flex items-center gap-3">
-          <h1 className={PAGE_HEADING}>
-            {isNew ? "New Campaign" : data.form.name || "Edit Campaign"}
-          </h1>
-          {!isNew && (
-            <span
-              className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[data.status] ?? ""}`}
-            >
-              {data.status}
-            </span>
-          )}
+          <h1 className={PAGE_HEADING}>{data.form.name || "Edit Campaign"}</h1>
+          <span
+            className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[data.status] ?? ""}`}
+          >
+            {data.status}
+          </span>
         </div>
       </div>
 
@@ -60,21 +52,19 @@ export default function CampaignEdit() {
         </div>
       )}
 
-      {/* Tab bar — edit mode only */}
-      {!isNew && <CampaignTabs activeTab={activeTab} onChange={setActiveTab} />}
+      <CampaignTabs activeTab={activeTab} onChange={setActiveTab} />
 
       <div
         id={`campaign-panel-${activeTab}`}
         role="tabpanel"
         aria-labelledby={`campaign-tab-${activeTab}`}
       >
-        {/* Settings tab (or full form for new campaign) */}
-        {(isNew || activeTab === "settings") && (
+        {/* Settings tab */}
+        {activeTab === "settings" && (
           <CampaignSettingsTab
             form={data.form}
             setForm={data.setForm}
             status={data.status}
-            isNew={isNew}
             saving={data.saving}
             handleSave={data.handleSave}
             statusMenuOpen={data.statusMenuOpen}
@@ -96,7 +86,7 @@ export default function CampaignEdit() {
         )}
 
         {/* Targets tab */}
-        {!isNew && activeTab === "targets" && (
+        {activeTab === "targets" && (
           <CampaignTargetsTab
             targets={data.targets}
             targetsTotal={data.targetsTotal}
@@ -137,7 +127,7 @@ export default function CampaignEdit() {
         )}
 
         {/* Audio tab */}
-        {!isNew && activeTab === "audio" && (
+        {activeTab === "audio" && (
           <CampaignAudioTab
             campaignId={id!}
             campaignStatus={data.status}
@@ -149,7 +139,7 @@ export default function CampaignEdit() {
         )}
 
         {/* Embed tab */}
-        {!isNew && activeTab === "embed" && (
+        {activeTab === "embed" && (
           <CampaignEmbedTab
             campaignId={id!}
             embedApiUrl={data.embedApiUrl}
@@ -160,7 +150,7 @@ export default function CampaignEdit() {
         )}
 
         {/* Stats tab */}
-        {!isNew && activeTab === "stats" && (
+        {activeTab === "stats" && (
           <CampaignStatsTab
             campaignStats={data.campaignStats}
             qualityData={data.qualityData}

@@ -12,7 +12,7 @@ import hmac
 import json
 import secrets
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -29,7 +29,6 @@ from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
 from app.services.call_state import load_call_state, save_call_state
 from app.services.civic_service import issue_rep_tokens, resolve_rep_token
-from app.services.telephony.base import CallResult
 
 TEST_IP = "127.0.0.1"
 
@@ -67,34 +66,16 @@ MODULE_PHONES = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def mock_twilio():
-    """Keep every test off the real Twilio API."""
-    provider = MagicMock()
-    provider.create_call.return_value = CallResult(sid="CAtest", status="queued")
-    provider.validate_phone.return_value = MagicMock(is_valid=True, line_type="mobile")
-    with patch("app.api.v1.calls.get_provider", return_value=provider):
-        with patch("app.api.v1.tokens._build_access_token", return_value="dev-token"):
-            yield provider
+pytestmark = pytest.mark.usefixtures("mock_twilio")
 
 
 @pytest.fixture(autouse=True)
-async def clear_rate_buckets(redis):
+async def clear_rate_buckets(clear_rate_keys):
     """Drop every rate-limit bucket this module touches, before and after."""
-    keys = [
-        f"rate:call-ip:{TEST_IP}",
-        f"rate:call-webhook-ip:{TEST_IP}",
-        f"rate:token:{TEST_IP}",
-        f"rate:reps:{TEST_IP}",
-    ]
-    keys += [
-        f"rate:{scope}:{phone_hash(phone)}"
-        for scope in ("call", "call-webhook")
-        for phone in MODULE_PHONES
-    ]
-    await redis.delete(*keys)
-    yield
-    await redis.delete(*keys)
+    await clear_rate_keys(("call-ip", "call-webhook-ip", "token", "reps"), [TEST_IP])
+    await clear_rate_keys(
+        ("call", "call-webhook"), [phone_hash(phone) for phone in MODULE_PHONES]
+    )
 
 
 @pytest.fixture

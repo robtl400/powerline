@@ -9,8 +9,8 @@ import structlog
 
 from app.redis_client import get_redis
 from app.schemas.target import to_us_e164
+from app.services.civic import router
 from app.services.civic.google_civic import MissingApiKeyError
-from app.services.civic.router import LevelRouter
 
 log = structlog.get_logger()
 
@@ -21,8 +21,6 @@ REP_TOKEN_TTL = 3600  # 1 hour — matches the widget's usable selection window
 # "(512) 463-0100 x1234". A rep is reached on the main line, so the extension
 # is not part of the number that gets dialed.
 _EXTENSION_RE = re.compile(r"[\s,;.]*(?:extension|ext|x)\.?\s*\d+\s*$", re.IGNORECASE)
-
-_router = LevelRouter()
 
 
 def normalize_rep_phone(value: str | None) -> str | None:
@@ -43,7 +41,7 @@ def normalize_rep_phone(value: str | None) -> str | None:
 
 
 def _configured_levels(embed_config: dict) -> list[str]:
-    """The levels LevelRouter will actually fan out to, in a stable order."""
+    """The levels the civic router will actually fan out to, in a stable order."""
     return sorted(embed_config.get("target_levels", ["federal"]))
 
 
@@ -70,7 +68,7 @@ async def lookup_reps(zip_code: str, campaign_id: str, embed_config: dict) -> li
         log.debug("reps_cache_hit", zip=zip_code, campaign_id=campaign_id)
         return json.loads(cached)
 
-    reps = await _router.lookup(zip_code, embed_config)
+    reps = await router.lookup(zip_code, embed_config)
     payload = [dataclasses.asdict(r) for r in reps]
 
     try:

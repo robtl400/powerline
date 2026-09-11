@@ -15,7 +15,6 @@ function renderTab(overrides: Partial<Props> = {}) {
     form: { ...emptyForm(), name: "Call Your Senator" },
     setForm: vi.fn(),
     status: "draft",
-    isNew: false,
     saving: false,
     handleSave: vi.fn(),
     statusMenuOpen: false,
@@ -57,8 +56,8 @@ describe("CampaignSettingsTab — editable", () => {
     ).not.toBeDisabled();
   });
 
-  it("hides Change Status for a brand-new campaign", () => {
-    renderTab({ isNew: true });
+  it("hides Change Status when no transition is available", () => {
+    renderTab({ nextStatuses: [] });
 
     expect(
       screen.queryByRole("button", { name: "Change Status" })

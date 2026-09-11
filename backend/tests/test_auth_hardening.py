@@ -32,23 +32,14 @@ OLD_PASSWORD = "oldpassword123"
 RESET_REQUEST_LIMIT = max(3, settings.AUTH_RATE_LIMIT // 3)
 
 
-async def _clear_rate_keys(redis) -> None:
-    for scope in RATE_SCOPES:
-        keys = [key async for key in redis.scan_iter(match=f"rate:{scope}:*")]
-        if keys:
-            await redis.delete(*keys)
-
-
 @pytest.fixture(autouse=True)
-async def clean_rate_limits(redis) -> AsyncGenerator[None, None]:
+async def clean_rate_limits(clear_rate_keys) -> None:
     """Drop auth rate-limit counters around each test.
 
     The suite shares one Redis with other tests, and the IP-scoped counters
     all key off the same 127.0.0.1 test client.
     """
-    await _clear_rate_keys(redis)
-    yield
-    await _clear_rate_keys(redis)
+    await clear_rate_keys(RATE_SCOPES)
 
 
 @pytest.fixture

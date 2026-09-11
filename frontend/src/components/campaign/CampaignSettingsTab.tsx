@@ -9,7 +9,6 @@ export function CampaignSettingsTab({
   form,
   setForm,
   status,
-  isNew,
   saving,
   handleSave,
   statusMenuOpen,
@@ -28,7 +27,6 @@ export function CampaignSettingsTab({
   form: CampaignForm;
   setForm: (fn: (prev: CampaignForm) => CampaignForm) => void;
   status: string;
-  isNew: boolean;
   saving: boolean;
   handleSave: () => void;
   statusMenuOpen: boolean;
@@ -189,7 +187,7 @@ export function CampaignSettingsTab({
       </section>
 
       {/* Launch Checklist — shown when campaign is live */}
-      {!isNew && status === "live" && (
+      {status === "live" && (
         <section>
           <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
             Launch Checklist
@@ -236,7 +234,7 @@ export function CampaignSettingsTab({
       )}
 
       {/* Test Call button — opens modal when campaign is live */}
-      {!isNew && status === "live" && form.allow_phone_callback && (
+      {status === "live" && form.allow_phone_callback && (
         <section>
           <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
             Test Call
@@ -265,7 +263,7 @@ export function CampaignSettingsTab({
             {saving ? "Saving…" : "Save Campaign"}
           </button>
 
-          {!isNew && nextStatuses.length > 0 && (
+          {nextStatuses.length > 0 && (
             <div className="relative">
               <button
                 onClick={openStatusMenu}

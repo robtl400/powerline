@@ -1,3 +1,4 @@
+import functools
 import ipaddress
 import uuid
 
@@ -16,20 +17,13 @@ from app.services.auth import decode_token, session_floor
 log = structlog.get_logger()
 bearer = HTTPBearer()
 
-_trusted_proxy_cache: tuple[str, list[ipaddress.IPv4Network | ipaddress.IPv6Network]] | None = None
+_Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 
-def _trusted_proxy_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-    """Parse settings.TRUSTED_PROXIES into networks, cached on the raw string."""
-    global _trusted_proxy_cache
-
-    from app.config import settings
-
-    raw = settings.TRUSTED_PROXIES
-    if _trusted_proxy_cache is not None and _trusted_proxy_cache[0] == raw:
-        return _trusted_proxy_cache[1]
-
-    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+@functools.lru_cache(maxsize=1)
+def _parse_trusted_proxies(raw: str) -> tuple[_Network, ...]:
+    """Parse a comma-separated proxy list into networks, skipping invalid entries."""
+    networks: list[_Network] = []
     for entry in raw.split(","):
         entry = entry.strip()
         if not entry:
@@ -38,9 +32,13 @@ def _trusted_proxy_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Netw
             networks.append(ipaddress.ip_network(entry, strict=False))
         except ValueError:
             log.warning("trusted_proxy_invalid", entry=entry)
+    return tuple(networks)
 
-    _trusted_proxy_cache = (raw, networks)
-    return networks
+
+def _trusted_proxy_networks() -> tuple[_Network, ...]:
+    from app.config import settings
+
+    return _parse_trusted_proxies(settings.TRUSTED_PROXIES)
 
 
 def _is_ip(candidate: str) -> bool:
@@ -51,7 +49,7 @@ def _is_ip(candidate: str) -> bool:
     return True
 
 
-def _is_trusted(candidate: str, networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network]) -> bool:
+def _is_trusted(candidate: str, networks: tuple[_Network, ...]) -> bool:
     if not networks:
         return False
     try:

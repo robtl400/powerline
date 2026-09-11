@@ -15,10 +15,9 @@ from app.dependencies import get_client_ip
 
 @pytest.fixture
 def trusted(monkeypatch: pytest.MonkeyPatch):
-    """Set TRUSTED_PROXIES for one test, with a cleared parse cache."""
+    """Set TRUSTED_PROXIES for one test."""
 
     def install(raw: str) -> None:
-        monkeypatch.setattr(dependencies, "_trusted_proxy_cache", None)
         monkeypatch.setattr(settings, "TRUSTED_PROXIES", raw)
 
     return install

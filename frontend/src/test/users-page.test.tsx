@@ -2,8 +2,8 @@
  * Page tests for Users: role-gated controls and the PATCH /users/{id} row actions.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 interface AuthUser {
@@ -71,13 +71,25 @@ function axiosError(status: number, detail: string) {
   });
 }
 
+/**
+ * Both layouts render — the table is hidden below `sm` and the card list from
+ * `sm` up — so every row assertion scopes itself to one of them.
+ */
+function table() {
+  return within(screen.getByRole("table"));
+}
+
+function cards() {
+  return within(screen.getByRole("list"));
+}
+
 async function renderUsers() {
   const result = render(
     <MemoryRouter>
       <Users />
     </MemoryRouter>
   );
-  await screen.findByText("Sam Staff");
+  await screen.findAllByText("Sam Staff");
   return result;
 }
 
@@ -98,14 +110,14 @@ describe("Users — admin", () => {
 
   it("shows a role select and an activation button on each row", async () => {
     await renderUsers();
-    expect(screen.getByLabelText("Role for Sam Staff")).toBeInTheDocument();
-    expect(screen.getByLabelText("Role for Ada Admin")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Deactivate" })).toHaveLength(2);
+    expect(table().getByLabelText("Role for Sam Staff")).toBeInTheDocument();
+    expect(table().getByLabelText("Role for Ada Admin")).toBeInTheDocument();
+    expect(table().getAllByRole("button", { name: "Deactivate" })).toHaveLength(2);
   });
 
   it("disables Deactivate on the current user's own row", async () => {
     await renderUsers();
-    const buttons = screen.getAllByRole("button", { name: "Deactivate" });
+    const buttons = table().getAllByRole("button", { name: "Deactivate" });
     expect(buttons[0]).toBeDisabled();
     expect(buttons[1]).toBeEnabled();
   });
@@ -114,19 +126,19 @@ describe("Users — admin", () => {
     mockClient.patch.mockResolvedValue({ data: { ...USER_ROWS[1], is_active: false } });
     await renderUsers();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Deactivate" })[1]);
+    fireEvent.click(table().getAllByRole("button", { name: "Deactivate" })[1]);
 
     await waitFor(() =>
       expect(mockClient.patch).toHaveBeenCalledWith("/users/staff-1", { is_active: false })
     );
-    expect(await screen.findByRole("button", { name: "Activate" })).toBeInTheDocument();
+    expect(await table().findByRole("button", { name: "Activate" })).toBeInTheDocument();
   });
 
   it("patches the new role when the role select changes", async () => {
     mockClient.patch.mockResolvedValue({ data: { ...USER_ROWS[1], role: "admin" } });
     await renderUsers();
 
-    fireEvent.change(screen.getByLabelText("Role for Sam Staff"), { target: { value: "admin" } });
+    fireEvent.change(table().getByLabelText("Role for Sam Staff"), { target: { value: "admin" } });
 
     await waitFor(() =>
       expect(mockClient.patch).toHaveBeenCalledWith("/users/staff-1", { role: "admin" })
@@ -139,10 +151,10 @@ describe("Users — admin", () => {
     );
     await renderUsers();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Deactivate" })[1]);
+    fireEvent.click(table().getAllByRole("button", { name: "Deactivate" })[1]);
 
     expect(
-      await screen.findByText("Cannot deactivate or demote the last active admin")
+      await table().findByText("Cannot deactivate or demote the last active admin")
     ).toBeInTheDocument();
   });
 });
@@ -196,7 +208,7 @@ describe("Users — invite result", () => {
         "Account created, but the invite SMS could not be sent. Share the reset flow with the user."
       )
     );
-    expect(await screen.findByText("Nia New")).toBeInTheDocument();
+    expect(await table().findByText("Nia New")).toBeInTheDocument();
   });
 });
 
@@ -224,7 +236,7 @@ describe("Users — paging", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
 
     await waitFor(() => expect(mockClient.get).toHaveBeenLastCalledWith("/users?skip=2"));
-    expect(await screen.findByText("Kit Staff")).toBeInTheDocument();
+    expect(await table().findByText("Kit Staff")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
   });
 });
@@ -244,45 +256,24 @@ describe("Users — staff", () => {
 });
 
 describe("Users — narrow viewport", () => {
-  function mockNarrowViewport(narrow: boolean) {
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn().mockImplementation((query: string) => ({
-        matches: narrow,
-        media: query,
-        onchange: null,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }))
-    );
-  }
-
   beforeEach(() => {
     setCurrentUser(ADMIN);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("renders a card per user instead of the table", async () => {
-    mockNarrowViewport(true);
+  it("carries every table control on a card per user", async () => {
     await renderUsers();
 
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(screen.getByText("sam@example.com")).toBeInTheDocument();
-    expect(screen.getByLabelText("Role for Sam Staff")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Deactivate" })).toHaveLength(2);
+    expect(cards().getByText("sam@example.com")).toBeInTheDocument();
+    expect(cards().getByText("+12025550002")).toBeInTheDocument();
+    expect(cards().getByLabelText("Role for Sam Staff")).toBeInTheDocument();
+    expect(cards().getAllByRole("button", { name: "Deactivate" })).toHaveLength(2);
   });
 
-  it("keeps the table from sm up", async () => {
-    mockNarrowViewport(false);
+  it("shows the cards only below sm and the table only from sm up", async () => {
     await renderUsers();
 
-    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("list")).toHaveClass("sm:hidden");
+    expect(screen.getByRole("table").parentElement).toHaveClass("hidden", "sm:block");
   });
 });
 

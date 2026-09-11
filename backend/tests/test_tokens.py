@@ -6,7 +6,6 @@ Covers:
   - Rate limit: 6th token request from same IP returns 429
 """
 import uuid
-from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
@@ -19,24 +18,13 @@ from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
 
-
-@pytest.fixture(autouse=True)
-def mock_build_access_token():
-    """Skip real Twilio JWT signing — return a stable dev token string."""
-    with patch("app.api.v1.tokens._build_access_token", return_value="dev-token"):
-        yield
+pytestmark = pytest.mark.usefixtures("mock_twilio")
 
 
 @pytest.fixture(autouse=True)
-async def clear_token_rate_limit(redis):
-    """Drop the shared per-IP token bucket around every test in this module.
-
-    Every request from the ASGI test client arrives from the same client IP,
-    so the "token" bucket would otherwise leak between tests.
-    """
-    await redis.delete("rate:token:127.0.0.1")
-    yield
-    await redis.delete("rate:token:127.0.0.1")
+async def clear_token_rate_limit(clear_rate_keys):
+    """Drop the shared per-IP token bucket around every test in this module."""
+    await clear_rate_keys(["token"], ["127.0.0.1"])
 
 
 @pytest.fixture

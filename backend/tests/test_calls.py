@@ -8,7 +8,7 @@ regardless of whether TWILIO_ACCOUNT_SID / PUBLIC_BASE_URL are set in .env.
 Redis must be reachable (provided by docker compose).
 """
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import AsyncClient
@@ -22,22 +22,8 @@ from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
-from app.services.telephony.base import CallResult
 
-
-@pytest.fixture(autouse=True)
-def mock_twilio_create_call():
-    """Patch get_provider() in calls.py so no real Twilio API calls are made.
-
-    Uses autouse=True so every test in this module gets the mock automatically,
-    regardless of whether credentials are present in .env.
-    """
-    mock_provider = MagicMock()
-    mock_provider.create_call.return_value = CallResult(sid="CAtest", status="queued")
-    mock_provider.validate_phone.return_value = MagicMock(is_valid=True, line_type="mobile")
-    with patch("app.api.v1.calls.get_provider", return_value=mock_provider):
-        yield mock_provider
-
+pytestmark = pytest.mark.usefixtures("mock_twilio")
 
 MODULE_PHONES = [
     "+12025550143",
@@ -52,19 +38,10 @@ MODULE_PHONES = [
 
 
 @pytest.fixture(autouse=True)
-async def clear_rate_buckets(redis):
-    """Drop every rate-limit bucket this module touches, before and after.
-
-    All requests from the ASGI test client share one client IP, and the
-    per-phone buckets survive the hour-long window, so both would otherwise
-    leak between tests and between suite runs.
-    """
-    keys = ["rate:call-ip:127.0.0.1"] + [
-        f"rate:call:{phone_hash(phone)}" for phone in MODULE_PHONES
-    ]
-    await redis.delete(*keys)
-    yield
-    await redis.delete(*keys)
+async def clear_rate_buckets(clear_rate_keys):
+    """Drop every rate-limit bucket this module touches, before and after."""
+    await clear_rate_keys(["call-ip"], ["127.0.0.1"])
+    await clear_rate_keys(["call"], [phone_hash(phone) for phone in MODULE_PHONES])
 
 
 @pytest.fixture
@@ -360,7 +337,7 @@ async def test_lookup_require_mobile_rejects_non_mobile_lines(
     client: AsyncClient,
     db: AsyncSession,
     campaign_with_target: tuple[Campaign, Target],
-    mock_twilio_create_call: MagicMock,
+    mock_twilio: MagicMock,
     monkeypatch,
     line_type: str | None,
 ) -> None:
@@ -371,7 +348,7 @@ async def test_lookup_require_mobile_rejects_non_mobile_lines(
     await db.commit()
 
     monkeypatch.setattr(settings, "TWILIO_ACCOUNT_SID", "ACtest")
-    mock_twilio_create_call.validate_phone.return_value = MagicMock(
+    mock_twilio.validate_phone.return_value = MagicMock(
         is_valid=True, line_type=line_type
     )
 
@@ -387,7 +364,7 @@ async def test_lookup_require_mobile_allows_mobile(
     client: AsyncClient,
     db: AsyncSession,
     campaign_with_target: tuple[Campaign, Target],
-    mock_twilio_create_call: MagicMock,
+    mock_twilio: MagicMock,
     monkeypatch,
 ) -> None:
     campaign, _ = campaign_with_target
@@ -396,7 +373,7 @@ async def test_lookup_require_mobile_allows_mobile(
     await db.commit()
 
     monkeypatch.setattr(settings, "TWILIO_ACCOUNT_SID", "ACtest")
-    mock_twilio_create_call.validate_phone.return_value = MagicMock(
+    mock_twilio.validate_phone.return_value = MagicMock(
         is_valid=True, line_type="mobile"
     )
 

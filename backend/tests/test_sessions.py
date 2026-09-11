@@ -31,18 +31,9 @@ RATE_SCOPES = (
 )
 
 
-async def _clear_rate_keys(redis) -> None:
-    for scope in RATE_SCOPES:
-        keys = [key async for key in redis.scan_iter(match=f"rate:{scope}:*")]
-        if keys:
-            await redis.delete(*keys)
-
-
 @pytest.fixture(autouse=True)
-async def clean_rate_limits(redis) -> AsyncGenerator[None, None]:
-    await _clear_rate_keys(redis)
-    yield
-    await _clear_rate_keys(redis)
+async def clean_rate_limits(clear_rate_keys) -> None:
+    await clear_rate_keys(RATE_SCOPES)
 
 
 @pytest.fixture

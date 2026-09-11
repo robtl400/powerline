@@ -13,16 +13,8 @@ from app.main import PathScopedCORSMiddleware, is_public_path
 
 
 @pytest.fixture(autouse=True)
-async def clear_public_rate_keys(redis) -> AsyncGenerator[None, None]:
-    async def _clear() -> None:
-        for scope in ("public", "count"):
-            keys = [k async for k in redis.scan_iter(match=f"rate:{scope}:*")]
-            if keys:
-                await redis.delete(*keys)
-
-    await _clear()
-    yield
-    await _clear()
+async def clear_public_rate_keys(clear_rate_keys) -> None:
+    await clear_rate_keys(("public", "count"))
 
 FOREIGN_ORIGIN = "https://not-the-dashboard.example"
 ADMIN_ORIGIN = "https://dashboard.powerline.example"

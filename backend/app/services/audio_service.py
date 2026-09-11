@@ -2,7 +2,7 @@
 
 Resolution order for any (campaign_id, key) pair:
   1. Active AudioRecording row in DB with matching campaign_id + key
-  2. YAML fallback from backend/app/defaults/audio.yml
+  2. Fallback from backend/app/defaults/audio.json
 
 Cloudinary upload wraps the sync SDK in run_in_executor, matching the
 pattern used for the Twilio SDK throughout this codebase.
@@ -10,11 +10,11 @@ pattern used for the Twilio SDK throughout this codebase.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from pathlib import Path
 
 import structlog
-import yaml
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,11 +23,11 @@ from app.services.telephony.twiml import AudioConfig
 
 log = structlog.get_logger()
 
-# Load YAML once at module import — defaults never change at runtime.
-_DEFAULTS_PATH = Path(__file__).parent.parent / "defaults" / "audio.yml"
+# Load once at module import — defaults never change at runtime.
+_DEFAULTS_PATH = Path(__file__).parent.parent / "defaults" / "audio.json"
 
 with _DEFAULTS_PATH.open() as _f:
-    _DEFAULTS: dict[str, str] = yaml.safe_load(_f)
+    _DEFAULTS: dict[str, str] = json.load(_f)
 
 
 async def get_audio_config(
@@ -37,7 +37,7 @@ async def get_audio_config(
 ) -> AudioConfig:
     """Return an AudioConfig for the given slot key and campaign.
 
-    Queries the DB for an active recording first; falls back to YAML default.
+    Queries the DB for an active recording first; falls back to the file default.
     """
     if campaign_id is not None:
         result = await db.execute(

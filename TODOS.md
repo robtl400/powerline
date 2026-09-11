@@ -82,7 +82,7 @@
 
 ## Local government level lookup
 
-**What:** Implement `"local"` as a selectable government level in the campaign admin UI and the LevelRouter, using Google Civic's local office data.
+**What:** Implement `"local"` as a selectable government level in the campaign admin UI and the civic level router (`backend/app/services/civic/router.py`), using Google Civic's local office data.
 
 **Why:** Some advocacy campaigns target city council, county commissioners, or school boards. The "coming soon" badge in the admin UI is a placeholder for this.
 
@@ -90,7 +90,7 @@
 
 **Cons:** Google Civic's local data coverage is sparse and inconsistent by geography. Quality needs to be confirmed before shipping — an org could get zero local reps for large portions of their supporter base. May require a secondary data source (e.g., Cicero API) for reliable local coverage.
 
-**Context:** The admin UI already has a disabled "Local" checkbox with a "coming soon" badge (`CampaignTargetsTab.tsx`). The `LevelRouter` has a `_PROVIDER_MAP` dict — adding `"local"` is a matter of implementing `fetch_local_reps()` and registering it. Start by confirming which orgs need local targets and what coverage they'd require.
+**Context:** The admin UI already has a disabled "Local" checkbox with a "coming soon" badge (`CampaignTargetsTab.tsx`). The router module has a `_PROVIDER_MAP` dict — adding `"local"` is a matter of implementing `fetch_local_reps()` and registering it. Start by confirming which orgs need local targets and what coverage they'd require.
 
 **Depends on / blocked by:** Org feedback on whether local government is needed. Google Civic API key already in place.
 

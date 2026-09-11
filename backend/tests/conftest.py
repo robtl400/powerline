@@ -1,7 +1,8 @@
 """Shared test fixtures."""
 
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterable, Iterator
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -19,6 +20,8 @@ from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
 from app.models.user import User
 from app.services.auth import create_access_token, hash_password
+from app.services.rate_limiter import rate_key
+from app.services.telephony.base import CallResult
 
 # NullPool avoids reusing asyncpg connections across test functions. Each test
 # function gets its own event loop (pytest-asyncio default), and asyncpg
@@ -75,6 +78,55 @@ async def redis():
     """
     from app.redis_client import get_redis
     yield get_redis()
+
+
+@pytest.fixture
+def mock_twilio() -> Iterator[MagicMock]:
+    """Keep a test off the real Twilio API.
+
+    Yields the mocked telephony provider used by the call-creation path; the
+    WebRTC access token is stubbed to a fixed string at the same time so a
+    module that exercises either entry point needs only this fixture.
+    """
+    provider = MagicMock()
+    provider.create_call.return_value = CallResult(sid="CAtest", status="queued")
+    provider.validate_phone.return_value = MagicMock(is_valid=True, line_type="mobile")
+    with patch("app.api.v1.calls.get_provider", return_value=provider):
+        with patch("app.api.v1.tokens._build_access_token", return_value="dev-token"):
+            yield provider
+
+
+@pytest.fixture
+async def clear_rate_keys(redis):
+    """Yield a helper that drops rate-limit buckets now and again at teardown.
+
+    Call it as `await clear_rate_keys(scopes, identifiers)`. Passing no
+    identifiers clears every bucket in each scope, which suits scopes keyed on
+    values the test does not know up front. Every request from the ASGI test
+    client shares one client IP and the windows outlive a test, so the buckets
+    a module touches have to be cleared on both sides of it.
+    """
+    requested: list[tuple[tuple[str, ...], tuple[str, ...] | None]] = []
+
+    async def drop(scopes: tuple[str, ...], identifiers: tuple[str, ...] | None) -> None:
+        keys: list[str] = []
+        if identifiers is None:
+            for scope in scopes:
+                keys += [key async for key in redis.scan_iter(match=rate_key(scope, "*"))]
+        else:
+            keys = [rate_key(scope, ident) for scope in scopes for ident in identifiers]
+        if keys:
+            await redis.delete(*keys)
+
+    async def clear(scopes: Iterable[str], identifiers: Iterable[str] | None = None) -> None:
+        call = (tuple(scopes), None if identifiers is None else tuple(identifiers))
+        requested.append(call)
+        await drop(*call)
+
+    yield clear
+
+    for call in requested:
+        await drop(*call)
 
 
 @pytest.fixture

@@ -20,17 +20,9 @@ RATE_SCOPES = ("login-ip", "login-email")
 
 
 @pytest.fixture(autouse=True)
-async def clean_login_limits(redis) -> AsyncGenerator[None, None]:
+async def clean_login_limits(clear_rate_keys) -> None:
     """Drop login counters — every test client request shares one IP."""
-    for scope in RATE_SCOPES:
-        keys = [key async for key in redis.scan_iter(match=f"rate:{scope}:*")]
-        if keys:
-            await redis.delete(*keys)
-    yield
-    for scope in RATE_SCOPES:
-        keys = [key async for key in redis.scan_iter(match=f"rate:{scope}:*")]
-        if keys:
-            await redis.delete(*keys)
+    await clear_rate_keys(RATE_SCOPES)
 
 
 @pytest.fixture

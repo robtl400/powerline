@@ -3,7 +3,6 @@ import { toast } from "sonner";
 import { Users as UsersIcon } from "lucide-react";
 import client from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useIsNarrow } from "@/hooks/useMediaQuery";
 import { getErrorDetail } from "@/lib/api-error";
 import { USER_STATUS_COLORS } from "@/lib/constants";
 import {
@@ -49,7 +48,6 @@ const INVITE_NOT_SENT =
 export default function Users() {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === "admin";
-  const isNarrow = useIsNarrow();
 
   const [users, setUsers] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
@@ -269,19 +267,19 @@ export default function Users() {
       {error && <p className="text-sm text-brand-grey-dark">{error}</p>}
 
       {/* Mobile: one card per user — the table controls are unreachable below sm */}
-      {!isLoading && (users.length > 0 || !error) && isNarrow && (
-        <div className="space-y-3">
+      {!isLoading && (users.length > 0 || !error) && (
+        <ul className="space-y-3 sm:hidden">
           {users.length === 0 ? (
-            <div className={CARD_CLASS}>
+            <li className={CARD_CLASS}>
               <EmptyState
                 icon={UsersIcon}
                 title="No users yet"
                 description="Invited teammates appear here once they are added."
               />
-            </div>
+            </li>
           ) : (
             users.map((u) => (
-              <div key={u.id} className={`${CARD_CLASS} p-4 space-y-2`}>
+              <li key={u.id} className={`${CARD_CLASS} p-4 space-y-2`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-brand-black">{u.name}</p>
@@ -294,14 +292,14 @@ export default function Users() {
                   {roleControl(u)}
                   {isAdmin && activationControl(u)}
                 </div>
-              </div>
+              </li>
             ))
           )}
-        </div>
+        </ul>
       )}
 
-      {!isLoading && (users.length > 0 || !error) && !isNarrow && (
-        <div className={`${CARD_CLASS} overflow-x-auto`}>
+      {!isLoading && (users.length > 0 || !error) && (
+        <div className={`${CARD_CLASS} hidden overflow-x-auto sm:block`}>
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-page-bg text-brand-grey-dark">

@@ -7,33 +7,17 @@
     /* Backgrounds */
     --background:         0 0% 100%;      /* pure white */
     --foreground:         0 0% 7%;        /* #111111 brand black */
-    --card:               0 0% 100%;      /* pure white */
-    --card-foreground:    0 0% 7%;
+    --card:               0 0% 100%;      /* pure white — recharts surfaces */
 
-    /* Primary = Brand Orange — main CTA accent; gum (#B05357) available as bg-brand-gum */
-    --primary:            14 89% 56%;  /* #F2542D brand orange */
-    --primary-foreground: 0 0% 100%;   /* white on orange */
+    /* Primary = Brand Orange — chart series fill */
+    --primary:            14 89% 56%;     /* #F2542D brand orange */
 
-    /* Secondary — neutral tinted */
-    --secondary:          228 40% 94%;
-    --secondary-foreground: 0 0% 7%;
-
-    /* Muted — slightly tinted to complement brand bg */
+    /* Muted — chart gridlines and axis labels */
     --muted:              228 40% 94%;
-    --muted-foreground:   217 5% 34%;    /* dark grey #53565B */
-
-    /* Accent — same as muted for hover states */
-    --accent:             228 40% 94%;
-    --accent-foreground:  0 0% 7%;
-
-    /* Destructive — keep semantic red */
-    --destructive:        0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
+    --muted-foreground:   217 5% 34%;     /* dark grey #53565B */
 
     /* Borders */
-    --border:             220 23% 92%;   /* #E4E6EC brand-border */
-    --input:              220 23% 92%;   /* #E4E6EC brand-border */
-    --ring:               0 0% 7%;       /* Black #111111 — 2px focus ring */
+    --border:             220 23% 92%;    /* #E4E6EC brand-border */
 
     /* Border radius */
     --radius: 0.5rem;

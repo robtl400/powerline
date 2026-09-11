@@ -29,7 +29,7 @@ export default function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/users" element={<Users />} />
               <Route path="/campaigns" element={<Campaigns />} />
-              <Route path="/campaigns/new" element={<CampaignEdit />} />
+              <Route path="/campaigns/new" element={<CampaignWizard />} />
               <Route path="/campaigns/:id/edit" element={<CampaignEdit />} />
               <Route path="/campaigns/:id/wizard" element={<CampaignWizard />} />
               <Route path="/campaigns/:id/calls" element={<CallLog />} />

@@ -40,17 +40,12 @@ MODULE_PHONES = [
 
 
 @pytest.fixture(autouse=True)
-async def clear_rate_buckets(redis):
+async def clear_rate_buckets(clear_rate_keys):
     """Drop every rate-limit bucket this module touches, before and after."""
-    keys = [f"rate:call-ip:{TEST_IP}", f"rate:call-webhook-ip:{TEST_IP}"]
-    keys += [
-        f"rate:{scope}:{phone_hash(phone)}"
-        for scope in ("call", "call-webhook")
-        for phone in MODULE_PHONES
-    ]
-    await redis.delete(*keys)
-    yield
-    await redis.delete(*keys)
+    await clear_rate_keys(("call-ip", "call-webhook-ip"), [TEST_IP])
+    await clear_rate_keys(
+        ("call", "call-webhook"), [phone_hash(phone) for phone in MODULE_PHONES]
+    )
 
 
 @pytest.fixture

@@ -158,7 +158,7 @@ Use the **exact same SVG** as desktop — `preserveAspectRatio="none"` handles s
 - Tab minimum touch target: `min-height: 44px`
 
 ### Mobile User Cards (/users)
-Below `sm` the users table is replaced by one card per user — name, email, phone, then the role select, status chip and Deactivate/Activate control, all bound to the same handlers as the table row. The breakpoint is read with `useMediaQuery` (`frontend/src/hooks/useMediaQuery.ts`), which falls back to the wide layout wherever `matchMedia` is unavailable.
+Below `sm` the users table is replaced by one card per user — name, email, phone, then the role select, status chip and Deactivate/Activate control, all bound to the same handlers as the table row. Both layouts render and Tailwind switches between them (`sm:hidden` on the card list, `hidden sm:block` on the table), so the swap needs no JavaScript.
 
 ### Back Links on Mobile
 `CampaignEdit` and `CallLog` headers stack `flex-col sm:flex-row`: below `sm` the back link sits on its own line above the page title, and the status chip stays beside the title.

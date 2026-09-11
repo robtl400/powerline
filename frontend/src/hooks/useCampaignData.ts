@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   KeyboardSensor,
   PointerSensor,
@@ -28,13 +27,10 @@ import {
 } from "@/types/campaign";
 
 export function useCampaignData(id: string | undefined, activeTab: string) {
-  const isNew = !id;
-  const navigate = useNavigate();
-
   // ── Core campaign ──────────────────────────────────────────────────────────
   const [form, setForm] = useState<CampaignForm>(emptyForm());
   const [status, setStatus] = useState("draft");
-  const [loading, setLoading] = useState(!isNew);
+  const [loading, setLoading] = useState(!!id);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [embedConfig, setEmbedConfig] = useState<Record<string, unknown>>({});
@@ -105,7 +101,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
 
   // Load campaign data in edit mode
   useEffect(() => {
-    if (isNew) return;
+    if (!id) return;
     client
       .get<CampaignDetail>(`/campaigns/${id}`)
       .then((res) => {
@@ -132,7 +128,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
       })
       .catch(() => setError("Failed to load campaign."))
       .finally(() => setLoading(false));
-  }, [id, isNew]);
+  }, [id]);
 
   // Load audio when Audio tab is first opened
   useEffect(() => {
@@ -183,6 +179,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   async function handleSave() {
+    if (!id) return;
     setSaving(true);
     setError(null);
     try {
@@ -199,12 +196,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
         lookup_require_mobile: form.lookup_require_mobile,
         talking_points: form.talking_points || null,
       };
-      if (isNew) {
-        const res = await client.post<{ id: string }>("/campaigns", payload);
-        navigate(`/campaigns/${res.data.id}/edit`, { replace: true });
-      } else {
-        await client.patch(`/campaigns/${id}`, payload);
-      }
+      await client.patch(`/campaigns/${id}`, payload);
     } catch (e: unknown) {
       setError(getErrorDetail(e, "Failed to save campaign."));
     } finally {
@@ -473,13 +465,13 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
   return {
     // core
     form, setForm,
-    status, setStatus,
+    status,
     loading,
     saving,
     error,
     handleSave,
     // targets
-    targets, setTargets,
+    targets,
     targetsTotal,
     addingTarget, setAddingTarget,
     targetForm, setTargetForm,
@@ -510,7 +502,6 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     handleDownloadErrors,
     resetImport,
     // audio
-    audioRecordings,
     audioLoading,
     refreshAudio,
     audioByKey,

@@ -1,4 +1,4 @@
-"""Fan-out and failure handling in the civic LevelRouter."""
+"""Fan-out and failure handling in the civic level router."""
 from __future__ import annotations
 
 import pytest
@@ -6,7 +6,7 @@ import pytest
 import app.services.civic.router as router_module
 from app.services.civic.base import RepInfo
 from app.services.civic.google_civic import MissingApiKeyError
-from app.services.civic.router import LevelRouter
+from app.services.civic.router import lookup
 
 ZIP = "94110"
 
@@ -42,7 +42,7 @@ def providers(monkeypatch: pytest.MonkeyPatch):
 async def test_a_failing_provider_still_returns_the_other_levels(providers) -> None:
     providers(federal=_raises(RuntimeError("upstream down")), state=_returns(STATE))
 
-    result = await LevelRouter().lookup(ZIP, {"target_levels": ["federal", "state"]})
+    result = await lookup(ZIP, {"target_levels": ["federal", "state"]})
 
     assert result == [STATE]
 
@@ -50,7 +50,7 @@ async def test_a_failing_provider_still_returns_the_other_levels(providers) -> N
 async def test_both_providers_contribute(providers) -> None:
     providers(federal=_returns(FEDERAL), state=_returns(STATE))
 
-    result = await LevelRouter().lookup(ZIP, {"target_levels": ["federal", "state"]})
+    result = await lookup(ZIP, {"target_levels": ["federal", "state"]})
 
     assert sorted(r.level for r in result) == ["federal", "state"]
 
@@ -59,25 +59,25 @@ async def test_missing_api_key_propagates(providers) -> None:
     providers(federal=_raises(MissingApiKeyError("GOOGLE_CIVIC_API_KEY")), state=_returns(STATE))
 
     with pytest.raises(MissingApiKeyError):
-        await LevelRouter().lookup(ZIP, {"target_levels": ["federal", "state"]})
+        await lookup(ZIP, {"target_levels": ["federal", "state"]})
 
 
 async def test_unknown_level_yields_no_reps(providers) -> None:
     providers(federal=_returns(FEDERAL))
 
-    assert await LevelRouter().lookup(ZIP, {"target_levels": ["martian"]}) == []
+    assert await lookup(ZIP, {"target_levels": ["martian"]}) == []
 
 
 async def test_empty_levels_yield_no_reps(providers) -> None:
     providers(federal=_returns(FEDERAL))
 
-    assert await LevelRouter().lookup(ZIP, {"target_levels": []}) == []
+    assert await lookup(ZIP, {"target_levels": []}) == []
 
 
 async def test_unknown_levels_are_dropped_but_known_ones_run(providers) -> None:
     providers(federal=_returns(FEDERAL))
 
-    result = await LevelRouter().lookup(ZIP, {"target_levels": ["martian", "federal"]})
+    result = await lookup(ZIP, {"target_levels": ["martian", "federal"]})
 
     assert result == [FEDERAL]
 
@@ -85,4 +85,4 @@ async def test_unknown_levels_are_dropped_but_known_ones_run(providers) -> None:
 async def test_default_level_is_federal(providers) -> None:
     providers(federal=_returns(FEDERAL), state=_returns(STATE))
 
-    assert await LevelRouter().lookup(ZIP, {}) == [FEDERAL]
+    assert await lookup(ZIP, {}) == [FEDERAL]

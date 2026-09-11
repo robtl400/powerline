@@ -19,11 +19,9 @@ from app.services.civic.google_civic import MissingApiKeyError
 
 
 @pytest.fixture(autouse=True)
-async def clear_reps_rate_limit(redis):
+async def clear_reps_rate_limit(clear_rate_keys):
     """Drop the shared per-IP reps bucket around every test in this module."""
-    await redis.delete("rate:reps:127.0.0.1")
-    yield
-    await redis.delete("rate:reps:127.0.0.1")
+    await clear_rate_keys(["reps"], ["127.0.0.1"])
 
 
 @pytest.fixture
@@ -134,7 +132,7 @@ async def test_cache_key_tracks_configured_levels(
     live_campaign.embed_config = {"target_levels": ["federal", "state"]}
     await db.commit()
 
-    with patch("app.services.civic_service._router.lookup", new_callable=AsyncMock) as lookup:
+    with patch("app.services.civic.router.lookup", new_callable=AsyncMock) as lookup:
         lookup.return_value = []
         resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=54321")
 

@@ -170,6 +170,10 @@ All notable changes to this project will be documented in this file.
 - **Shared helpers** — `send_sms_async`, `fingerprint`, `rate_key`, `_next_order`, the lock-release Lua script, named Redis TTLs, and the frontend's `autoMapHeaders`, neutral chip, upload-size and password-policy constants each live in one place; `class-variance-authority` is dropped from the admin dependencies.
 - **Tests** — `get_client_ip` proxy chain, `LevelRouter` fan-out, admin CORS policy against an explicit origin list, MP3 frame-sync detection, the audio version-collision 409, corrupt `rep_token` payloads, and the peppered-hash blocklist match.
 
+### Removed (second review, advisory)
+- **Single-use structure** — the one-entry proxy-network memo is `functools.lru_cache`; the civic level router is a module function instead of a one-method class; the audio defaults are JSON read by the standard library and `pyyaml` is no longer a dependency; the `/campaigns/new` route renders the wizard directly, so the campaign editor, settings tab and data hook carry no "new campaign" branches; the Users page switches between its card and table layouts with Tailwind breakpoints and the media-query hook is gone; the unused shadcn colour names and CSS variables are out of the Tailwind config; two one-element sidebar wrappers are inlined.
+- **Test fixtures** — one shared Twilio provider mock and one rate-key cleanup helper in `conftest.py` replace the per-module copies.
+
 ### Fixed (live design review, high impact)
 - **Campaign tabs reachable at 375px** — the five-tab strip scrolls horizontally with proximity snapping, a hidden scrollbar and a right-edge fade that appears only while the strip overflows; the tabs are a real `role="tablist"` with `aria-selected`, roving `tabIndex`, arrow/Home/End navigation and 44px touch targets.
 - **Password reset reachable from the UI** — a "Forgot password?" link under Sign in opens a public `/reset-password` page: email, then 8-digit code plus a new password, with the 400 detail, the 422 policy messages and the rate-limit message rendered in `brand-grey-dark` and a Sign in link on success.

@@ -23,7 +23,7 @@ const NAV_ITEMS = [
 ];
 
 function NavItems({ onNavClick }: { onNavClick?: () => void }) {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   return (
     <>
       <nav className="flex-1 space-y-1 p-2">
@@ -48,7 +48,7 @@ function NavItems({ onNavClick }: { onNavClick?: () => void }) {
       </nav>
       {/* Pinned sidebar footer */}
       <div className="p-3 border-t border-brand-border">
-        <SidebarFooter />
+        <p className="text-xs text-brand-grey-dark truncate">{user?.email}</p>
         <button
           onClick={logout}
           className={`mt-1 inline-flex min-h-[44px] items-center gap-1.5 rounded-control text-xs text-brand-grey-dark hover:text-brand-black transition-colors ${FOCUS_RING}`}
@@ -58,13 +58,6 @@ function NavItems({ onNavClick }: { onNavClick?: () => void }) {
         </button>
       </div>
     </>
-  );
-}
-
-function SidebarFooter() {
-  const { user } = useAuth();
-  return (
-    <p className="text-xs text-brand-grey-dark truncate">{user?.email}</p>
   );
 }
 
@@ -82,6 +75,7 @@ function AvatarChip() {
 }
 
 export default function DashboardShell() {
+  const { user } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -137,7 +131,7 @@ export default function DashboardShell() {
             POWERLINE
           </Link>
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-gum text-white text-xs font-semibold">
-            <AvatarInitial />
+            {user?.name?.[0]?.toUpperCase() ?? "?"}
           </div>
         </div>
 
@@ -193,9 +187,4 @@ export default function DashboardShell() {
       </div>
     </div>
   );
-}
-
-function AvatarInitial() {
-  const { user } = useAuth();
-  return <>{user?.name?.[0]?.toUpperCase() ?? "?"}</>;
 }
