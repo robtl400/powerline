@@ -102,7 +102,7 @@ export default function DashboardShell() {
           <div className="flex w-[220px] items-center px-4 border-r border-brand-border">
             <Link
               to="/dashboard"
-              className="text-base font-black tracking-[-0.04em] uppercase text-brand-black"
+              className={`rounded-control text-base font-black tracking-[-0.04em] uppercase text-brand-black ${FOCUS_RING}`}
             >
               POWERLINE
             </Link>
@@ -126,7 +126,7 @@ export default function DashboardShell() {
           </button>
           <Link
             to="/dashboard"
-            className="text-base font-black tracking-[-0.04em] uppercase text-brand-black"
+            className={`rounded-control text-base font-black tracking-[-0.04em] uppercase text-brand-black ${FOCUS_RING}`}
           >
             POWERLINE
           </Link>

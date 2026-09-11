@@ -38,7 +38,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
 
   // ── Targets ────────────────────────────────────────────────────────────────
   const [targets, setTargets] = useState<Target[]>([]);
-  const [targetsTotal, setTargetsTotal] = useState(0);
+  const [targetCount, setTargetCount] = useState(0);
   const [addingTarget, setAddingTarget] = useState(false);
   const [targetForm, setTargetForm] = useState<TargetForm>(emptyTargetForm());
   const [targetError, setTargetError] = useState<string | null>(null);
@@ -76,6 +76,9 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
   // ── Embed tab ──────────────────────────────────────────────────────────────
   const [embedApiUrl, setEmbedApiUrl] = useState(window.location.origin);
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
+
+  // ── Server defaults ────────────────────────────────────────────────────────
+  const [defaultRateLimit, setDefaultRateLimit] = useState<number | null>(null);
 
   // ── Stats tab ──────────────────────────────────────────────────────────────
   const [campaignStats, setCampaignStats] = useState<CampaignStats | null>(null);
@@ -121,7 +124,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
         });
         setStatus(c.status);
         setTargets(c.targets);
-        setTargetsTotal(c.targets_total);
+        setTargetCount(c.target_count);
         const ec = c.embed_config ?? {};
         setEmbedConfig(ec);
         setTargetLevels((ec.target_levels as string[]) ?? []);
@@ -161,6 +164,22 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
       .catch(() => setStatsError("Failed to load stats."))
       .finally(() => setStatsLoading(false));
   }, [activeTab, id, statsStartDate, statsEndDate, statsGranularity]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The rate-limit field shows the server's own default as its placeholder
+  useEffect(() => {
+    let cancelled = false;
+    client
+      .get<{ default_rate_limit?: number }>("/health")
+      .then(({ data }) => {
+        if (!cancelled && typeof data?.default_rate_limit === "number") {
+          setDefaultRateLimit(data.default_rate_limit);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load launch checklist when campaign is live
   useEffect(() => {
@@ -250,7 +269,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
         external_id: targetForm.external_id || null,
       });
       setTargets((prev) => [...prev, res.data]);
-      setTargetsTotal((n) => n + 1);
+      setTargetCount((n) => n + 1);
       setTargetForm(emptyTargetForm());
       setAddingTarget(false);
     } catch (e: unknown) {
@@ -272,7 +291,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     setPendingDeleteTarget(null);
     await client.delete(`/campaigns/${id}/targets/${target.id}`);
     setTargets((prev) => prev.filter((t) => t.id !== target.id));
-    setTargetsTotal((n) => Math.max(0, n - 1));
+    setTargetCount((n) => Math.max(0, n - 1));
   }
 
   function startEditTarget(target: Target) {
@@ -312,7 +331,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id || !id) return;
-    if (targets.length < targetsTotal) {
+    if (targets.length < targetCount) {
       setTargetError(
         "Reordering needs the whole target list, and this campaign has more targets than are shown."
       );
@@ -383,7 +402,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
       if (res.data.imported > 0 || res.data.updated > 0) {
         const refreshed = await client.get<CampaignDetail>(`/campaigns/${id}`);
         setTargets(refreshed.data.targets);
-        setTargetsTotal(refreshed.data.targets_total);
+        setTargetCount(refreshed.data.target_count);
       }
     } catch (e: unknown) {
       setImportError(getErrorDetail(e, "Import failed."));
@@ -470,9 +489,10 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
     saving,
     error,
     handleSave,
+    defaultRateLimit,
     // targets
     targets,
-    targetsTotal,
+    targetCount,
     addingTarget, setAddingTarget,
     targetForm, setTargetForm,
     targetError, setTargetError,

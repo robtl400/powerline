@@ -157,7 +157,9 @@ async def test_api_error_no_cache_returns_503_with_fallback(
     resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=99999")
     assert resp.status_code == 503
     detail = resp.json()["detail"]
+    assert detail["code"] == "reps_unavailable"
     assert detail["fallback"] == "manual_entry"
+    assert detail["message"]
 
 
 @pytest.mark.asyncio
@@ -199,6 +201,7 @@ async def test_rate_limit_returns_503_with_retry_after(
     resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=90210")
     assert resp.status_code == 503
     detail = resp.json()["detail"]
+    assert detail["code"] == "reps_unavailable"
     assert detail["fallback"] == "manual_entry"
     assert resp.headers.get("retry-after") == "30"
 
@@ -234,6 +237,7 @@ async def test_missing_api_key_returns_503_with_fallback(
     resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=90210")
     assert resp.status_code == 503
     detail = resp.json()["detail"]
+    assert detail["code"] == "reps_unavailable"
     assert detail["fallback"] == "manual_entry"
 
 
@@ -312,6 +316,7 @@ async def test_total_failure_returns_503_and_caches_nothing(
     resp = await client.get(f"/api/v1/campaigns/{two_level_campaign.id}/reps?zip=60602")
 
     assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "reps_unavailable"
     assert resp.json()["detail"]["fallback"] == "manual_entry"
     assert await redis.get(cache_key) is None
 

@@ -2,7 +2,13 @@
  * PowerlineWidget — root state machine that owns the DOM and orchestrates
  * WebRTCClient / submitPhoneFallback.
  */
-import { fetchCallCount, fetchCampaign, fetchReps, isRepsError } from "./api.js";
+import {
+  fetchCallCount,
+  fetchCampaign,
+  fetchReps,
+  isRepsError,
+  parseDetail,
+} from "./api.js";
 import { submitPhoneFallback } from "./phone-fallback.js";
 import { injectStyles } from "./ui/styles.js";
 import {
@@ -28,7 +34,6 @@ import type { WebRTCClient } from "./webrtc.js";
 import type {
   CampaignPublic,
   ConnectedData,
-  ErrorDetail,
   RepInfo,
   WidgetState,
 } from "./types.js";
@@ -56,20 +61,21 @@ function bootstrapErrorMessage(err: unknown): string {
   return err instanceof Error && err.message ? err.message : BOOTSTRAP_FAILED;
 }
 
-/** Read the message/code pair out of an "error" payload, which may be a bare string. */
-function readErrorDetail(data: unknown): ErrorDetail | undefined {
-  if (typeof data === "string") return { message: data };
-  if (typeof data === "object" && data !== null && "message" in data) {
-    const d = data as { message?: unknown; code?: unknown };
-    if (typeof d.message === "string") {
-      return {
-        message: d.message,
-        code: typeof d.code === "string" ? d.code : undefined,
-      };
-    }
-  }
-  return undefined;
-}
+const UNKNOWN_ERROR = "Unknown error";
+
+/** Shown under the phone field when the visitor submits it empty. */
+const PHONE_REQUIRED = "Please enter a phone number.";
+
+/** Deadline for the idle prefetch of the WebRTC bundle. */
+const PREFETCH_IDLE_TIMEOUT_MS = 3_000;
+
+/** Delay used where requestIdleCallback is unavailable. */
+const PREFETCH_FALLBACK_DELAY_MS = 1_500;
+
+type IdleScheduler = (
+  callback: () => void,
+  options?: { timeout: number }
+) => unknown;
 
 export interface WidgetOptions {
   campaignId: string;
@@ -99,6 +105,7 @@ export class PowerlineWidget {
   private selectedRepToken: string | null = null;
   private selectedRepName: string | null = null;
   private selectedRepTitle: string | null = null;
+  private prefetchScheduled = false;
 
   constructor({ campaignId, container, apiUrl = "" }: WidgetOptions) {
     this.campaignId = campaignId;
@@ -122,6 +129,33 @@ export class PowerlineWidget {
     this.state = "idle";
     this._render("idle");
     this._bindEvents();
+    this._schedulePrefetch();
+  }
+
+  /**
+   * Warm the companion WebRTC bundle while the visitor reads the idle screen,
+   * so pressing Call Now does not wait on the download. loadWebRTCClient reuses
+   * the in-flight promise, so the click path shares this one fetch.
+   */
+  private _schedulePrefetch(): void {
+    if (this.prefetchScheduled) return;
+    if (!this.campaign?.allow_webrtc) return;
+    if (typeof RTCPeerConnection === "undefined") return;
+
+    this.prefetchScheduled = true;
+    const prefetch = (): void => {
+      void loadWebRTCClient(this.baseUrl).catch(() => {
+        // A failed prefetch clears the loader's cache; the click path retries.
+      });
+    };
+
+    const idle = (globalThis as { requestIdleCallback?: IdleScheduler })
+      .requestIdleCallback;
+    if (typeof idle === "function") {
+      idle(prefetch, { timeout: PREFETCH_IDLE_TIMEOUT_MS });
+    } else {
+      setTimeout(prefetch, PREFETCH_FALLBACK_DELAY_MS);
+    }
   }
 
   // ── State transitions ────────────────────────────────────────────────────
@@ -130,7 +164,8 @@ export class PowerlineWidget {
     const prev = this.state;
     this.state = state;
 
-    const detail = state === "error" ? readErrorDetail(data) : undefined;
+    const detail =
+      state === "error" ? parseDetail(data, UNKNOWN_ERROR) : undefined;
 
     if (detail?.code === REP_TOKEN_INVALID) {
       this._destroyClients();
@@ -217,7 +252,7 @@ export class PowerlineWidget {
       if (state === "loading") {
         this.container.innerHTML = renderLoading(message ?? BOOTSTRAP_LOADING);
       } else if (state === "error") {
-        this.container.innerHTML = renderError(message ?? "Unknown error");
+        this.container.innerHTML = renderError(message ?? UNKNOWN_ERROR);
       }
       this._bindEvents();
       return;
@@ -240,7 +275,7 @@ export class PowerlineWidget {
         this.container.innerHTML = renderComplete(this.callsCompleted);
         break;
       case "error":
-        this.container.innerHTML = renderError(message ?? "Unknown error");
+        this.container.innerHTML = renderError(message ?? UNKNOWN_ERROR);
         break;
       case "phone_input":
         this.container.innerHTML = renderPhoneInput(
@@ -363,7 +398,7 @@ export class PowerlineWidget {
       case "skip":
         // Cancel audio check if user is actively interacting.
         this.webrtc?.cancelAudioCheck();
-        this.webrtc?.skip();
+        void this.webrtc?.skip();
         break;
 
       case "end":
@@ -500,6 +535,22 @@ export class PowerlineWidget {
 
   private _submitPhone(phone: string): void {
     if (!this.campaign) return;
+
+    const input = this.container.querySelector<HTMLInputElement>(
+      "#pl-phone-input"
+    );
+    const errorEl =
+      this.container.querySelector<HTMLElement>("#pl-phone-error");
+
+    if (!phone) {
+      input?.setAttribute("aria-invalid", "true");
+      if (errorEl) errorEl.textContent = PHONE_REQUIRED;
+      return;
+    }
+
+    input?.removeAttribute("aria-invalid");
+    if (errorEl) errorEl.textContent = "";
+
     void submitPhoneFallback({
       baseUrl: this.baseUrl,
       campaignId: this.campaignId,

@@ -90,3 +90,17 @@ describe("DashboardShell mobile drawer", () => {
     expect(screen.getByText("Campaigns page")).toBeInTheDocument();
   });
 });
+
+describe("DashboardShell wordmark", () => {
+  it("gives every POWERLINE link the shared focus ring", () => {
+    renderShell();
+
+    const wordmarks = screen.getAllByRole("link", { name: "POWERLINE" });
+    expect(wordmarks).toHaveLength(2);
+    for (const wordmark of wordmarks) {
+      expect(wordmark).toHaveAttribute("href", "/dashboard");
+      expect(wordmark.className).toContain("focus-visible:ring-brand-black");
+      expect(wordmark.className).toContain("rounded-control");
+    }
+  });
+});

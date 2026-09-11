@@ -14,6 +14,7 @@ import {
   fetchReps,
   isRepsError,
   requestToken,
+  skipTarget,
 } from "./api.js";
 
 const originalFetch = globalThis.fetch;
@@ -102,6 +103,51 @@ describe("createCall", () => {
       phone_number: "+15555550123",
     });
     expect("rep_token" in body).toBe(false);
+  });
+});
+
+describe("skipTarget", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  /** The skip endpoint answers 204, so its body is never read. */
+  function mockSkipResponse(
+    status: number,
+    statusText: string
+  ): ReturnType<typeof vi.fn> {
+    const mock = vi.fn().mockResolvedValue({
+      ok: status < 400,
+      status,
+      statusText,
+      json: async () => {
+        throw new SyntaxError("Unexpected end of JSON input");
+      },
+    });
+    globalThis.fetch = mock as unknown as typeof fetch;
+    return mock;
+  }
+
+  it("posts to the session's skip endpoint", async () => {
+    const mock = mockSkipResponse(204, "No Content");
+
+    await skipTarget("http://localhost", "session-1");
+
+    expect(mock.mock.calls[0][0]).toBe(
+      "http://localhost/api/v1/calls/session-1/skip"
+    );
+    expect((mock.mock.calls[0][1] as RequestInit).method).toBe("POST");
+  });
+
+  it("raises when the session has no live state", async () => {
+    mockSkipResponse(404, "Not Found");
+
+    const err = await skipTarget("http://localhost", "session-1").catch(
+      (e: unknown) => e
+    );
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(404);
   });
 });
 
@@ -279,6 +325,29 @@ describe("fetchReps", () => {
         },
       ],
       message: null,
+    });
+  });
+
+  it("reads the manual-entry recovery off the 503's code", async () => {
+    mockResponse({
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      json: async () => ({
+        detail: {
+          message: "Lookup is down — enter your number instead.",
+          code: "reps_unavailable",
+          fallback: "manual_entry",
+        },
+      }),
+    });
+
+    const result = await fetchReps("http://localhost", "campaign-1", "94103");
+
+    expect(isRepsError(result)).toBe(true);
+    expect(result).toEqual({
+      fallback: "manual_entry",
+      message: "Lookup is down — enter your number instead.",
     });
   });
 

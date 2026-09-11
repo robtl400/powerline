@@ -1,4 +1,4 @@
-"""Model metadata must declare the indexes the migrations create.
+"""Model metadata must declare what the migrations create.
 
 `alembic check` catches drift only against a live database. These assertions
 run without one, so a model edit that drops an index declaration fails fast.
@@ -110,6 +110,17 @@ def test_campaign_id_lookups_ride_the_composite_index() -> None:
 
     composite = _index("call_sessions", "ix_call_sessions_campaign_created")
     assert [column.name for column in composite.columns] == ["campaign_id", "created_at"]
+
+
+def test_users_declares_the_durable_session_floor() -> None:
+    """The floor is a timestamp with a zone, and null until sessions are revoked."""
+    column = Base.metadata.tables["users"].c["sessions_valid_from"]
+    assert column.nullable
+    assert column.type.timezone
+
+
+def test_call_status_declares_skipped() -> None:
+    assert "skipped" in Base.metadata.tables["calls"].c["status"].type.enums
 
 
 def test_email_and_number_uniqueness_is_index_only() -> None:

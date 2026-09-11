@@ -19,6 +19,16 @@ class CallCreateRequest(BaseModel):
         return to_us_e164(v)
 
 
+class TargetPreview(BaseModel):
+    """Who the call's first dial will reach, for the widget's connected screen."""
+
+    name: str
+    title: str
+
+
 class CallCreateResponse(BaseModel):
     session_id: str
     status: str  # "initiated"
+    # First target in the settled dial order, which a shuffled campaign only
+    # knows server-side. None when the target row could not be read back.
+    first_target: TargetPreview | None = None

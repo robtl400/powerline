@@ -34,7 +34,7 @@ from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.models.target import Target
 from app.redis_client import get_redis
-from app.services.audio_service import get_audio_config
+from app.services.audio_service import get_audio_config, get_audio_configs
 from app.services.call_state import (
     CALL_SESSION_TTL,
     get_campaign_caller_id,
@@ -62,6 +62,11 @@ _UNREACHED_STATUSES = frozenset({"busy", "no_answer", "failed", "canceled"})
 
 # Twilio's hyphenated dial statuses mapped to our underscore Call enum values.
 # Anything unrecognised is a failure, never a silent success.
+#
+# "skipped" has no Twilio status of its own: a supporter who presses * ends the
+# leg, which Twilio reports as completed. call-complete records that leg as
+# skipped instead when the call state carries a skip marker for the same index,
+# so a call the supporter cut short is not counted as one they saw through.
 DIAL_STATUS_TO_CALL_STATUS = {
     "completed": "completed",
     "answered": "completed",
@@ -165,6 +170,67 @@ async def _bound_state(handler: str, session_id: str, call_sid: str) -> dict | N
     return state
 
 
+async def _webhook_form(request: Request) -> tuple[dict, str, str]:
+    """Parse a webhook POST into its form, session id and parent CallSid.
+
+    session_id arrives either as a URL query param (phone callback path) or as
+    a custom TwiML App parameter in the POST body (WebRTC path).
+    """
+    form = dict(await request.form())
+    session_id = request.query_params.get("session_id") or form.get("session_id", "")
+    return form, session_id, form.get("CallSid", "")
+
+
+async def _webhook_session(
+    handler: str, request: Request
+) -> tuple[dict, dict, str, str] | None:
+    """Parse a webhook POST and load the call state the request belongs to.
+
+    Returns (form, state, session_id, call_sid). Returns None — the caller
+    answers with a hangup — when the session id is missing or malformed, when
+    the state is gone, or when the session belongs to another Twilio call.
+    """
+    form, session_id, call_sid = await _webhook_form(request)
+
+    if not session_id or _parse_session_id(session_id) is None:
+        log.warning(
+            f"{handler}_bad_session_id", session_id=session_id, call_sid=call_sid
+        )
+        return None
+
+    state = await _bound_state(handler, session_id, call_sid)
+    if not state:
+        return None
+
+    return form, state, session_id, call_sid
+
+
+async def _claim_call_sid(
+    redis, bind_key: str, call_sid: str
+) -> tuple[bool, str | None]:
+    """Claim the session for this CallSid, compare-and-set.
+
+    SET NX is the compare-and-set that two calls racing on one leaked session
+    id both go through, so exactly one of them wins the session. A claim that
+    loses the race reads the holder: the same CallSid retrying its own webhook
+    keeps the session, any other CallSid does not.
+
+    A holder that has expired between the SET and the GET leaves nothing to
+    compare against, so the claim is attempted once more; a second unreadable
+    holder counts as another call's, never as this one's.
+
+    Returns whether the session is this call's, and the CallSid holding it when
+    it is not.
+    """
+    for _ in range(2):
+        if await redis.set(bind_key, call_sid, nx=True, ex=CALL_SESSION_TTL):
+            return True, None
+        holder = await redis.get(bind_key)
+        if holder:
+            return holder == call_sid, holder
+    return False, None
+
+
 async def _session_has_calls(call_sid: str, db: AsyncSession) -> bool:
     """True when the session bound to this parent CallSid logged any Call row."""
     result = await db.execute(
@@ -204,10 +270,13 @@ async def voice_app(
          single-use, so its IP is the only durable per-caller key
       3. Check the blocklist against the caller's phone hash and IP — hang up
          immediately if either is blocked
+
+    A phone caller then hears the intro inside a <Gather> and starts the call
+    block with a keypress. A WebRTC caller has no keypad to answer it with —
+    the widget sends no digits but the * that skips a target — so the intro
+    plays and the call goes straight on to the first target instead.
     """
-    form = dict(await request.form())
-    session_id = request.query_params.get("session_id") or form.get("session_id", "")
-    call_sid = form.get("CallSid", "")
+    form, session_id, call_sid = await _webhook_form(request)
 
     if not session_id:
         log.warning("voice_app_no_session_id", call_sid=call_sid)
@@ -250,21 +319,16 @@ async def voice_app(
 
     redis = get_redis()
 
-    # Claim the session for this CallSid. SET NX is the compare-and-set that
-    # two calls racing on one leaked session id both have to go through, so
-    # exactly one of them wins the session.
     bind_key = f"call_sid_bind:{session_id}"
-    claimed = await redis.set(bind_key, call_sid, nx=True, ex=CALL_SESSION_TTL)
+    claimed, holder = await _claim_call_sid(redis, bind_key, call_sid)
     if not claimed:
-        holder = await redis.get(bind_key)
-        if holder and holder != call_sid:
-            log.warning(
-                "voice_app_call_sid_claimed",
-                session_id=session_id,
-                call_sid=call_sid,
-                bound_call_sid=holder,
-            )
-            return _hangup_xml()
+        log.warning(
+            "voice_app_call_sid_claimed",
+            session_id=session_id,
+            call_sid=call_sid,
+            bound_call_sid=holder,
+        )
+        return _hangup_xml()
 
     state["call_sid"] = call_sid
     await save_call_state(session_id, state)
@@ -323,10 +387,17 @@ async def voice_app(
     )
     await db.commit()
 
-    intro_audio = await get_audio_config("msg_intro", campaign_id, db)
-    confirm_audio = await get_audio_config("msg_intro_confirm", campaign_id, db)
+    if connection_type == "webrtc":
+        intro_audio = await get_audio_config("msg_intro", campaign_id, db)
+        dial_url = f"/webhooks/twilio/dial-target?session_id={session_id}"
+        twiml = build_between_targets(intro_audio, {}, dial_url)
+        return Response(content=twiml, media_type="application/xml")
+
+    audio = await get_audio_configs(("msg_intro", "msg_intro_confirm"), campaign_id, db)
     action_url = f"/webhooks/twilio/make-calls?session_id={session_id}"
-    twiml = build_gather_intro(intro_audio, {}, action_url, confirm_audio=confirm_audio)
+    twiml = build_gather_intro(
+        audio["msg_intro"], {}, action_url, confirm_audio=audio["msg_intro_confirm"]
+    )
     return Response(content=twiml, media_type="application/xml")
 
 
@@ -348,18 +419,14 @@ async def make_calls(
     A <Gather> with actionOnEmptyResult also lands here when the caller stayed
     silent. The confirm prompt is re-asked once; a second silence ends the call
     rather than dialing targets nobody is listening to.
+
+    Only phone callers reach this step: the WebRTC entry point goes straight to
+    dial-target, having no keypress to wait for.
     """
-    form = dict(await request.form())
-    session_id = request.query_params.get("session_id") or form.get("session_id", "")
-    call_sid = form.get("CallSid", "")
-
-    if not session_id or _parse_session_id(session_id) is None:
-        log.warning("make_calls_bad_session_id", session_id=session_id, call_sid=call_sid)
+    session = await _webhook_session("make_calls", request)
+    if session is None:
         return _hangup_xml()
-
-    state = await _bound_state("make_calls", session_id, call_sid)
-    if not state:
-        return _hangup_xml()
+    form, state, session_id, call_sid = session
 
     campaign_id = uuid.UUID(state["campaign_id"])
 
@@ -415,17 +482,10 @@ async def dial_target(
     is how call-complete tells a first callback for a leg from a retry when
     Twilio sends no DialCallSid.
     """
-    form = dict(await request.form())
-    session_id = request.query_params.get("session_id") or form.get("session_id", "")
-    call_sid = form.get("CallSid", "")
-
-    if not session_id or _parse_session_id(session_id) is None:
-        log.warning("dial_target_bad_session_id", session_id=session_id, call_sid=call_sid)
+    session = await _webhook_session("dial_target", request)
+    if session is None:
         return _hangup_xml()
-
-    state = await _bound_state("dial_target", session_id, call_sid)
-    if not state:
-        return _hangup_xml()
+    _, state, session_id, call_sid = session
 
     target_ids: list[str] = state["target_ids"]
     idx: int = state["current_target_index"]
@@ -497,6 +557,10 @@ async def call_complete(
     Logs a Call record, advances the target index in Redis, then either
     redirects to the next target or plays goodbye and hangs up.
 
+    A leg the supporter chose to leave — the skip endpoint marks the index in
+    the call state before the * hangs the leg up — is recorded as skipped
+    rather than completed, and the marker is cleared here.
+
     A leg is keyed by its DialCallSid, or by f"{CallSid}:{index}" when Twilio
     created no child leg at all — an invalid, unreachable or geo-blocked
     number. Both forms are unique per leg, so the unique index on
@@ -517,11 +581,14 @@ async def call_complete(
     moved past the leg this callback reports; a chain that would not advance
     ends in the goodbye instead of re-dialing the same target.
     """
-    form = dict(await request.form())
-    session_id = request.query_params.get("session_id") or form.get("session_id", "")
+    session = await _webhook_session("call_complete", request)
+    if session is None:
+        return _hangup_xml()
+    form, state, session_id, parent_call_sid = session
+
+    session_uuid = uuid.UUID(session_id)
     dial_status = form.get("DialCallStatus", "completed")
     dial_call_sid = form.get("DialCallSid", "")
-    parent_call_sid = form.get("CallSid", "")
 
     try:
         dial_duration = int(form.get("DialCallDuration") or 0)
@@ -533,15 +600,6 @@ async def call_complete(
             raw=str(form.get("DialCallDuration"))[:20],
         )
         dial_duration = 0
-
-    session_uuid = _parse_session_id(session_id)
-    if not session_id or session_uuid is None:
-        log.warning("call_complete_bad_session_id", session_id=session_id, call_sid=parent_call_sid)
-        return _hangup_xml()
-
-    state = await _bound_state("call_complete", session_id, parent_call_sid)
-    if not state:
-        return _hangup_xml()
 
     target_ids: list[str] = state["target_ids"]
     idx: int = state["current_target_index"]
@@ -570,6 +628,17 @@ async def call_complete(
         duplicate = existing.scalar_one_or_none() is not None
     elif idx in completed_legs or (dialed_index is not None and dialed_index != idx):
         duplicate = True
+
+    # The skip endpoint marks the index the supporter asked to leave. Twilio
+    # reports that leg as completed, so the marker is what tells the two apart.
+    # The marker is read once, by the callback that logs the leg: a repeat
+    # leaves it for the leg it was written for, and a marker on any other index
+    # is stale and is dropped without effect.
+    skip_requested = None
+    if not duplicate:
+        skip_requested = state.pop("skip_requested", None)
+        if skip_requested == idx and call_status == "completed":
+            call_status = "skipped"
 
     if not duplicate and idx < len(target_ids):
         call = Call(
@@ -620,6 +689,8 @@ async def call_complete(
         await save_call_state(session_id, state)
     else:
         next_idx = idx
+        if skip_requested is not None:
+            await save_call_state(session_id, state)
 
     if next_idx <= leg_index:
         # The index sits at or behind the leg that just ended, so a redirect

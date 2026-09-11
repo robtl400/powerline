@@ -14,6 +14,7 @@ in this file is locked. When in doubt, this file wins over inline code.
 | `brand-black`      | `#111111` | `brand-black`         | **Bold accent** — wordmark, headings, strong emphasis |
 | `brand-grey-dark`  | `#53565B` | `brand-grey-dark`     | Secondary text, logout link, error text |
 | `brand-grey-light` | `#92918F` | `brand-grey-light`    | Muted text at 18px+, borders, decorative fills — never text below 18px |
+| `brand-grey-mid`   | `#D1D3D9` | `brand-grey-mid`      | Decorative fill one step darker than `page-bg` — the mobile card progress fill on non-live campaigns. Never text |
 | `white`            | `#FFFFFF` | `white`               | All surfaces — header, sidebar, cards |
 | `page-bg`          | `#F4F5F7` | `page-bg`             | Page background — makes white cards float |
 | `brand-border`     | `#E4E6EC` | `brand-border`        | All borders |
@@ -35,13 +36,15 @@ in this file is locked. When in doubt, this file wins over inline code.
 
 ### Status Chip Specs
 
-| State     | Text color         | Background                    | Border                        |
-|-----------|--------------------|-------------------------------|-------------------------------|
-| Live      | `#F2542D` orange   | `rgba(242,84,45,0.10)`        | `rgba(242,84,45,0.25)`        |
-| Completed | `#B05357` gum      | `rgba(176,83,87,0.10)`        | `rgba(176,83,87,0.20)`        |
-| Paused    | `#53565B` grey-dark  | `#F4F5F7`                   | `#E4E6EC`                     |
-| Draft     | `#53565B` grey-dark  | `#F9FAFB`                   | `#E4E6EC`                     |
-| Failed    | `#53565B` grey-dark  | `#F3F4F6`                   | `#D1D3D9` — darker to distinguish from draft |
+Three chip surfaces, defined once in `lib/constants.ts` and mapped per status there — pages never build a chip inline.
+
+| Chip        | Constant       | Text color        | Background             | Border                 | Used for |
+|-------------|----------------|-------------------|------------------------|------------------------|----------|
+| Live        | `ORANGE_CHIP`  | `#F2542D` orange  | `rgba(242,84,45,0.10)` | `rgba(242,84,45,0.25)` | `live`, `in_progress` |
+| Completed   | `GUM_CHIP`     | `#B05357` gum     | `rgba(176,83,87,0.10)` | `rgba(176,83,87,0.20)` | `completed`, active audio version, active user, verified number |
+| Neutral     | `NEUTRAL_CHIP` | `brand-grey-dark` | `page-bg`              | `brand-border`         | every other state — paused, draft, archived, failed, initiated, pending, capability tags |
+
+Paused, draft and failed share the one neutral chip; the status word is the distinction, not the surface.
 
 ---
 
@@ -77,13 +80,32 @@ The embed widget uses the host page's system font stack so it never issues third
 
 ---
 
+## Motion
+
+- **Name the property.** `transition-colors`, `transition-opacity`, `transition-[height]` — never `transition-all`
+- **Durations:** `200ms` for fades, `280ms` with `cubic-bezier(0.4, 0, 0.2, 1)` for the nav drawer slide, `75ms` for the live waveform bar heights
+- **Reduced motion:** `index.css` carries a global guard that switches every animation and transition off for readers who ask for it:
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+```
+
+  This is the **one sanctioned `!important` in the codebase** — the rule has to outrank every utility class it overrides, and a reduced-motion preference is never something a component may win back. Nothing else in the app uses `!important`.
+
+---
+
 ## Layout — Desktop Shell
 
 ### Header (`top-bar`)
 - Background: `#FFFFFF`
 - Height: `52px`
-- Left zone (`220px`): `POWERLINE` wordmark — `brand-black`, weight 900, uppercase, tracking `-0.04em`; `border-right: 1px solid #E4E6EC`; links to `/dashboard`
-- Right zone: avatar chip (`brand-gum` initial circle + user name); logout on click/hover
+- Left zone (`220px`): `POWERLINE` wordmark — `brand-black`, weight 900, uppercase, tracking `-0.04em`; `border-right: 1px solid #E4E6EC`; links to `/dashboard`, carrying `rounded-control` + `FOCUS_RING` like every other link
+- Right zone: avatar chip (`brand-gum` initial circle + user name) — a static identity marker, not a control. Logout lives in the sidebar footer
 - No `border-bottom` — the Powerlines SVG is the separator
 
 ### Powerlines Decoration
@@ -112,6 +134,7 @@ Do not modify stroke color, stroke-width, or path data.
 - Background: `#F4F5F7` (`page-bg`)
 - Padding: `28px` desktop, `16px` mobile
 - White cards with box-shadow float on this tint
+- Page bodies load lazily (one `React.lazy` chunk per protected route). While a chunk is in flight the content area shows a centred 13px `brand-grey-dark` `"Loading…"` with `role="status"`; the header and sidebar stay mounted
 
 ### Secondary Button Spec
 ```css
@@ -130,7 +153,7 @@ background: #F4F5F7;
 ### Mobile Header
 - Height: `48px`, background `#FFFFFF`
 - Left: hamburger (3 lines, `brand-grey-dark`)
-- Center: `POWERLINE` wordmark — `brand-black`, weight 900, uppercase
+- Center: `POWERLINE` wordmark — `brand-black`, weight 900, uppercase; `rounded-control` + `FOCUS_RING`, links to `/dashboard`
 - Right: avatar circle (`brand-gum`)
 - No `border-bottom` — Powerlines SVG immediately below is the separator
 
@@ -150,10 +173,10 @@ Use the **exact same SVG** as desktop — `preserveAspectRatio="none"` handles s
 - One card per campaign, stacked vertically
 - Layout: `[name] [status chip]` / progress bar / `[call count] [completion %]`
 - Tap navigates to `/campaigns/:id/edit`, the same target as the table's name link
-- Progress bar: orange fill for live, `#D1D3D9` for paused/draft
+- Progress bar: `bg-brand-orange` fill for live, `bg-brand-grey-mid` for every other status
 - Empty state: show `0` calls, `0%` completion — do not hide
 
-### Campaign Tab Strip (`/campaigns/:id`)
+### Campaign Tab Strip (`/campaigns/:id/edit`)
 - `role="tablist"` with five `role="tab"` buttons (`aria-selected`, `aria-controls`), roving `tabIndex`, arrow / `Home` / `End` key navigation
 - Strip scrolls horizontally: `overflow-x: auto`, `-webkit-overflow-scrolling: touch`, `scroll-snap-type: x proximity`, `snap-start` per tab, scrollbar hidden (`scrollbar-width: none` + `::-webkit-scrollbar`)
 - Right-edge fade gradient renders only while the strip is scrollable — tracked by a scroll listener and `ResizeObserver` on a `data-overflow` attribute
@@ -167,7 +190,7 @@ Below `sm` the users table is replaced by one card per user — name, email, pho
 
 ### Mobile Defaults (all other pages)
 - Tables: full-width with `overflow-x: auto`
-- Modals: `max-width: min(480px, 90vw)`
+- Modals: `max-width: min(480px, 90vw)` and — at every width, not just mobile — `max-height: 90vh` with `overflow-y-auto` on the panel, so a tall form scrolls inside the dialog instead of spilling past the viewport. Title and close button sit at the top of that scroll area
 - Filter bars and tab rows wrap or stack vertically
 - Full-width buttons in modals
 
@@ -202,9 +225,10 @@ US-only. `+1` is never typed by the user.
 - Stores and submits in **E.164 format: `+1XXXXXXXXXX`**
 
 ### Error State
-- `border: 1.5px solid #53565B` (`brand-grey-dark`) + inline error text below
+- `border: 1px solid #53565B` (`brand-grey-dark`) — the resting `brand-border` changes colour, not width, so nothing shifts + inline error text below
 - Validation message: `"Enter a 10-digit US phone number"` (11px, `brand-grey-dark`)
 - **Never orange, never red**
+- The input carries `aria-invalid` while the error shows and `aria-describedby` pointing at the message, which is a `<p role="alert">` with a `useId`-derived id — so a screen reader announces the failure and reaches the text from the field
 
 ### Usage
 Apply to: `CampaignTargetsTab` (add/edit phone fields), `Users` invite modal, `TestCallModal`.
@@ -237,7 +261,7 @@ State machine:
 ```
 idle ──[click mic]──► recording ──[click stop]──► stopped
                           │                          │
-                    [pulse anim]              [Save / Discard]
+                          │                   [Save / Discard]
                     [waveform: 8 bars,
                      4px wide, 4px gap,
                      20-60px height,
@@ -245,9 +269,8 @@ idle ──[click mic]──► recording ──[click stop]──► stopped
 ```
 
 - **Idle:** orange mic circle, `50px`, `box-shadow: 0 3px 12px rgba(242,84,45,0.4)` + "Tap to start recording"
-- **Recording:** mic button pulses (CSS animation) + live `AudioContext.createAnalyser()` waveform
+- **Recording:** live `AudioContext.createAnalyser()` waveform. The mic button itself does not animate — the waveform is the recording indicator
 - **Stopped:** waveform freezes; "Save recording" (primary) + "Discard" (secondary) appear. On "Save recording" click: button shows spinner + `"Saving…"` (disabled). On success, `onRefresh()` and reset to idle — no separate toast. On error, inline `"Save failed — try again"` in `brand-grey-dark`.
-- **Waveform fallback:** if `AudioContext` unavailable → 3-bar CSS pulse animation
 - **MIME output:** `audio/webm` (Chrome/Android) or `audio/mp4` (Safari/iOS 16+)
 - **iOS < 16:** Record tab disabled — `"Recording requires iOS 16+ or Chrome. Use Upload instead."` Auto-select the Upload tab as default on iOS < 16 (do not land the user on a disabled tab).
 - **Mic denied:** inline message `"Microphone access required — check browser settings"` (not a toast)
@@ -266,7 +289,7 @@ idle ──[click mic]──► recording ──[click stop]──► stopped
 
 ### Tab 3: TTS
 - Textarea: max 500 characters, character count shown (`XXX / 500`, `brand-grey-dark`)
-- Template variable chips: `{{title}}`, `{{name}}`, `{{calls_left}}` — outlined pills (`border: 1px solid #E4E6EC`, `border-radius: 4px`, `background: #F4F5F7`, `font-size: 11px`, `color: brand-grey-dark`). Clicking a chip inserts the variable text at the current cursor position in the textarea.
+- Template variable chips: `{{title}}`, `{{name}}`, `{{calls_left}}` — outlined pills (`border: 1px solid #E4E6EC`, `rounded-field`, `background: #F4F5F7`, `font-size: 11px`, `color: brand-grey-dark`). Clicking a chip inserts the variable text at the current cursor position in the textarea.
 - **"Generate preview":** while generating, button shows spinner + `"Generating…"` (disabled). On success, auto-plays via `<audio>` element. On error, inline `"Preview failed — try again"` below button in `brand-grey-dark`.
 - **"Save as audio":** while saving, button shows spinner + `"Saving…"` (disabled). On success, `onRefresh()` — no separate toast. On error, inline `"Save failed — try again"` in `brand-grey-dark`.
 
@@ -350,11 +373,13 @@ All pages must conform to this design system:
 | `/reset-password` | Public. Same card as `/login`. Step 1 email → code sent; step 2 8-digit code (`inputMode="numeric"`, `autoComplete="one-time-code"`) + new password with the policy as helper text; errors in `brand-grey-dark`; success shows a "Sign in" link |
 | `/dashboard` | Stat cards 4-col desktop / 2-col mobile; campaign table with correct status chips; no green |
 | `/campaigns` | Status filter tabs + search field; campaign name links to `/campaigns/:id/edit`; Resume wizard on draft rows, Edit on all others; correct status chips |
-| `/campaigns/:id` | 5-tab edit view; PhoneInput in Targets; AudioSlotCard in Audio; "Make active" gated |
+| `/campaigns/new` | Campaign wizard on a fresh campaign; stepper plus Back/Next controls, full-width on mobile |
+| `/campaigns/:id/wizard` | Resume the wizard on a draft campaign — same steps and controls as `/campaigns/new`, reached from the Resume link on draft rows |
+| `/campaigns/:id/edit` | 5-tab edit view; PhoneInput in Targets; AudioSlotCard in Audio; "Make active" gated |
 | `/phone-numbers` | Table + assign panel; horizontal scroll on mobile |
 | `/users` | PhoneInput in invite modal; table header = `bg-page-bg`; status chip from `USER_STATUS_COLORS` (active = gum, inactive = grey); one card per user below `sm` |
 | `/blocklist` | Table; horizontal scroll on mobile |
-| `/call-log` | Table + filter; horizontal scroll on mobile; filter bar stacks on mobile |
+| `/campaigns/:id/calls` | Call log for one campaign — table + filter; horizontal scroll on mobile; filter bar stacks on mobile; `← Campaigns` back link |
 
 ---
 
@@ -375,14 +400,14 @@ All empty states must have: (1) brief explanation of why it's empty, (2) a prima
 |---|---|---|
 | `/campaigns` — zero campaigns | `"No campaigns yet"` | `"Create campaign"` button (orange) |
 | `/campaigns` — zero search matches | `"No campaigns match your search"` | None — clear the search field |
-| `/campaigns/:id` targets tab — zero targets | `"No targets yet"` | `"Add Target"` (orange) + `"Import CSV"` (secondary) |
+| `/campaigns/:id/edit` targets tab — zero targets | `"No targets yet"` | `"Add Target"` (orange) + `"Import CSV"` (secondary) |
 | `/dashboard` — call volume chart, no calls | `"No calls recorded yet"` | None |
 | `/dashboard` — Live Campaigns table empty | `"No live campaigns"` | `"View all campaigns"` link to `/campaigns` |
 | `/users` — zero users | `"No users yet"` | None — the Invite button in the header is the action |
 | `/phone-numbers` — zero numbers | `"No phone numbers configured"` | `"Sync from Twilio"` button (orange) |
 | `/blocklist` — zero entries | `"No blocked numbers or IP addresses"` | `"Add Entry"` button (orange, admin only) |
-| `/call-log` — zero results (filtered) | `"No sessions match your filters"` | `"Clear filters"` inline link in `brand-orange` |
-| `/call-log` — zero results (no filter) | `"No call sessions yet"` | None |
+| `/campaigns/:id/calls` — zero results (filtered) | `"No sessions match your filters"` | `"Clear filters"` inline link in `brand-orange` |
+| `/campaigns/:id/calls` — zero results (no filter) | `"No call sessions yet"` | None |
 | AudioSlotCard — no active version | Show tab picker immediately with hint above: `"No audio yet — record, upload, or generate a script"` (11px, `brand-grey-dark`) | (tabs themselves are the action) |
 
 ---
@@ -398,6 +423,7 @@ colors: {
   'brand-black':      '#111111',
   'brand-grey-dark':  '#53565B',
   'brand-grey-light': '#92918F',
+  'brand-grey-mid':   '#D1D3D9',
   'page-bg':          '#F4F5F7',
   'brand-border':     '#E4E6EC',
 }
@@ -412,21 +438,23 @@ boxShadow:    { card: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)' }
 
 ---
 
-## CSS Token Corrections (index.css)
+## CSS Variables (index.css)
+
+Recharts takes its colours as raw CSS values rather than Tailwind classes, so the chart palette lives here. These are the only CSS variables the app defines — every other colour is a Tailwind token.
 
 ```css
 :root {
-  --background:   0 0% 100%;       /* #FFFFFF */
-  --foreground:   0 0% 7%;         /* #111111 brand-black */
-  --primary:      14 89% 56%;      /* #F2542D brand-orange */
-  --primary-foreground: 0 0% 100%; /* white */
-  --muted:        220 14% 96%;     /* #F4F5F7 page-bg */
-  --muted-foreground: 217 5% 34%;  /* #53565B brand-grey-dark */
-  --border:       220 23% 92%;     /* #E4E6EC brand-border */
-  --input:        220 23% 92%;     /* #E4E6EC brand-border */
-  --radius:       0.5rem;          /* 8px */
+  --background:       0 0% 100%;    /* #FFFFFF */
+  --foreground:       0 0% 7%;      /* #111111 brand-black */
+  --card:             0 0% 100%;    /* #FFFFFF — recharts tooltip surface */
+  --primary:         14 89% 56%;    /* #F2542D brand-orange — chart series fill */
+  --muted:          228 40% 94%;    /* #EAECF6 — chart gridline / hover tint */
+  --muted-foreground: 217 5% 34%;   /* #53565B brand-grey-dark — axis labels */
+  --border:         220 23% 92%;    /* #E4E6EC brand-border */
 }
 ```
+
+`--background`, `--foreground` and `--border` are also mapped into Tailwind as the `background`, `foreground` and `border` colours, which is what the `@layer base` reset applies. Shape values are Tailwind tokens (`rounded-card` / `rounded-control` / `rounded-field`), not variables.
 
 ### Browser-Surface Theming (index.css)
 
@@ -444,7 +472,7 @@ input, textarea, [contenteditable] { caret-color: #f2542d; }
 
 ## Token Migration — Deprecated Patterns
 
-These shadcn/Tailwind defaults were used before this design system was locked. **Do not use them in new code.** Use the brand-token equivalent.
+These shadcn/Tailwind defaults have no place in this codebase. **Do not use them.** Use the brand-token equivalent.
 
 | ❌ Deprecated | ✅ Use instead |
 |---|---|
@@ -470,25 +498,42 @@ export const INPUT_CLASS =
 
 export const CARD_CLASS = "rounded-card bg-white border border-brand-border shadow-card";
 
+export const SECTION_HEADING = "text-[13px] font-bold text-brand-grey-dark";
+
 export const LINK_BUTTON =
   "inline-flex min-h-[44px] items-center gap-1 rounded-control text-sm hover:underline " +
+  FOCUS_RING;
+
+export const BUTTON_PRIMARY =
+  "inline-flex items-center justify-center min-h-[44px] px-4 rounded-control text-sm font-medium " +
+  "bg-brand-orange text-white hover:opacity-90 transition-opacity disabled:opacity-50 " +
+  FOCUS_RING;
+
+export const BUTTON_SECONDARY =
+  "inline-flex items-center justify-center min-h-[44px] px-4 rounded-control text-sm font-medium " +
+  "border border-brand-border bg-white text-brand-grey-dark hover:bg-page-bg transition-colors " +
+  "disabled:opacity-50 " +
   FOCUS_RING;
 ```
 
 - **`CARD_CLASS`** is the only way to build a white surface. Add padding and overflow at the call site (`` `${CARD_CLASS} p-5` ``); never re-type the radius, border and shadow.
 - **`LINK_BUTTON`** is every text-style action in tables, table headers, filter bars and back links — Resume wizard, Edit, Manage, Assign, Remove, View all, Clear filters, `← Campaigns`. It carries the 44px hit area and the hover underline; the caller adds the colour (`text-brand-orange` for actions, `text-brand-grey-dark` for neutral ones).
+- **`BUTTON_PRIMARY`** is every solid orange call to action — Create campaign, Invite user, Add entry, Sync from Twilio, modal submits. It carries the colour, so the caller adds nothing but width (`w-full` in modals).
+- **`BUTTON_SECONDARY`** is the outlined button that pairs with it — Cancel, Discard, Import CSV. Same metrics, white surface, `brand-grey-dark` label.
+- **`PAGE_HEADING`** is the one h1 treatment (22px / 700 / `-0.03em`); **`SECTION_HEADING`** is the one treatment for headings inside a card or panel. A page never hand-rolls either.
 
 ---
 
 ## Success Criteria
 
-- All 7 pages render correctly at 360px, 768px, 1024px, 1440px
+- Every page in the Page Inventory renders correctly at 360px, 768px, 1024px, 1440px
 - No green appears anywhere in the UI
 - Phone inputs across the app accept 10-digit entry only — `+1` never typed
 - Audio picker supports Record, Upload, and TTS (3 tabs, MVP)
 - "Make active" is disabled on live campaigns with clear tooltip
 - Backend rejects audio activation on live campaigns with HTTP 409
 - A non-technical digital director can set up a campaign without a tutorial
-- **Empty states implemented** for all 7 pages per the Empty States spec above — no page silently renders nothing
-- **Toast system** (`shadcn useToast` + `<Toaster />`) wired up; invite success shows toast
+- **Empty states implemented** for every page in the Page Inventory per the Empty States spec above — no page silently renders nothing
+- **Toast system** (`sonner` + a single `<Toaster />` in `App.tsx`) wired up; invite success shows toast
+- **Reduced motion honoured** — the `prefers-reduced-motion` guard in `index.css` stops every animation and transition
 - **iOS < 16:** AudioSlotCard auto-selects Upload tab on load

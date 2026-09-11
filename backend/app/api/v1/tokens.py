@@ -70,13 +70,14 @@ async def create_voice_token(
     )
 
     # 4. Claim a slot under the campaign ceiling, open the session, store its state
-    session_id = await start_call_session(
+    started = await start_call_session(
         campaign,
         db,
         connection_type="webrtc",
         rep_token=body.rep_token,
         client_ip=ip,
     )
+    session_id = started.session_id
 
     # 5. Generate Twilio Access Token with VoiceGrant (skipped in dev when key absent)
     if settings.TWILIO_API_KEY_SID:
@@ -90,7 +91,11 @@ async def create_voice_token(
         log.info("access_token_skipped_dev_mode", session_id=str(session_id))
         token_str = "dev-token"
 
-    return VoiceTokenResponse(token=token_str, session_id=str(session_id))
+    return VoiceTokenResponse(
+        token=token_str,
+        session_id=str(session_id),
+        first_target=started.first_target,
+    )
 
 
 def _build_access_token(session_id: uuid.UUID) -> str:

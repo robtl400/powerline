@@ -44,7 +44,7 @@ export function SortableTargetRow({
       </td>
       <td className="px-3 py-2 font-medium">{target.name}</td>
       <td className="px-3 py-2 text-brand-grey-dark">{target.title}</td>
-      <td className="px-3 py-2 text-brand-grey-dark font-mono text-xs tabular-nums">{target.phone_number}</td>
+      <td className="px-3 py-2 text-brand-grey-dark text-xs tabular-nums">{target.phone_number}</td>
       <td className="px-3 py-2 text-brand-grey-dark">{target.location}</td>
       <td className="px-3 py-2 text-right space-x-2">
         {!readOnly && (

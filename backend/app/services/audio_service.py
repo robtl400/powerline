@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
 
 import structlog
@@ -57,6 +58,50 @@ async def get_audio_config(
                 tts_text=recording.tts_text or None,
             )
 
+    return _default_config(key)
+
+
+async def get_audio_configs(
+    keys: Iterable[str],
+    campaign_id: uuid.UUID | None,
+    db: AsyncSession,
+) -> dict[str, AudioConfig]:
+    """Return an AudioConfig per requested slot key, loaded in one query.
+
+    A handler that plays more than one slot reads every active recording it
+    needs together instead of one SELECT per slot. Each key resolves the same
+    way get_audio_config resolves a single one: the campaign's active recording
+    if there is one, the file default otherwise.
+    """
+    wanted = list(dict.fromkeys(keys))
+    recordings: dict[str, AudioRecording] = {}
+
+    if campaign_id is not None and wanted:
+        result = await db.execute(
+            select(AudioRecording).where(
+                AudioRecording.campaign_id == campaign_id,
+                AudioRecording.key.in_(wanted),
+                AudioRecording.is_active == True,  # noqa: E712
+            )
+        )
+        for recording in result.scalars():
+            recordings.setdefault(recording.key, recording)
+
+    configs: dict[str, AudioConfig] = {}
+    for key in wanted:
+        recording = recordings.get(key)
+        if recording:
+            configs[key] = AudioConfig(
+                file_url=recording.file_url or None,
+                tts_text=recording.tts_text or None,
+            )
+        else:
+            configs[key] = _default_config(key)
+    return configs
+
+
+def _default_config(key: str) -> AudioConfig:
+    """Return the file default for a slot key, warning when there is none."""
     default_text = _DEFAULTS.get(key)
     if not default_text:
         log.warning("audio_key_missing_from_defaults", key=key)

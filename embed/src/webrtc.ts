@@ -9,10 +9,11 @@
  * The widget drives state changes; this class emits state events upward.
  */
 import { Call, Device } from "@twilio/voice-sdk";
-import { errorDetail, requestToken } from "./api.js";
+import { errorDetail, requestToken, skipTarget } from "./api.js";
 import type {
   CampaignPublic,
   ConnectedData,
+  FirstTarget,
   TargetPublicInfo,
   WidgetState,
 } from "./types.js";
@@ -33,6 +34,7 @@ export class WebRTCClient {
   private elapsed = 0;
   private audioCheckHandle: ReturnType<typeof setTimeout> | null = null;
   private audioDetected = false;
+  private firstTarget: FirstTarget | null = null;
 
   constructor(
     private readonly baseUrl: string,
@@ -57,6 +59,7 @@ export class WebRTCClient {
       );
       token = res.token;
       sessionId = res.session_id;
+      this.firstTarget = res.first_target ?? null;
     } catch (err) {
       this.onStateChange(
         "error",
@@ -123,10 +126,7 @@ export class WebRTCClient {
     });
 
     this.call.on("accept", () => {
-      // A rep-lookup call dials the chosen rep first, then the campaign targets.
-      const target: TargetPublicInfo | null = this.rep
-        ? { id: "rep", name: this.rep.name, title: this.rep.title, location: "" }
-        : this.campaign.targets[0] ?? null;
+      const target = this._dialedFirst();
       if (target) {
         const connectedData: ConnectedData = {
           target,
@@ -158,8 +158,41 @@ export class WebRTCClient {
     });
   }
 
-  /** Send DTMF `*` to skip the current target. Requires TwiML to handle the digit. */
-  skip(): void {
+  /**
+   * Who the backend puts on the line first: the target it named when it issued
+   * the token, else the chosen representative, else the campaign's first
+   * listed target. Campaigns may shuffle, so the server's answer wins.
+   */
+  private _dialedFirst(): TargetPublicInfo | null {
+    const first = this.firstTarget;
+    if (first) {
+      const known = this.campaign.targets.find(
+        (t) => t.name === first.name && t.title === first.title
+      );
+      return (
+        known ?? { id: "first", name: first.name, title: first.title, location: "" }
+      );
+    }
+    if (this.rep) {
+      return { id: "rep", name: this.rep.name, title: this.rep.title, location: "" };
+    }
+    return this.campaign.targets[0] ?? null;
+  }
+
+  /**
+   * Skip the current target: tell the backend first, so it records the leg as
+   * skipped, then send the DTMF `*` the TwiML listens for. A failed signal
+   * leaves the leg recorded as completed but still skips it.
+   */
+  async skip(): Promise<void> {
+    const sessionId = this.sessionId;
+    if (sessionId) {
+      try {
+        await skipTarget(this.baseUrl, sessionId);
+      } catch {
+        // The digit below still moves the call along.
+      }
+    }
     this.call?.sendDigits("*");
   }
 

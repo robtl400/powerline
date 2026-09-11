@@ -32,6 +32,17 @@ _NO_REPS_DEFAULT = (
     "You may enter a phone number manually."
 )
 
+REPS_UNAVAILABLE_CODE = "reps_unavailable"
+
+
+def _unavailable(message: str) -> dict[str, str]:
+    """The 503 body for a lookup the widget should fall back to manual entry on.
+
+    Carries both the `code` the rest of the API answers errors with and the
+    `fallback` key that shipped embed bundles read.
+    """
+    return {"message": message, "code": REPS_UNAVAILABLE_CODE, "fallback": "manual_entry"}
+
 
 class RepInfoOut(BaseModel):
     name: str
@@ -85,26 +96,26 @@ async def get_reps(
         log.warning("reps_missing_api_key", campaign_id=str(campaign_id), error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"message": "Representative lookup is temporarily unavailable.", "fallback": "manual_entry"},
+            detail=_unavailable("Representative lookup is temporarily unavailable."),
         )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 429:
             retry_after = exc.response.headers.get("Retry-After", "60")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={"message": "Rate limit reached. Please try again shortly.", "fallback": "manual_entry"},
+                detail=_unavailable("Rate limit reached. Please try again shortly."),
                 headers={"Retry-After": retry_after},
             )
         log.error("reps_api_http_error", campaign_id=str(campaign_id), status=exc.response.status_code)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"message": "Representative lookup failed.", "fallback": "manual_entry"},
+            detail=_unavailable("Representative lookup failed."),
         )
     except Exception:
         log.exception("reps_lookup_unexpected", campaign_id=str(campaign_id))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"message": "Representative lookup failed.", "fallback": "manual_entry"},
+            detail=_unavailable("Representative lookup failed."),
         )
 
     if not reps:

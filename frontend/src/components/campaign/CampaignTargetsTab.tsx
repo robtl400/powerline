@@ -9,7 +9,15 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { UserPlus } from "lucide-react";
-import { BUTTON_PRIMARY, BUTTON_SECONDARY, CARD_CLASS, FOCUS_RING, INPUT_CLASS, LINK_BUTTON } from "@/lib/styles";
+import {
+  BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
+  CARD_CLASS,
+  FOCUS_RING,
+  INPUT_CLASS,
+  LINK_BUTTON,
+  SECTION_HEADING,
+} from "@/lib/styles";
 import type { ImportResult, Target, TargetForm } from "@/types/campaign";
 import { SortableTargetRow } from "./SortableTargetRow";
 import { EmptyState } from "@/components/EmptyState";
@@ -28,7 +36,7 @@ const FIELD_LABELS: Record<string, string> = {
 
 export function CampaignTargetsTab({
   targets,
-  targetsTotal = 0,
+  targetCount = 0,
   targetLevels = [],
   onTargetLevelsChange,
   addingTarget,
@@ -67,7 +75,7 @@ export function CampaignTargetsTab({
   readOnly = false,
 }: {
   targets: Target[];
-  targetsTotal?: number;
+  targetCount?: number;
   targetLevels?: string[];
   onTargetLevelsChange?: (levels: string[]) => void;
   addingTarget: boolean;
@@ -109,7 +117,7 @@ export function CampaignTargetsTab({
   const [errorsExpanded, setErrorsExpanded] = useState(false);
 
   const requiredMapped = REQUIRED_FIELDS.every((f) => importColumnMap[f]);
-  const truncated = targets.length < targetsTotal;
+  const truncated = targets.length < targetCount;
 
   function handleFileDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -135,7 +143,7 @@ export function CampaignTargetsTab({
     <section>
       {onTargetLevelsChange && (
         <div className="mb-6 p-4 border border-brand-border rounded-card">
-          <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">Who to call</h2>
+          <h2 className={`${SECTION_HEADING} mb-4 pb-2 border-b border-brand-border`}>Who to call</h2>
           <p className="text-xs text-brand-grey-dark mb-3">
             Select which levels of government to route supporter calls to via ZIP code lookup.
             When enabled, representative calls run in addition to any manually-configured
@@ -183,8 +191,8 @@ export function CampaignTargetsTab({
 
       {truncated && (
         <p className="mb-3 px-3 py-2 rounded-field border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
-          Showing the first {targets.length} of {targetsTotal} targets. The remaining{" "}
-          {targetsTotal - targets.length} are not listed here; re-import the CSV to change them.
+          Showing the first {targets.length} of {targetCount} targets. The remaining{" "}
+          {targetCount - targets.length} are not listed here; re-import the CSV to change them.
         </p>
       )}
 

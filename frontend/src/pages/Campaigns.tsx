@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Megaphone } from "lucide-react";
-import client from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   BUTTON_PRIMARY,
-  BUTTON_SECONDARY,
   CARD_CLASS,
   FOCUS_RING,
   INPUT_CLASS,
@@ -14,8 +12,9 @@ import {
 } from "@/lib/styles";
 import { CAMPAIGN_STATUS_COLORS, FALLBACK_BADGE_COLOR } from "@/lib/constants";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadMore } from "@/components/LoadMore";
 import { CampaignCardList, campaignHref } from "@/components/CampaignCards";
-import type { Page } from "@/types/api";
+import { usePagedList } from "@/hooks/usePagedList";
 
 interface Campaign {
   id: string;
@@ -30,11 +29,10 @@ interface Campaign {
 
 const STATUSES = ["all", "draft", "live", "paused", "archived"];
 
-function listUrl(statusFilter: string, q: string, skip: number): string {
+function listUrl(statusFilter: string, q: string): string {
   const params = new URLSearchParams();
   if (statusFilter !== "all") params.set("status", statusFilter);
   if (q) params.set("q", q);
-  if (skip > 0) params.set("skip", String(skip));
   const query = params.toString();
   return `/campaigns${query ? `?${query}` : ""}`;
 }
@@ -43,45 +41,20 @@ export default function Campaigns() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 250);
     return () => clearTimeout(timer);
   }, [search]);
 
-  useEffect(() => {
-    setLoading(true);
-    client
-      .get<Page<Campaign>>(listUrl(statusFilter, debouncedSearch, 0))
-      .then((res) => {
-        setCampaigns(res.data.items);
-        setTotal(res.data.total);
-        setError(null);
-      })
-      .catch(() => setError("Failed to load campaigns."))
-      .finally(() => setLoading(false));
-  }, [statusFilter, debouncedSearch]);
-
-  function loadMore() {
-    setLoadingMore(true);
-    client
-      .get<Page<Campaign>>(listUrl(statusFilter, debouncedSearch, campaigns.length))
-      .then((res) => {
-        setCampaigns((prev) => [...prev, ...res.data.items]);
-        setTotal(res.data.total);
-        setError(null);
-      })
-      .catch(() => setError("Failed to load more campaigns."))
-      .finally(() => setLoadingMore(false));
-  }
+  const list = usePagedList<Campaign>(listUrl(statusFilter, debouncedSearch), {
+    errorMessage: "Failed to load campaigns.",
+  });
+  const campaigns = list.items;
+  const loading = list.loading;
 
   return (
     <div>
@@ -106,7 +79,7 @@ export default function Campaigns() {
               onClick={() => setStatusFilter(s)}
               className={`inline-flex min-h-[44px] items-center px-3 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${FOCUS_RING} ${
                 statusFilter === s
-                  ? "border-brand-orange text-brand-orange"
+                  ? "border-brand-orange text-brand-black"
                   : "border-transparent text-brand-grey-dark hover:text-brand-black"
               }`}
             >
@@ -130,9 +103,9 @@ export default function Campaigns() {
       </div>
 
       {loading && <p className="text-sm text-brand-grey-dark">Loading…</p>}
-      {error && <p className="text-sm text-brand-grey-dark">{error}</p>}
+      {list.error && <p className="text-sm text-brand-grey-dark">{list.error}</p>}
 
-      {!loading && !error && campaigns.length === 0 && (
+      {!loading && !list.error && campaigns.length === 0 && (
         <div className={CARD_CLASS}>
           <EmptyState
             icon={Megaphone}
@@ -175,7 +148,7 @@ export default function Campaigns() {
               {campaigns.map((c) => (
                 <tr
                   key={c.id}
-                  className={`border-t border-brand-border hover:bg-page-bg/50 transition-colors ${c.status === "draft" ? "opacity-50" : ""}`}
+                  className="border-t border-brand-border hover:bg-page-bg/50 transition-colors"
                 >
                   <td className="px-4 py-3 font-medium">
                     <Link
@@ -223,15 +196,15 @@ export default function Campaigns() {
         </div>
       )}
 
-      {!loading && campaigns.length < total && (
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <p className="text-sm text-brand-grey-dark">
-            Showing {campaigns.length} of {total}
-          </p>
-          <button onClick={loadMore} disabled={loadingMore} className={BUTTON_SECONDARY}>
-            {loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
+      {!loading && (
+        <LoadMore
+          hasMore={list.hasMore}
+          shown={campaigns.length}
+          total={list.total}
+          loading={list.loadingMore}
+          onLoadMore={list.loadMore}
+          className="mt-4"
+        />
       )}
     </div>
   );

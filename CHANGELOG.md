@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.5.0] - 2026-09-11
+
+### Changed
+- **Skipping a target is recorded as `skipped`** — the widget posts `POST /calls/{session_id}/skip` before sending `*`, call-complete records the leg with the new `skipped` status (migration 010), and analytics exclude skipped legs from completion figures while reporting them per target and in the failure breakdown.
+- **Browser callers start immediately** — a WebRTC session hears the intro and proceeds to the first target without the keypress `<Gather>`; phone callbacks keep the prompt.
+- **The connected screen names the target actually dialed** — `POST /calls/create` and `POST /tokens/voice` return `first_target`, the first entry of the settled dial order.
+- **A looked-up representative already on the target list is dialed once.**
+- **Session floor persists** — `users.sessions_valid_from` (migration 010) backs the Redis floor, so a revoked access token stays revoked across a Redis restart; refresh-token bookkeeping uses a per-user set instead of keyspace scans.
+- **Analytics windows** — campaign stats and quality default to the last 30 days and accept `start`/`end`; per-target rows cap at 100; the dashboard connection split covers the same 30-day window; averages of exactly 0 render as 0.
+- **Public bootstrap** — `/campaigns/{id}/public` returns at most 500 targets in order; `/reps` outages answer `{message, code: "reps_unavailable", fallback: "manual_entry"}`.
+- **Paged lists everywhere** — `GET /phone-numbers` and `/sync` use the `{total, items}` envelope; the admin pages share one `usePagedList` hook and `LoadMore` control, and an optimistic insert no longer shifts the next page.
+- **Admin bundle splits by route** — `recharts` and `@dnd-kit` load only on the pages that use them; first paint is 347 KB (112 KB gzip) instead of 889 KB.
+- **Audio uploads on a live campaign are blocked in the UI** with the server's reason; the rate-limit placeholder shows the server's default from `/health`.
+- **Embed** — prefetches the Voice SDK bundle on idle once a WebRTC-capable campaign renders; the phone field has a label, an error region and `aria-invalid`; reduced-motion disables the spinner; the card shadow matches the admin token.
+
+### Fixed
+- `voice-app` retries its CallSid claim when the bind key expires mid-check and never proceeds unbound.
+- Audio upload answers 404 for an unknown campaign before storing anything; a version collision is retried only for the slot's own constraint.
+- `add_target` and CSV import take the campaign's advisory lock; the import lock is refreshed per batch and rows go in as bulk inserts.
+- Demoting or deactivating admins is serialised so the last active admin cannot be removed by concurrent requests.
+- Campaign and user names are bounded to their column widths; `call_maximum` and `rate_limit` must be at least 1.
+- `create-admin` normalises the phone number.
+- Production refuses a `PUBLIC_BASE_URL` with a path, and warns or refuses when `PHONE_HASH_PEPPER` differs from the fingerprint stored at first use.
+- Redis in production reads its password from a rendered config file and the healthcheck uses `REDISCLI_AUTH`; the admin CSP allows Twilio signalling so the embed preview can place a browser call.
+- Every section heading uses `SECTION_HEADING`; wordmark links carry the focus ring; the modal scrolls inside `90vh`; phone inputs expose their error to assistive technology; draft rows are no longer dimmed; phone numbers use `tabular-nums` rather than a monospace face; the campaign-card progress track uses `brand-grey-mid`.
+- DESIGN.md matches the code: sonner toasts, the route inventory, one neutral chip, the shared class strings, the CSS variables, the motion rules.
+
 ## [2.0.4.0] - 2026-09-10
 
 ### Security

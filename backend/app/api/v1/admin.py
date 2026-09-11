@@ -37,6 +37,10 @@ async def get_dashboard(
 
     Calendar days are the configured reporting timezone's days, not UTC's, so
     an evening call in a western timezone counts toward the day it happened on.
+
+    The browser/phone split covers the same trailing 30 days as the month tile,
+    so the dashboard reads one window throughout and the query stays on the
+    created_at index instead of scanning every session ever opened.
     """
     tz = local_timezone()
     now = datetime.now(timezone.utc)
@@ -64,9 +68,10 @@ async def get_dashboard(
         .where(Campaign.status == "live")
     ) or 0
 
-    # WebRTC vs phone breakdown (all time)
+    # WebRTC vs phone breakdown over the last 30 days
     ct_result = await db.execute(
         select(CallSession.connection_type, func.count().label("cnt"))
+        .where(CallSession.created_at >= month_start)
         .group_by(CallSession.connection_type)
     )
     ct_map: dict[str, int] = {row.connection_type: row.cnt for row in ct_result.all()}

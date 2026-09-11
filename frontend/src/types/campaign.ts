@@ -39,7 +39,7 @@ export interface CampaignDetail {
   talking_points: string | null;
   embed_config: Record<string, unknown>;
   targets: Target[];
-  targets_total: number;
+  target_count: number;
 }
 
 export interface CampaignForm {

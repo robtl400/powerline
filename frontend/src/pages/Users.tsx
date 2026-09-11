@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Users as UsersIcon } from "lucide-react";
 import client from "@/api/client";
@@ -14,9 +14,10 @@ import {
   PAGE_HEADING,
 } from "@/lib/styles";
 import { EmptyState, EmptyTableRow } from "@/components/EmptyState";
+import { LoadMore } from "@/components/LoadMore";
 import { Modal } from "@/components/Modal";
 import { PhoneInput } from "@/components/PhoneInput";
-import type { Page } from "@/types/api";
+import { usePagedList } from "@/hooks/usePagedList";
 
 interface User {
   id: string;
@@ -45,15 +46,20 @@ const EMPTY_FORM: InviteForm = { name: "", email: "", phone: "", role: "staff" }
 const INVITE_NOT_SENT =
   "Account created, but the invite SMS could not be sent. Share the reset flow with the user.";
 
+const INVITE_NOT_SENT_DURATION_MS = 8000;
+
+const NO_USERS = {
+  icon: UsersIcon,
+  title: "No users yet",
+  description: "Invited teammates appear here once they are added.",
+};
+
 export default function Users() {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === "admin";
 
-  const [users, setUsers] = useState<User[]>([]);
-  const [total, setTotal] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState("");
+  const list = usePagedList<User>("/users", { errorMessage: "Failed to load users." });
+  const users = list.items;
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState<InviteForm>(EMPTY_FORM);
@@ -63,29 +69,6 @@ export default function Users() {
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    client
-      .get<Page<User>>("/users")
-      .then((res) => {
-        setUsers(res.data.items);
-        setTotal(res.data.total);
-      })
-      .catch(() => setError("Failed to load users."))
-      .finally(() => setIsLoading(false));
-  }, []);
-
-  function loadMore() {
-    setLoadingMore(true);
-    client
-      .get<Page<User>>(`/users?skip=${users.length}`)
-      .then((res) => {
-        setUsers((prev) => [...prev, ...res.data.items]);
-        setTotal(res.data.total);
-      })
-      .catch(() => setError("Failed to load more users."))
-      .finally(() => setLoadingMore(false));
-  }
-
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
     setInviting(true);
@@ -93,14 +76,13 @@ export default function Users() {
     try {
       const res = await client.post<CreatedUser>("/users", inviteForm);
       const { invite_sent: inviteSent, ...created } = res.data;
-      setUsers((prev) => [...prev, created]);
-      setTotal((n) => n + 1);
+      list.insert(created);
       setInviteOpen(false);
       setInviteForm(EMPTY_FORM);
       if (inviteSent) {
         toast(`Invite sent to ${inviteForm.email}`);
       } else {
-        toast.warning(INVITE_NOT_SENT);
+        toast.warning(INVITE_NOT_SENT, { duration: INVITE_NOT_SENT_DURATION_MS });
       }
     } catch (err) {
       setInviteError(getErrorDetail(err, "Failed to invite user."));
@@ -118,7 +100,7 @@ export default function Users() {
     });
     try {
       const res = await client.patch<User>(`/users/${id}`, body);
-      setUsers((prev) => prev.map((u) => (u.id === id ? res.data : u)));
+      list.replace(res.data);
     } catch (err) {
       const detail = getErrorDetail(err, "Failed to update user.");
       setRowErrors((prev) => ({ ...prev, [id]: detail }));
@@ -263,19 +245,15 @@ export default function Users() {
         </form>
       </Modal>
 
-      {isLoading && <p className="text-sm text-brand-grey-dark">Loading…</p>}
-      {error && <p className="text-sm text-brand-grey-dark">{error}</p>}
+      {list.loading && <p className="text-sm text-brand-grey-dark">Loading…</p>}
+      {list.error && <p className="text-sm text-brand-grey-dark">{list.error}</p>}
 
       {/* Mobile: one card per user — the table controls are unreachable below sm */}
-      {!isLoading && (users.length > 0 || !error) && (
+      {!list.loading && (users.length > 0 || !list.error) && (
         <ul className="space-y-3 sm:hidden">
           {users.length === 0 ? (
             <li className={CARD_CLASS}>
-              <EmptyState
-                icon={UsersIcon}
-                title="No users yet"
-                description="Invited teammates appear here once they are added."
-              />
+              <EmptyState {...NO_USERS} />
             </li>
           ) : (
             users.map((u) => (
@@ -298,7 +276,7 @@ export default function Users() {
         </ul>
       )}
 
-      {!isLoading && (users.length > 0 || !error) && (
+      {!list.loading && (users.length > 0 || !list.error) && (
         <div className={`${CARD_CLASS} hidden overflow-x-auto sm:block`}>
           <table className="w-full text-sm">
             <thead>
@@ -313,12 +291,7 @@ export default function Users() {
             </thead>
             <tbody>
               {users.length === 0 && (
-                <EmptyTableRow
-                  colSpan={columnCount}
-                  icon={UsersIcon}
-                  title="No users yet"
-                  description="Invited teammates appear here once they are added."
-                />
+                <EmptyTableRow colSpan={columnCount} {...NO_USERS} />
               )}
               {users.map((u) => (
                 <tr key={u.id} className="border-b last:border-0">
@@ -335,15 +308,14 @@ export default function Users() {
         </div>
       )}
 
-      {!isLoading && users.length < total && (
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-sm text-brand-grey-dark">
-            Showing {users.length} of {total}
-          </p>
-          <button onClick={loadMore} disabled={loadingMore} className={BUTTON_SECONDARY}>
-            {loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
+      {!list.loading && (
+        <LoadMore
+          hasMore={list.hasMore}
+          shown={users.length}
+          total={list.total}
+          loading={list.loadingMore}
+          onLoadMore={list.loadMore}
+        />
       )}
     </div>
   );

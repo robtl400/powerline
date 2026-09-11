@@ -116,9 +116,12 @@ Complete these steps in the [Twilio Console](https://console.twilio.com) before 
    - Copy the Secret (shown once) → `TWILIO_API_KEY_SECRET`
    - This is separate from your Auth Token and is used only for WebRTC AccessToken generation.
 
-5. **PUBLIC_BASE_URL** — set to your public-facing backend URL.
+5. **PUBLIC_BASE_URL** — set to your public-facing backend URL: scheme and host only, no path.
    - Development: use [ngrok](https://ngrok.com) — `ngrok http 8000` then set `PUBLIC_BASE_URL=https://abc.ngrok.io`
    - Production: your actual domain
+   - The webhook URLs handed to Twilio are root-absolute, so a path prefix (`https://example.com/powerline`)
+     is dropped from the callback and from the URL each signature is reconstructed over. Production startup
+     refuses a value that carries one.
 
 ### Optional
 
@@ -307,20 +310,38 @@ docker compose -f docker-compose.prod.yml up -d migrate
 An index the query lists that no longer belongs to any revision can be dropped by hand with
 `DROP INDEX CONCURRENTLY <name>`.
 
+### Rotating PHONE_HASH_PEPPER
+
+Phone numbers are stored only as digests taken under `PHONE_HASH_PEPPER`, so changing the pepper
+makes every blocklist entry and call-session hash already written unmatchable. The first start
+records `sha256(PHONE_HASH_PEPPER)[:16]` in Redis under `phone_hash_pepper_fp`; a later start whose
+pepper does not match that fingerprint fails in production and logs a warning in development. A
+Redis that is unreachable or wiped skips the check rather than blocking the boot — the fingerprint
+is written again on the next start.
+
+To change the pepper deliberately: rebuild or discard the digests that were written under the old
+one (blocklist entries have to be re-added from the phone numbers themselves), then clear the key
+and start with the new value.
+
+```bash
+docker compose -f docker-compose.prod.yml exec redis \
+  sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli del phone_hash_pepper_fp'
+```
+
 ### Environment variables to set
 
 | Variable | Required | Notes |
 |----------|----------|-------|
 | `DATABASE_URL` | Yes | Use `postgresql+asyncpg://` scheme |
 | `REDIS_URL` | Yes | Used by Celery + call state |
-| `REDIS_PASSWORD` | Yes (prod) | Redis starts with `--requirepass`; the app and Celery both append it unless `REDIS_URL` already carries credentials |
+| `REDIS_PASSWORD` | Yes (prod) | The prod Redis container writes it into a config file at start and reads it back with `requirepass`, so it never appears in the process table or in `docker inspect`'s command; the healthcheck passes it to `redis-cli` through `REDISCLI_AUTH`. The app and Celery both append it to `REDIS_URL` unless that URL already carries credentials |
 | `REDIS_MAXMEMORY` | Optional | Memory ceiling for the prod Redis container (default `256mb`). Eviction is off, so at the cap Redis rejects writes with an OOM error rather than dropping call state or rate-limit counters |
 | `TIMEZONE` | Optional | IANA zone used for dashboard/analytics day boundaries (default `UTC`); an unknown name refuses to start |
 | `DOMAIN` | Yes (prod) | Hostname Caddy serves and gets a certificate for |
 | `POSTGRES_PASSWORD` | Yes (prod) | Password for the bundled Postgres container |
 | `ENVIRONMENT` | Yes | `production` (default) or `development`; `development` relaxes webhook signature checks only when `TWILIO_AUTH_TOKEN` is unset |
 | `SECRET_KEY` | Yes | `openssl rand -hex 32` |
-| `PHONE_HASH_PEPPER` | Recommended | `openssl rand -hex 32`, mixed into every phone-number digest. Numbers are stored only as digests, so a pepper is what stops a stolen database being walked back to phone numbers by hashing the ten-digit space. Set it before the first production call: changing it later invalidates every digest already stored, so existing blocklist entries stop blocking and existing session hashes stop matching their numbers. Empty means plain SHA-256 |
+| `PHONE_HASH_PEPPER` | Recommended | `openssl rand -hex 32`, mixed into every phone-number digest. Numbers are stored only as digests, so a pepper is what stops a stolen database being walked back to phone numbers by hashing the ten-digit space. Set it before the first production call: changing it later invalidates every digest already stored, so existing blocklist entries stop blocking and existing session hashes stop matching their numbers. Startup records a fingerprint of it in Redis (`phone_hash_pepper_fp`) and refuses to boot in production if the pepper no longer matches — see [Rotating PHONE_HASH_PEPPER](#rotating-phone_hash_pepper). Empty means plain SHA-256 |
 | `TRUSTED_PROXIES` | Yes (prod) | Comma-separated IPs/CIDRs of your reverse proxies. `X-Forwarded-For` is ignored unless the peer is listed, so every request would be rate limited under the proxy's IP; production startup fails unless at least one entry parses |
 | `RESET_CODE_TTL_SECONDS` | Optional | Lifetime of a password-reset code (default 600) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Optional | Access-token lifetime (default 30) |
@@ -332,7 +353,7 @@ An index the query lists that no longer belongs to any revision can be dropped b
 | `TOKEN_RATE_LIMIT` | Optional | WebRTC access tokens per hour per client IP (default 5) |
 | `TOKEN_CAMPAIGN_RATE_LIMIT` | Optional | WebRTC access tokens per hour per campaign (default 500) |
 | `DOCS_ENABLED` | Optional | Forces `/docs`, `/redoc`, `/openapi.json` on or off; unset means on in development, off in production |
-| `PUBLIC_BASE_URL` | Yes | Must be reachable by Twilio |
+| `PUBLIC_BASE_URL` | Yes | Must be reachable by Twilio, and must carry no path — scheme and host only. Webhook URLs are root-absolute, so a prefix is dropped from both the callback and the signature check; production startup rejects one |
 | `TWILIO_ACCOUNT_SID` | Yes | |
 | `TWILIO_AUTH_TOKEN` | Yes | |
 | `TWILIO_TWIML_APP_SID` | Yes | |

@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.schemas.common import Page
+
 
 class DailyCount(BaseModel):
     date: str  # ISO date string: "2026-03-01"
@@ -18,6 +20,7 @@ class DashboardResponse(BaseModel):
     calls_this_week: int
     calls_this_month: int
     active_campaigns: int
+    # Connection-type split over the same trailing 30 days as calls_this_month
     webrtc_count: int
     phone_count: int
     # Last 7 calendar days (today inclusive), oldest first
@@ -27,8 +30,10 @@ class DashboardResponse(BaseModel):
 class TargetStats(BaseModel):
     target_id: uuid.UUID
     name: str
+    # Calls actually dialed: a skipped target is counted in skipped_calls only
     total_calls: int
     completed_calls: int
+    skipped_calls: int = 0
     avg_duration_seconds: float | None
 
 
@@ -52,17 +57,17 @@ class CallSessionRow(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class CallSessionPage(BaseModel):
-    total: int
-    items: list[CallSessionRow]
+CallSessionPage = Page[CallSessionRow]
 
 
 class QualityResponse(BaseModel):
-    total_calls: int
+    total_calls: int  # calls dialed; skipped targets are excluded
     calls_with_quality: int
     avg_quality_score: float | None  # 1–5 MOS-like score; None if no data
     connection_rate: float  # completed / total sessions
-    failure_breakdown: dict[str, int]  # {"failed": N, "busy": N, "no_answer": N, ...}
+    # Every call status that is not a connected call:
+    # {"failed": N, "busy": N, "no_answer": N, "canceled": N, "skipped": N}
+    failure_breakdown: dict[str, int]
 
 
 class FailureBreakdown(BaseModel):

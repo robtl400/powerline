@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ShieldOff } from "lucide-react";
 import client from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,9 +12,10 @@ import {
   PAGE_HEADING,
 } from "@/lib/styles";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadMore } from "@/components/LoadMore";
 import { Modal } from "@/components/Modal";
 import { PHONE_VALIDATION_MESSAGE, PhoneInput, validatePhone } from "@/components/PhoneInput";
-import type { Page } from "@/types/api";
+import { usePagedList } from "@/hooks/usePagedList";
 
 interface BlocklistEntry {
   id: string;
@@ -40,11 +41,10 @@ export default function Blocklist() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
-  const [entries, setEntries] = useState<BlocklistEntry[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const list = usePagedList<BlocklistEntry>("/admin/blocklist", {
+    errorMessage: "Failed to load blocklist.",
+  });
+  const entries = list.items;
 
   // Add form state
   const [showForm, setShowForm] = useState(false);
@@ -56,29 +56,6 @@ export default function Blocklist() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<BlocklistEntry | null>(null);
-
-  useEffect(() => {
-    client
-      .get<Page<BlocklistEntry>>("/admin/blocklist")
-      .then((res) => {
-        setEntries(res.data.items);
-        setTotal(res.data.total);
-      })
-      .catch(() => setError("Failed to load blocklist."))
-      .finally(() => setLoading(false));
-  }, []);
-
-  function loadMore() {
-    setLoadingMore(true);
-    client
-      .get<Page<BlocklistEntry>>(`/admin/blocklist?skip=${entries.length}`)
-      .then((res) => {
-        setEntries((prev) => [...prev, ...res.data.items]);
-        setTotal(res.data.total);
-      })
-      .catch(() => setError("Failed to load more blocklist entries."))
-      .finally(() => setLoadingMore(false));
-  }
 
   async function handleAdd() {
     const hasPhone = phoneNumber.replace(/\D/g, "").length > 1;
@@ -102,8 +79,7 @@ export default function Blocklist() {
         ip_address: ip || null,
         reason: reason.trim() || null,
       });
-      setEntries((prev) => [res.data, ...prev]);
-      setTotal((n) => n + 1);
+      list.insert(res.data, "start");
       setPhoneNumber("");
       setPhoneHash("");
       setShowHashField(false);
@@ -123,14 +99,13 @@ export default function Blocklist() {
     setPendingDelete(null);
     try {
       await client.delete(`/admin/blocklist/${entry.id}`);
-      setEntries((prev) => prev.filter((e) => e.id !== entry.id));
-      setTotal((n) => Math.max(0, n - 1));
+      list.remove(entry.id);
     } catch {
-      setError("Failed to delete entry.");
+      list.setError("Failed to delete entry.");
     }
   }
 
-  if (loading) return <p className="text-brand-grey-dark">Loading…</p>;
+  if (list.loading) return <p className="text-brand-grey-dark">Loading…</p>;
 
   return (
     <div className="max-w-3xl">
@@ -146,9 +121,9 @@ export default function Blocklist() {
         )}
       </div>
 
-      {error && (
+      {list.error && (
         <div className="mb-4 px-4 py-3 rounded-field border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
-          {error}
+          {list.error}
         </div>
       )}
 
@@ -268,7 +243,7 @@ export default function Blocklist() {
             <tbody>
               {entries.map((entry) => (
                 <tr key={entry.id} className="border-t border-brand-border bg-white">
-                  <td className="px-4 py-2 font-mono text-xs">{formatIdentifier(entry)}</td>
+                  <td className="px-4 py-2 text-xs tabular-nums">{formatIdentifier(entry)}</td>
                   <td className="px-4 py-2 text-brand-grey-dark">
                     {entry.reason ?? <span className="italic">—</span>}
                   </td>
@@ -292,16 +267,14 @@ export default function Blocklist() {
         </div>
       )}
 
-      {entries.length < total && (
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <p className="text-sm text-brand-grey-dark">
-            Showing {entries.length} of {total}
-          </p>
-          <button onClick={loadMore} disabled={loadingMore} className={BUTTON_SECONDARY}>
-            {loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
+      <LoadMore
+        hasMore={list.hasMore}
+        shown={entries.length}
+        total={list.total}
+        loading={list.loadingMore}
+        onLoadMore={list.loadMore}
+        className="mt-4"
+      />
 
       <Modal
         open={pendingDelete !== null}

@@ -24,21 +24,28 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}
+    # The password reaches Redis through a config file written at start, and
+    # redis-cli through REDISCLI_AUTH: on the command line it would be readable
+    # from any process table, `docker inspect` and /proc/*/cmdline.
+    #
     # noeviction: call state and rate-limit counters must not be dropped under
     # memory pressure — losing them silently un-limits the public endpoints.
     # At the cap Redis rejects writes instead, which surfaces as errors.
     command:
-      - redis-server
-      - --requirepass
-      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      - --maxmemory
-      - ${REDIS_MAXMEMORY:-256mb}
-      - --maxmemory-policy
-      - noeviction
+      - sh
+      - -c
+      - >
+        printf 'requirepass %s\n' "$$REDIS_PASSWORD" > /tmp/redis.conf &&
+        exec redis-server /tmp/redis.conf
+        --maxmemory "$$REDIS_MAXMEMORY"
+        --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5

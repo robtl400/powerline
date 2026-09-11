@@ -3,7 +3,7 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,11 +11,15 @@ from app.api.deps import DB, AdminUser, CurrentUser, Provider
 from app.models.campaign import Campaign
 from app.models.campaign_phone_number import CampaignPhoneNumber
 from app.models.phone_number import PhoneNumber
+from app.schemas.common import Page
 from app.schemas.phone_number import CampaignAssignRequest, PhoneNumberResponse
 
 log = structlog.get_logger()
 
 router = APIRouter(prefix="/phone-numbers", tags=["phone-numbers"])
+
+DEFAULT_PAGE_LIMIT = 200
+MAX_PAGE_LIMIT = 500
 
 
 async def _get_phone_or_404(phone_id: uuid.UUID, db: AsyncSession) -> PhoneNumber:
@@ -28,15 +32,16 @@ async def _get_phone_or_404(phone_id: uuid.UUID, db: AsyncSession) -> PhoneNumbe
 
 # NOTE: /sync must be registered BEFORE /{phone_id} — FastAPI matches routes in
 # registration order, and "sync" would otherwise be parsed as a UUID path param.
-@router.post("/sync", response_model=list[PhoneNumberResponse])
+@router.post("/sync", response_model=Page[PhoneNumberResponse])
 async def sync_phone_numbers(
     _: AdminUser,
     db: DB,
     provider: Provider,
-) -> list[PhoneNumber]:
+) -> Page[PhoneNumberResponse]:
     """Fetch all phone numbers from Twilio and upsert into the local database.
 
     Idempotent — safe to call repeatedly. Numbers are matched by twilio_sid.
+    `total` counts every number synced; `items` carries at most one page of them.
     """
     loop = asyncio.get_running_loop()
     try:
@@ -77,20 +82,32 @@ async def sync_phone_numbers(
     await db.commit()
 
     log.info("phone_numbers_synced", count=len(results))
-    return results
+    return Page[PhoneNumberResponse](
+        total=len(results),
+        items=[
+            PhoneNumberResponse.model_validate(pn) for pn in results[:DEFAULT_PAGE_LIMIT]
+        ],
+    )
 
 
-@router.get("", response_model=list[PhoneNumberResponse])
+@router.get("", response_model=Page[PhoneNumberResponse])
 async def list_phone_numbers(
     _: CurrentUser,
     db: DB,
     skip: int = Query(0, ge=0),
-    limit: int = Query(200, ge=1, le=500),
-) -> list[PhoneNumber]:
+    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+) -> Page[PhoneNumberResponse]:
+    total = await db.scalar(select(func.count()).select_from(PhoneNumber))
     result = await db.execute(
-        select(PhoneNumber).order_by(PhoneNumber.created_at.desc()).offset(skip).limit(limit)
+        select(PhoneNumber)
+        .order_by(PhoneNumber.created_at.desc(), PhoneNumber.id)
+        .offset(skip)
+        .limit(limit)
     )
-    return list(result.scalars().all())
+    return Page[PhoneNumberResponse](
+        total=int(total or 0),
+        items=[PhoneNumberResponse.model_validate(pn) for pn in result.scalars().all()],
+    )
 
 
 @router.post("/{phone_id}/assign", response_model=PhoneNumberResponse)

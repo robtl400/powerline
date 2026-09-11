@@ -283,7 +283,11 @@ async def test_upload_reports_409_when_every_version_insert_collides(
     admin_headers: dict,
 ) -> None:
     """Losing the version race on every attempt is a conflict, not a 500."""
-    collision = IntegrityError("INSERT", {}, Exception("duplicate key"))
+    collision = IntegrityError(
+        "INSERT",
+        {},
+        Exception('duplicate key value violates unique constraint "uq_audio_recordings_campaign_key_version"'),
+    )
 
     with patch(
         "app.api.v1.audio.upload_audio_to_cloudinary",
@@ -380,3 +384,68 @@ async def test_activate_global_recording(
 
     await db.execute(delete(AudioRecording).where(AudioRecording.id == rec.id))
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# The campaign is settled before anything is uploaded or inserted
+# ---------------------------------------------------------------------------
+
+
+async def test_upload_to_an_unknown_campaign_is_404_before_the_upload(
+    client: AsyncClient,
+    admin_headers: dict,
+) -> None:
+    """No Cloudinary object is created for a campaign that does not exist."""
+    cloudinary = AsyncMock(return_value=_FAKE_URL)
+
+    with patch("app.api.v1.audio.upload_audio_to_cloudinary", cloudinary):
+        resp = await client.post(
+            "/api/v1/audio/upload",
+            data={"key": "msg_intro", "campaign_id": str(uuid.uuid4())},
+            files=_audio_file("audio/mpeg"),
+            headers=admin_headers,
+        )
+
+    assert resp.status_code == 404, resp.text
+    cloudinary.assert_not_awaited()
+
+
+async def test_create_tts_for_an_unknown_campaign_is_404(
+    client: AsyncClient,
+    admin_headers: dict,
+) -> None:
+    resp = await client.post(
+        f"/api/v1/campaigns/{uuid.uuid4()}/audio",
+        json={"key": "msg_intro", "tts_text": "Hello"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 404, resp.text
+
+
+async def test_upload_does_not_retry_an_unrelated_integrity_error(
+    client: AsyncClient,
+    campaign: Campaign,
+    admin_headers: dict,
+) -> None:
+    """Only a version collision is a race; anything else is raised, not retried."""
+    unrelated = IntegrityError(
+        "INSERT",
+        {},
+        Exception(
+            'insert or update on table "audio_recordings" violates foreign key '
+            'constraint "audio_recordings_campaign_id_fkey"'
+        ),
+    )
+
+    with patch(
+        "app.api.v1.audio.upload_audio_to_cloudinary",
+        new_callable=AsyncMock,
+        return_value=_FAKE_URL,
+    ), patch.object(AsyncSession, "commit", AsyncMock(side_effect=unrelated)):
+        with pytest.raises(IntegrityError):
+            await client.post(
+                "/api/v1/audio/upload",
+                data={"key": "msg_intro", "campaign_id": str(campaign.id)},
+                files=_audio_file("audio/mpeg"),
+                headers=admin_headers,
+            )

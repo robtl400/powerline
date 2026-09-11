@@ -2,15 +2,18 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.schemas.target import normalize_phone
 from app.services.auth import validate_password_strength
 
+# Width of users.name — a longer value is a 422, not a DataError at commit.
+NAME_MAX_LENGTH = 100
+
 
 class UserCreate(BaseModel):
     email: EmailStr
-    name: str
+    name: str = Field(max_length=NAME_MAX_LENGTH)
     phone: str  # E.164 format
     password: str | None = None  # if omitted, a random password is generated and SMS'd
     role: Literal["admin", "staff"] = "staff"
@@ -34,7 +37,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=NAME_MAX_LENGTH)
     phone: str | None = None
     role: Literal["admin", "staff"] | None = None
     is_active: bool | None = None
@@ -61,8 +64,3 @@ class UserResponse(BaseModel):
 
 class UserCreateResponse(UserResponse):
     invite_sent: bool
-
-
-class UserPage(BaseModel):
-    total: int
-    items: list[UserResponse]

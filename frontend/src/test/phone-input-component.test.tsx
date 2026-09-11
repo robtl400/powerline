@@ -73,6 +73,46 @@ describe("PhoneInput — blur-based validation", () => {
   });
 });
 
+describe("PhoneInput — error wiring", () => {
+  it("carries no aria-invalid or description while valid", () => {
+    renderPhoneInput("+12025551234");
+    const input = screen.getByRole("textbox");
+    fireEvent.blur(input);
+
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(input).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("marks the field invalid and points it at the alert message", () => {
+    renderPhoneInput("+12");
+    const input = screen.getByRole("textbox");
+    fireEvent.blur(input);
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/10-digit US phone number/);
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAttribute("aria-describedby", alert.id);
+    expect(alert.id).not.toBe("");
+  });
+
+  it("gives each instance its own error id", () => {
+    render(
+      <>
+        <PhoneInput value="+12" onChange={vi.fn()} />
+        <PhoneInput value="+13" onChange={vi.fn()} />
+      </>
+    );
+    const [first, second] = screen.getAllByRole("textbox");
+    fireEvent.blur(first);
+    fireEvent.blur(second);
+
+    const [firstAlert, secondAlert] = screen.getAllByRole("alert");
+    expect(firstAlert.id).not.toBe(secondAlert.id);
+    expect(first).toHaveAttribute("aria-describedby", firstAlert.id);
+    expect(second).toHaveAttribute("aria-describedby", secondAlert.id);
+  });
+});
+
 describe("PhoneInput — onChange", () => {
   it("calls onChange with E.164 when user types digits", () => {
     const onChange = vi.fn();

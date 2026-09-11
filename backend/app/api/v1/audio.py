@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
-from app.api.v1.helpers import read_upload_limited
+from app.api.v1.helpers import get_campaign_or_404, read_upload_limited
 from app.models.audio import AUDIO_KEYS, AudioRecording
 from app.models.campaign import Campaign
 from app.schemas.audio import AudioRecordingCreate, AudioRecordingResponse
@@ -32,6 +32,10 @@ _ALLOWED_CONTENT_TYPES = {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/webm"
 _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
 _MAX_VERSION_ATTEMPTS = 3
 _CONTENT_MISMATCH = "File content does not match an accepted audio format"
+
+# The two constraints that make a slot's versions unique: one version number per
+# (campaign, key), and at most one active row in the slot.
+_SLOT_CONSTRAINTS = ("uq_audio_recordings_campaign_key_version", "ux_audio_recordings_active")
 
 
 def _looks_like_audio(head: bytes) -> bool:
@@ -75,7 +79,9 @@ async def _insert_versioned(
 
     Two concurrent uploads can pick the same version number; the slot's unique
     constraint catches that and the losing insert re-reads the maximum and
-    retries.
+    retries. Only that constraint is a race — any other integrity error (a
+    campaign that went away mid-request, say) is the caller's answer, not
+    something a retry would settle.
     """
     for _ in range(_MAX_VERSION_ATTEMPTS):
         recording = AudioRecording(
@@ -88,8 +94,10 @@ async def _insert_versioned(
         db.add(recording)
         try:
             await db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             await db.rollback()
+            if not any(name in str(exc) for name in _SLOT_CONSTRAINTS):
+                raise
             continue
         await db.refresh(recording)
         return recording
@@ -130,6 +138,11 @@ async def upload_audio(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid audio key. Valid keys: {sorted(AUDIO_KEYS)}",
         )
+
+    # Settle the campaign before anything is uploaded: an unknown id would only
+    # surface as a foreign-key violation after the file is already in storage,
+    # leaving an object nothing points at.
+    await get_campaign_or_404(campaign_id, db)
 
     file_bytes = await read_upload_limited(file, _MAX_FILE_BYTES)
     if file_bytes is None:
@@ -249,6 +262,8 @@ async def create_audio(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid audio key. Valid keys: {sorted(AUDIO_KEYS)}",
         )
+
+    await get_campaign_or_404(campaign_id, db)
 
     return await _insert_versioned(
         db, campaign_id, body.key, tts_text=body.tts_text, description=body.description

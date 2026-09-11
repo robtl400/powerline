@@ -17,15 +17,18 @@ CampaignType = Literal["custom"]
 CampaignStatus = Literal["draft", "paused", "live", "archived"]
 TargetOrdering = Literal["in_order", "shuffle"]
 
+# Width of campaigns.name — a longer value is a 422, not a DataError at commit.
+NAME_MAX_LENGTH = 255
+
 
 class CampaignCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=NAME_MAX_LENGTH)
     description: str | None = None
     campaign_type: CampaignType = "custom"
     language: str = Field(default="en-US", max_length=5)
     target_ordering: TargetOrdering = "in_order"
-    call_maximum: int | None = None
-    rate_limit: int | None = None
+    call_maximum: int | None = Field(default=None, ge=1)
+    rate_limit: int | None = Field(default=None, ge=1)
     allow_webrtc: bool = True
     allow_phone_callback: bool = True
     lookup_validate: bool = True
@@ -35,13 +38,13 @@ class CampaignCreate(BaseModel):
 
 
 class CampaignUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=NAME_MAX_LENGTH)
     description: str | None = None
     campaign_type: CampaignType | None = None
     language: str | None = Field(default=None, max_length=5)
     target_ordering: TargetOrdering | None = None
-    call_maximum: int | None = None
-    rate_limit: int | None = None
+    call_maximum: int | None = Field(default=None, ge=1)
+    rate_limit: int | None = Field(default=None, ge=1)
     allow_webrtc: bool | None = None
     allow_phone_callback: bool | None = None
     lookup_validate: bool | None = None
@@ -79,14 +82,6 @@ class CampaignResponse(BaseModel):
 
 class CampaignDetailResponse(CampaignResponse):
     targets: list[TargetInCampaign] = []
-    targets_total: int = 0
-
-
-class CampaignPage(BaseModel):
-    """One page of campaigns; `total` counts every campaign matching the filters."""
-
-    total: int
-    items: list[CampaignResponse] = []
 
 
 class TargetPublicInfo(BaseModel):

@@ -1,5 +1,6 @@
 import asyncio
 import secrets
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
@@ -7,11 +8,14 @@ from typing import TYPE_CHECKING
 
 import bcrypt
 import jwt
+from sqlalchemy import update
 
 from app.config import settings
+from app.models.user import User
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 ALGORITHM = "HS256"
 
@@ -85,6 +89,19 @@ def refresh_pred_key(user_id: str, successor_jti: str) -> str:
     return f"refresh_pred:{user_id}:{successor_jti}"
 
 
+def refresh_set_key(user_id: str) -> str:
+    """Key holding every jti minted for a user, so revocation costs O(sessions).
+
+    A consumed jti stays a member until the user logs out or every session is
+    revoked. It is not dead yet: its grace marker still hands out a successor
+    and its predecessor pointer still names it, and revocation has to reach
+    both. Dropping it on consumption would leave those markers behind, and a
+    retired token inside its grace window would still mint an access token
+    issued after the session floor — one that the floor cannot catch.
+    """
+    return f"refresh_set:{user_id}"
+
+
 def session_floor_key(user_id: str) -> str:
     return f"session_floor:{user_id}"
 
@@ -131,7 +148,12 @@ async def issue_refresh_token(redis: "Redis", user_id: str) -> str:
     """Mint a refresh token and register its jti so it can be used exactly once."""
     token = create_refresh_token(user_id)
     jti = decode_token(token)["jti"]
-    await redis.setex(refresh_key(user_id, jti), refresh_token_ttl(), "1")
+    ttl = refresh_token_ttl()
+    async with redis.pipeline(transaction=False) as pipe:
+        pipe.setex(refresh_key(user_id, jti), ttl, "1")
+        pipe.sadd(refresh_set_key(user_id), jti)
+        pipe.expire(refresh_set_key(user_id), ttl)
+        await pipe.execute()
     return token
 
 
@@ -156,6 +178,13 @@ class RefreshRotation:
 
     `token` carries the successor on CONSUMED and GRACE, and is None on
     LOGGED_OUT and REPLAYED.
+
+    Callers read the four outcomes as three branches on purpose. CONSUMED and
+    GRACE both hand back a live successor and are answered identically, so a
+    caller only has to separate the two failures — LOGGED_OUT, which is refused
+    on its own, and REPLAYED, which ends every session the user has. The pair is
+    still worth telling apart here: the distinction is what the grace window is,
+    and a caller that wants to log or meter it has it.
     """
 
     outcome: RefreshOutcome
@@ -163,15 +192,18 @@ class RefreshRotation:
 
 
 # Retires the presented jti, records its successor and a pointer back from that
-# successor, or reports what the jti already is. Runs as one atomic step so two
-# simultaneous presentations cannot both see an unconsumed jti, and so a
-# concurrent second presentation never lands in the gap between the delete and
-# the grace marker. A logout tombstone outranks a grace marker: a chain the user
-# signed out of is dead even if a retired link is still inside its window.
+# successor, enrols the successor in the user's jti set, or reports what the jti
+# already is. Runs as one atomic step so two simultaneous presentations cannot
+# both see an unconsumed jti, and so a concurrent second presentation never
+# lands in the gap between the delete and the grace marker. A logout tombstone
+# outranks a grace marker: a chain the user signed out of is dead even if a
+# retired link is still inside its window.
 _ROTATE_LUA = """
 if redis.call('DEL', KEYS[1]) == 1 then
     redis.call('SETEX', KEYS[2], ARGV[2], ARGV[1])
     redis.call('SETEX', KEYS[4], ARGV[2], ARGV[3])
+    redis.call('SADD', KEYS[5], ARGV[4])
+    redis.call('EXPIRE', KEYS[5], ARGV[5])
     return {'consumed', ''}
 end
 if redis.call('EXISTS', KEYS[3]) == 1 then
@@ -200,14 +232,17 @@ async def rotate_refresh_token(redis: "Redis", user_id: str, jti: str) -> Refres
 
     outcome, recorded = await redis.eval(
         _ROTATE_LUA,
-        4,
+        5,
         refresh_key(user_id, jti),
         refresh_grace_key(user_id, jti),
         refresh_logout_key(user_id, jti),
         refresh_pred_key(user_id, successor_jti),
+        refresh_set_key(user_id),
         successor,
         REFRESH_GRACE_SECONDS,
         jti,
+        successor_jti,
+        refresh_token_ttl(),
     )
 
     if outcome == RefreshOutcome.CONSUMED:
@@ -231,15 +266,20 @@ async def retire_refresh_token(redis: "Redis", user_id: str, jti: str, ttl: int)
     was minted. And an unmarked jti would look stolen on its next presentation
     and take every other session down with it, so both this jti and the
     predecessor get a tombstone that answers later presentations quietly.
+
+    Both leave the user's jti set, since a deliberately ended chain has nothing
+    left for a later revocation to sweep; their tombstones expire with the
+    tokens they stand for.
     """
     predecessor = await redis.get(refresh_pred_key(user_id, jti))
     retired = [jti, predecessor] if predecessor else [jti]
 
     keys = [refresh_key(user_id, jti), refresh_pred_key(user_id, jti)]
     keys += [refresh_grace_key(user_id, dead) for dead in retired]
-    await redis.delete(*keys)
 
     async with redis.pipeline(transaction=False) as pipe:
+        pipe.delete(*keys)
+        pipe.srem(refresh_set_key(user_id), *retired)
         for dead in retired:
             pipe.setex(refresh_logout_key(user_id, dead), ttl, "1")
         await pipe.execute()
@@ -255,35 +295,71 @@ def remaining_lifetime(payload: dict) -> int:
     return max(1, min(remaining, ttl))
 
 
-async def revoke_user_sessions(redis: "Redis", user_id: str) -> None:
+async def revoke_user_sessions(redis: "Redis", user_id: str, db: "AsyncSession") -> None:
     """End every session for a user: refresh tokens and outstanding access tokens.
 
     The session floor is compared against each access token's `iat`, so tokens
-    already in the wild stop working without waiting for their expiry. Every
-    marker the rotation chain leaves behind goes with the refresh tokens, so no
-    retired jti can still hand out a successor once the sessions behind it are
-    gone.
+    already in the wild stop working without waiting for their expiry. It is
+    written twice: to Redis, where the hot path reads it, and to
+    users.sessions_valid_from, which outlives an evicted key or a flushed
+    instance. Every marker the rotation chain leaves behind goes with the
+    refresh tokens, so no retired jti can still hand out a successor once the
+    sessions behind it are gone.
+
+    The user's jti set names everything to delete, so the cost is the number of
+    sessions rather than a walk of the keyspace.
+
+    The column write joins the caller's transaction and is left uncommitted:
+    callers commit it themselves, alongside whatever change prompted the
+    revocation. Redis is cleared first, so a transaction that then fails leaves
+    the sessions ended rather than alive.
     """
-    keys: list[str] = []
-    for pattern in (
-        refresh_key(user_id, "*"),
-        refresh_grace_key(user_id, "*"),
-        refresh_logout_key(user_id, "*"),
-        refresh_pred_key(user_id, "*"),
-    ):
-        keys.extend([key async for key in redis.scan_iter(match=pattern)])
-    if keys:
-        await redis.delete(*keys)
-    floor = datetime.now(timezone.utc).timestamp()
-    await redis.setex(session_floor_key(user_id), refresh_token_ttl(), repr(floor))
+    members = await redis.smembers(refresh_set_key(user_id))
+
+    keys = [refresh_set_key(user_id)]
+    for jti in members:
+        keys += [
+            refresh_key(user_id, jti),
+            refresh_grace_key(user_id, jti),
+            refresh_logout_key(user_id, jti),
+            refresh_pred_key(user_id, jti),
+        ]
+
+    floor = datetime.now(timezone.utc)
+    async with redis.pipeline(transaction=False) as pipe:
+        pipe.delete(*keys)
+        pipe.setex(
+            session_floor_key(user_id), refresh_token_ttl(), repr(floor.timestamp())
+        )
+        await pipe.execute()
+
+    await db.execute(
+        update(User)
+        .where(User.id == uuid.UUID(user_id))
+        .values(sessions_valid_from=floor)
+    )
 
 
-async def session_floor(redis: "Redis", user_id: str) -> float | None:
-    """Return the timestamp before which this user's access tokens are dead."""
+async def session_floor(
+    redis: "Redis", user_id: str, user: User | None = None
+) -> float | None:
+    """Return the timestamp before which this user's access tokens are dead.
+
+    Redis holds the floor for as long as a refresh token could live; the user
+    row holds it permanently. The later of the two wins, so an evicted or
+    flushed key cannot bring a revoked session back, and a floor moved forward
+    since the row was loaded is still honoured.
+    """
+    floors: list[float] = []
+
     raw = await redis.get(session_floor_key(user_id))
-    if raw is None:
-        return None
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return None
+    if raw is not None:
+        try:
+            floors.append(float(raw))
+        except (TypeError, ValueError):
+            pass
+
+    if user is not None and user.sessions_valid_from is not None:
+        floors.append(user.sessions_valid_from.timestamp())
+
+    return max(floors) if floors else None

@@ -2,6 +2,8 @@ import uuid
 
 from pydantic import BaseModel, Field
 
+from app.schemas.calls import TargetPreview
+
 
 class VoiceTokenRequest(BaseModel):
     campaign_id: uuid.UUID
@@ -16,3 +18,6 @@ class VoiceTokenResponse(BaseModel):
     # UUID passed to device.connect({ params: { session_id } }) so voice-app
     # can look up the Redis call state.
     session_id: str
+    # First target in the settled dial order, which a shuffled campaign only
+    # knows server-side. None when the target row could not be read back.
+    first_target: TargetPreview | None = None

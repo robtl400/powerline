@@ -1043,7 +1043,7 @@ async def _add_targets(
     return ids
 
 
-async def test_get_campaign_caps_the_target_list_and_reports_the_total(
+async def test_get_campaign_caps_the_target_list_and_reports_the_count(
     client: AsyncClient, campaign: Campaign, admin_headers: dict
 ) -> None:
     ids = await _add_targets(client, campaign, admin_headers, 3)
@@ -1054,8 +1054,8 @@ async def test_get_campaign_caps_the_target_list_and_reports_the_total(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert [t["id"] for t in body["targets"]] == ids[:2]
-    assert body["targets_total"] == 3
     assert body["target_count"] == 3
+    assert "targets_total" not in body
 
 
 async def test_get_campaign_can_skip_the_target_list(
@@ -1069,7 +1069,7 @@ async def test_get_campaign_can_skip_the_target_list(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["targets"] == []
-    assert body["targets_total"] == 2
+    assert body["target_count"] == 2
 
 
 async def test_get_campaign_rejects_an_unbounded_targets_limit(
@@ -1166,3 +1166,120 @@ async def test_update_target_rejects_an_over_long_title(
         headers=admin_headers,
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Campaign field bounds: the column widths and the limits that must be positive
+# ---------------------------------------------------------------------------
+
+
+async def test_create_campaign_rejects_an_over_long_name(
+    client: AsyncClient, admin_headers: dict
+) -> None:
+    """A name past the column width is a 422, not a DataError at commit."""
+    resp = await client.post(
+        "/api/v1/campaigns",
+        json={"name": "N" * 256},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422
+
+
+async def test_update_campaign_rejects_an_over_long_name(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    resp = await client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json={"name": "N" * 256},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("field", ["call_maximum", "rate_limit"])
+@pytest.mark.parametrize("value", [0, -1])
+async def test_create_campaign_rejects_a_non_positive_limit(
+    client: AsyncClient, admin_headers: dict, field: str, value: int
+) -> None:
+    """Zero or negative would 429 every call on the campaign."""
+    resp = await client.post(
+        "/api/v1/campaigns",
+        json={"name": f"Limits {uuid.uuid4().hex[:8]}", field: value},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("field", ["call_maximum", "rate_limit"])
+async def test_update_campaign_rejects_a_non_positive_limit(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, field: str
+) -> None:
+    resp = await client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json={field: 0},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /public target list: bounded, in campaign order, no phone numbers
+# ---------------------------------------------------------------------------
+
+
+async def test_public_caps_the_target_list(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_headers: dict,
+    redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.v1 import campaigns as campaigns_module
+
+    ids = await _add_targets(client, campaign, admin_headers, 3)
+    monkeypatch.setattr(campaigns_module, "_PUBLIC_TARGETS_LIMIT", 2)
+
+    campaign.status = "live"
+    await db.commit()
+
+    await redis.delete(_PUBLIC_RATE_KEY)
+    try:
+        resp = await client.get(f"/api/v1/campaigns/{campaign.id}/public")
+    finally:
+        await redis.delete(_PUBLIC_RATE_KEY)
+
+    assert resp.status_code == 200, resp.text
+    targets = resp.json()["targets"]
+    assert [t["id"] for t in targets] == ids[:2]
+    assert all("phone_number" not in t for t in targets)
+
+
+# ---------------------------------------------------------------------------
+# Target order is serialised per campaign
+# ---------------------------------------------------------------------------
+
+
+async def test_concurrent_adds_take_distinct_orders(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    """Two adds racing on one campaign cannot both append at the same order."""
+    import asyncio
+
+    def _add(suffix: int):
+        return client.post(
+            f"/api/v1/campaigns/{campaign.id}/targets",
+            json={
+                "name": f"Racer {suffix}",
+                "title": "Rep",
+                "phone_number": f"+1202555{4000 + suffix:04d}",
+                "location": "WA-07",
+            },
+            headers=admin_headers,
+        )
+
+    first, second = await asyncio.gather(_add(0), _add(1))
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert {first.json()["order"], second.json()["order"]} == {0, 1}

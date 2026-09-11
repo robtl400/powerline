@@ -15,6 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1 import phone_numbers as phone_numbers_api
 from app.dependencies import get_telephony_provider
 from app.main import app
 from app.models.campaign import Campaign
@@ -93,13 +94,15 @@ async def test_sync_inserts_new_numbers(
     assert resp.status_code == 200, resp.text
 
     body = resp.json()
-    assert len(body) == 1
-    assert body[0]["twilio_sid"] == sid
-    assert body[0]["number"] == number
-    assert body[0]["label"] == "Main line"
-    assert body[0]["capabilities"] == VOICE_ONLY
-    assert body[0]["trust_status"] == "unknown"
-    assert body[0]["provider"] == "twilio"
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    row = body["items"][0]
+    assert row["twilio_sid"] == sid
+    assert row["number"] == number
+    assert row["label"] == "Main line"
+    assert row["capabilities"] == VOICE_ONLY
+    assert row["trust_status"] == "unknown"
+    assert row["provider"] == "twilio"
 
     stored = await db.scalar(select(PhoneNumber).where(PhoneNumber.twilio_sid == sid))
     assert stored is not None
@@ -121,14 +124,33 @@ async def test_second_sync_updates_in_place(
     provider.list_phone_numbers.return_value = [_info(sid, number, "After", VOICE_AND_SMS)]
     second = await client.post("/api/v1/phone-numbers/sync", headers=admin_headers)
     assert second.status_code == 200, second.text
-    assert second.json()[0]["id"] == first.json()[0]["id"]
-    assert second.json()[0]["label"] == "After"
-    assert second.json()[0]["capabilities"] == VOICE_AND_SMS
+    assert second.json()["items"][0]["id"] == first.json()["items"][0]["id"]
+    assert second.json()["items"][0]["label"] == "After"
+    assert second.json()["items"][0]["capabilities"] == VOICE_AND_SMS
 
     rows = await db.scalar(
         select(func.count()).select_from(PhoneNumber).where(PhoneNumber.twilio_sid == sid)
     )
     assert rows == 1
+
+
+async def test_sync_caps_the_returned_page(
+    client: AsyncClient,
+    admin_headers: dict,
+    provider: MagicMock,
+    sids: Callable[[], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A big Twilio account answers with one page; `total` reports everything synced."""
+    monkeypatch.setattr(phone_numbers_api, "DEFAULT_PAGE_LIMIT", 1)
+    infos = [_info(sids(), _number(), f"Line {i}", VOICE_ONLY) for i in range(3)]
+    provider.list_phone_numbers.return_value = infos
+
+    resp = await client.post("/api/v1/phone-numbers/sync", headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 3
+    assert len(body["items"]) == 1
 
 
 async def test_sync_returns_502_when_the_provider_fails(
@@ -168,12 +190,20 @@ async def test_list_returns_synced_numbers_newest_first(
 
     listed = await client.get("/api/v1/phone-numbers?limit=500", headers=admin_headers)
     assert listed.status_code == 200
-    listed_sids = [row["twilio_sid"] for row in listed.json()]
+    body = listed.json()
+    listed_sids = [row["twilio_sid"] for row in body["items"]]
     assert all(info.sid in listed_sids for info in infos)
+    assert body["total"] >= len(infos)
+    assert body["total"] >= len(body["items"])
 
     page = await client.get("/api/v1/phone-numbers?skip=0&limit=1", headers=admin_headers)
     assert page.status_code == 200
-    assert len(page.json()) == 1
+    assert len(page.json()["items"]) == 1
+    assert page.json()["total"] == body["total"]
+
+    second = await client.get("/api/v1/phone-numbers?skip=1&limit=1", headers=admin_headers)
+    assert second.status_code == 200
+    assert second.json()["items"][0]["id"] != page.json()["items"][0]["id"]
 
 
 async def test_list_is_open_to_staff(client: AsyncClient, staff_headers: dict) -> None:
@@ -202,7 +232,7 @@ async def phone(
     ]
     resp = await client.post("/api/v1/phone-numbers/sync", headers=admin_headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()[0]["id"]
+    return resp.json()["items"][0]["id"]
 
 
 async def test_assign_links_the_number_to_the_campaign(

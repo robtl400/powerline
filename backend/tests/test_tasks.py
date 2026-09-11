@@ -18,6 +18,7 @@ from app.models.campaign import Campaign
 from app.models.target import Target
 from app.tasks.cleanup import REP_LOOKUP_EXTERNAL_ID, stale_rep_targets_query
 from app.tasks.insights import candidate_calls_query
+from app.services.redis_lock import acquire_async, refresh_async, release_async
 from app.tasks.lock import acquire, release, task_lock
 
 
@@ -90,6 +91,47 @@ def test_task_lock_reports_a_contended_lock() -> None:
             assert not inner
 
     assert "lock:test" not in client.store
+
+
+class FakeAsyncRedis(FakeRedis):
+    """The same stand-in over the async client's API, plus owner-checked EXPIRE."""
+
+    async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None) -> bool:
+        return FakeRedis.set(self, key, value, nx=nx, ex=ex)
+
+    async def eval(self, script: str, numkeys: int, key: str, token: str, ttl: int | None = None) -> int:
+        if self.store.get(key) != token:
+            return 0
+        if ttl is None:
+            del self.store[key]
+        else:
+            self.ttls[key] = ttl
+        return 1
+
+
+async def test_async_lock_is_exclusive_and_owner_released() -> None:
+    client = FakeAsyncRedis()
+
+    first = await acquire_async(client, "lock:test", 60)
+    assert first is not None
+    assert await acquire_async(client, "lock:test", 60) is None
+
+    assert await release_async(client, "lock:test", "not-the-owner") is False
+    assert await release_async(client, "lock:test", first) is True
+    assert await acquire_async(client, "lock:test", 60) is not None
+
+
+async def test_async_refresh_extends_only_the_owner_s_lock() -> None:
+    """A holder that outlives its TTL extends it; a former holder cannot."""
+    client = FakeAsyncRedis()
+    token = await acquire_async(client, "lock:test", 60)
+    assert token is not None
+
+    assert await refresh_async(client, "lock:test", token, 300) is True
+    assert client.ttls["lock:test"] == 300
+
+    assert await refresh_async(client, "lock:test", "stale-token", 900) is False
+    assert client.ttls["lock:test"] == 300
 
 
 def test_insights_query_filters_on_quality_details_not_score() -> None:

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { LineChart as LineChartIcon, Megaphone } from "lucide-react";
-import { CARD_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
+import { CARD_CLASS, LINK_BUTTON, PAGE_HEADING, SECTION_HEADING } from "@/lib/styles";
 import { EmptyState, EmptyTableRow } from "@/components/EmptyState";
 import { CampaignCardList, campaignHref } from "@/components/CampaignCards";
 import {
@@ -84,7 +84,7 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="rounded-card bg-page-bg text-brand-grey-dark px-4 py-3 text-sm border border-brand-border">
+      <div className="rounded-field bg-page-bg text-brand-grey-dark px-4 py-3 text-sm border border-brand-border">
         {error}
       </div>
     );
@@ -102,10 +102,10 @@ export default function Dashboard() {
 
   const liveHeading = (
     <>
-      <h2 className="text-sm font-medium">Live Campaigns</h2>
+      <h2 className={SECTION_HEADING}>Live Campaigns</h2>
       <button
         onClick={() => navigate("/campaigns")}
-        className={`${LINK_BUTTON} px-2 text-brand-black`}
+        className={`${LINK_BUTTON} px-2 text-brand-orange`}
       >
         View all
       </button>
@@ -141,9 +141,7 @@ export default function Dashboard() {
 
       {/* 7-day call volume chart */}
       <div className={`${CARD_CLASS} p-5`}>
-        <h2 className="mb-4 text-sm font-medium text-brand-grey-dark">
-          Call Volume — Last 7 Days
-        </h2>
+        <h2 className={`${SECTION_HEADING} mb-4`}>Call Volume — Last 7 Days</h2>
         {chartData.every((d) => d.calls === 0) ? (
           <EmptyState
             icon={LineChartIcon}

@@ -1,8 +1,11 @@
 """Tests for the Twilio webhook call flow.
 
-Covers the silent-caller retry in make-calls, the DTMF skip and empty-result
-attributes in the generated TwiML, the abandoned-session status mapping, and
-the one-row-per-leg bookkeeping call-complete keeps for a chain of targets.
+Covers the two voice-app entry paths (a phone caller's <Gather>, a browser
+caller's straight run to the first target), the CallSid claim that binds a
+session to one call, the silent-caller retry in make-calls, the DTMF skip and
+empty-result attributes in the generated TwiML, the abandoned-session status
+mapping, the skip marker call-complete turns into a skipped Call row, and the
+one-row-per-leg bookkeeping call-complete keeps for a chain of targets.
 """
 from __future__ import annotations
 
@@ -18,12 +21,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.helpers import phone_hash
 from app.dependencies import validate_twilio_request
 from app.main import app
+from app.models.audio import AudioRecording
 from app.models.blocklist import BlocklistEntry
 from app.models.call import Call
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
+from app.services.audio_service import get_audio_config, get_audio_configs
 from app.services.call_state import load_call_state, save_call_state
 from app.services.telephony.twiml import (
     AudioConfig,
@@ -129,6 +134,139 @@ def test_dial_sets_hangup_on_star() -> None:
         "/webhooks/twilio/call-complete",
     )
     assert 'hangupOnStar="true"' in xml
+
+
+# ---------------------------------------------------------------------------
+# voice-app: the two entry paths
+# ---------------------------------------------------------------------------
+
+
+async def _voice_app(client: AsyncClient, session_id: uuid.UUID, call_sid: str, **extra):
+    return await client.post(
+        f"/webhooks/twilio/voice-app?session_id={session_id}",
+        data={"CallSid": call_sid, **extra},
+    )
+
+
+PHONE_CALLER = {"From": MODULE_PHONES[0], "To": MODULE_PHONES[0]}
+
+
+async def test_voice_app_phone_callback_waits_for_a_keypress(
+    client: AsyncClient,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A caller with a keypad hears the confirm prompt and starts the block themselves."""
+    _, _, session, call_sid = flow
+
+    resp = await _voice_app(client, session.id, call_sid, **PHONE_CALLER)
+    assert resp.status_code == 200
+    assert "<Gather" in resp.text
+    assert f"make-calls?session_id={session.id}" in resp.text
+    assert "Press any key" in resp.text
+    assert "<Redirect" not in resp.text
+
+
+async def test_voice_app_webrtc_goes_straight_to_the_first_target(
+    client: AsyncClient,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A browser caller sends no digits, so the intro leads into dial-target."""
+    _, _, session, call_sid = flow
+    state = await load_call_state(str(session.id))
+    state["connection_type"] = "webrtc"
+    state["caller_phone_hash"] = ""
+    await save_call_state(session.id, state)
+
+    resp = await _voice_app(client, session.id, call_sid, From=f"client:{session.id}")
+    assert resp.status_code == 200
+    assert "<Gather" not in resp.text
+    assert "Press any key" not in resp.text
+    assert "Thank you for taking action" in resp.text
+    assert f"dial-target?session_id={session.id}" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# voice-app: claiming the session for one CallSid
+# ---------------------------------------------------------------------------
+
+
+def _bind_key(session_id: uuid.UUID) -> str:
+    return f"call_sid_bind:{session_id}"
+
+
+async def test_voice_app_lets_the_same_call_reclaim_its_session(
+    client: AsyncClient,
+    redis,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """Twilio retrying voice-app for the same call keeps the session it holds."""
+    _, _, session, call_sid = flow
+    await redis.set(_bind_key(session.id), call_sid, ex=60)
+
+    resp = await _voice_app(client, session.id, call_sid, **PHONE_CALLER)
+    assert resp.status_code == 200
+    assert "<Gather" in resp.text
+
+
+async def test_voice_app_reclaims_a_binding_that_expired_mid_check(
+    client: AsyncClient,
+    redis,
+    monkeypatch: pytest.MonkeyPatch,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A holder that expires between the claim and the read is claimed again."""
+    _, _, session, call_sid = flow
+    bind_key = _bind_key(session.id)
+    await redis.set(bind_key, f"CAstale{uuid.uuid4().hex[:16]}", ex=60)
+
+    real_get = redis.get
+
+    async def expiring_get(name):
+        if name == bind_key:
+            await redis.delete(name)
+            return None
+        return await real_get(name)
+
+    monkeypatch.setattr(redis, "get", expiring_get)
+
+    resp = await _voice_app(client, session.id, call_sid, **PHONE_CALLER)
+    assert resp.status_code == 200
+    assert "<Gather" in resp.text
+
+    monkeypatch.undo()
+    assert await redis.get(bind_key) == call_sid
+
+
+async def test_voice_app_hangs_up_when_the_claim_never_lands(
+    client: AsyncClient,
+    redis,
+    monkeypatch: pytest.MonkeyPatch,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """Two lost claims with no readable holder end the call, never run unbound."""
+    _, _, session, call_sid = flow
+    bind_key = _bind_key(session.id)
+
+    real_set = redis.set
+    real_get = redis.get
+
+    async def losing_set(name, value, **kwargs):
+        if name == bind_key:
+            return None
+        return await real_set(name, value, **kwargs)
+
+    async def empty_get(name):
+        if name == bind_key:
+            return None
+        return await real_get(name)
+
+    monkeypatch.setattr(redis, "set", losing_set)
+    monkeypatch.setattr(redis, "get", empty_get)
+
+    resp = await _voice_app(client, session.id, call_sid, **PHONE_CALLER)
+    assert resp.status_code == 200
+    assert "<Hangup" in resp.text
+    assert "<Gather" not in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -666,6 +804,132 @@ async def test_call_complete_does_not_reopen_a_failed_session(
         select(CallSession.status).where(CallSession.id == session.id)
     )
     assert result.scalar_one() == "failed"
+
+
+# ---------------------------------------------------------------------------
+# call-complete: legs the supporter chose to leave
+# ---------------------------------------------------------------------------
+
+
+async def _mark_skip(session_id: uuid.UUID, index: int) -> None:
+    """Leave the marker the skip endpoint writes before the leg is hung up."""
+    state = await load_call_state(str(session_id))
+    state["skip_requested"] = index
+    await save_call_state(session_id, state)
+
+
+async def test_call_complete_records_a_skipped_leg(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A marked leg is logged as skipped, not as a call the supporter saw through."""
+    _, target, session, call_sid = flow
+    await _two_target_state(session.id, target.id, call_sid)
+    await _mark_skip(session.id, 0)
+
+    resp = await _complete(
+        client,
+        session.id,
+        call_sid,
+        DialCallSid=f"CAleg{uuid.uuid4().hex[:16]}",
+        DialCallStatus="completed",
+        DialCallDuration="6",
+    )
+    assert resp.status_code == 200
+    assert "dial-target" in resp.text
+
+    result = await db.execute(select(Call.status).where(Call.session_id == session.id))
+    assert result.scalar_one() == "skipped"
+
+    state = await load_call_state(str(session.id))
+    assert "skip_requested" not in state
+    assert state["current_target_index"] == 1
+
+
+async def test_call_complete_without_a_marker_records_a_completed_leg(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """The same leg with no marker is the ordinary completed call."""
+    _, target, session, call_sid = flow
+    await _two_target_state(session.id, target.id, call_sid)
+
+    resp = await _complete(
+        client,
+        session.id,
+        call_sid,
+        DialCallSid=f"CAleg{uuid.uuid4().hex[:16]}",
+        DialCallStatus="completed",
+        DialCallDuration="6",
+    )
+    assert resp.status_code == 200
+
+    result = await db.execute(select(Call.status).where(Call.session_id == session.id))
+    assert result.scalar_one() == "completed"
+
+
+async def test_call_complete_drops_a_marker_left_on_another_leg(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A marker for a leg this callback is not reporting is cleared, not applied."""
+    _, target, session, call_sid = flow
+    await _two_target_state(session.id, target.id, call_sid)
+    await _mark_skip(session.id, 1)
+
+    resp = await _complete(
+        client,
+        session.id,
+        call_sid,
+        DialCallSid=f"CAleg{uuid.uuid4().hex[:16]}",
+        DialCallStatus="completed",
+        DialCallDuration="21",
+    )
+    assert resp.status_code == 200
+
+    result = await db.execute(select(Call.status).where(Call.session_id == session.id))
+    assert result.scalar_one() == "completed"
+
+    state = await load_call_state(str(session.id))
+    assert "skip_requested" not in state
+
+
+# ---------------------------------------------------------------------------
+# Audio slots loaded together
+# ---------------------------------------------------------------------------
+
+
+async def test_get_audio_configs_resolves_every_slot_it_is_given(
+    db: AsyncSession,
+    campaign: Campaign,
+) -> None:
+    """One query answers a handler's whole set: recordings first, defaults after."""
+    recording = AudioRecording(
+        campaign_id=campaign.id,
+        key="msg_intro",
+        tts_text="Campaign intro",
+        is_active=True,
+    )
+    db.add(recording)
+    await db.commit()
+
+    try:
+        configs = await get_audio_configs(
+            ("msg_intro", "msg_goodbye", "msg_intro"), campaign.id, db
+        )
+        assert set(configs) == {"msg_intro", "msg_goodbye"}
+        assert configs["msg_intro"].tts_text == "Campaign intro"
+        assert configs["msg_goodbye"] == await get_audio_config(
+            "msg_goodbye", campaign.id, db
+        )
+    finally:
+        await db.execute(
+            delete(AudioRecording).where(AudioRecording.id == recording.id)
+        )
+        await db.commit()
 
 
 # ---------------------------------------------------------------------------

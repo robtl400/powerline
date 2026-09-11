@@ -186,3 +186,12 @@ describe("CampaignEmbedTab live preview", () => {
     expect(previewSrcDoc()).toContain("https://b.example.org");
   });
 });
+
+describe("CampaignEmbedTab — preview permissions", () => {
+  it("grants the preview iframe the microphone a browser call needs", () => {
+    renderTab();
+
+    const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+    expect(iframe).toHaveAttribute("allow", "microphone");
+  });
+});

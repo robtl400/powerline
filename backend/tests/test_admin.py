@@ -321,3 +321,34 @@ async def test_dashboard_series_is_seven_zero_filled_days_oldest_first(
     assert days[-1] == datetime.now(UTC).date()
     assert all(days[i + 1] - days[i] == timedelta(days=1) for i in range(6))
     assert all(isinstance(row["count"], int) for row in series)
+
+
+async def test_dashboard_connection_split_stops_at_the_thirty_day_window(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_headers: dict,
+    monkeypatch,
+) -> None:
+    """A session older than the month tile's window is outside the browser/phone split too."""
+    monkeypatch.setattr(settings, "TIMEZONE", "UTC")
+
+    before = await _dashboard(client, admin_headers)
+
+    stale = CallSession(
+        campaign_id=campaign.id,
+        connection_type="webrtc",
+        twilio_call_sid=f"CAold{uuid.uuid4().hex[:20]}",
+        status="completed",
+        created_at=datetime.now(UTC) - timedelta(days=40),
+    )
+    db.add(stale)
+    await db.commit()
+
+    after = await _dashboard(client, admin_headers)
+
+    assert after["webrtc_count"] == before["webrtc_count"]
+    assert after["calls_this_month"] == before["calls_this_month"]
+
+    await db.execute(delete(CallSession).where(CallSession.id == stale.id))
+    await db.commit()

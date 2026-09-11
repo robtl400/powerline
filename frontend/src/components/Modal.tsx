@@ -35,7 +35,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`relative w-full max-w-[min(480px,90vw)] ${CARD_CLASS} p-6 ${className}`}
+        className={`relative max-h-[90vh] w-full max-w-[min(480px,90vw)] overflow-y-auto ${CARD_CLASS} p-6 ${className}`}
       >
         <h2 id={titleId} className="mb-4 pr-10 text-base font-semibold">
           {title}

@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Play } from "lucide-react";
 import client from "@/api/client";
+import { getErrorDetail } from "@/lib/api-error";
 import { AUDIO_VERSION_BADGE, MAX_AUDIO_UPLOAD_BYTES } from "@/lib/constants";
-import { CARD_CLASS, FOCUS_RING, INPUT_CLASS, LINK_BUTTON } from "@/lib/styles";
+import {
+  BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
+  CARD_CLASS,
+  FOCUS_RING,
+  INPUT_CLASS,
+  LINK_BUTTON,
+} from "@/lib/styles";
 import type { AudioRecording } from "@/types/campaign";
 
 type Tab = "record" | "upload" | "tts";
@@ -10,6 +18,7 @@ type RecordState = "idle" | "recording" | "stopped";
 
 const UPLOAD_FAILED = "Upload failed — try again";
 const ACTIVATION_FAILED = "Activation failed — check version history to activate manually";
+const LIVE_LOCK = "Pause the campaign to change audio";
 
 const MAX_AUDIO_UPLOAD_MB = Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024));
 
@@ -43,6 +52,7 @@ export function AudioSlotCard({
 
   const active = versions.find((r) => r.is_active);
   const isLive = campaignStatus === "live";
+  const canEdit = !readOnly && !isLive;
 
   // ── Tab state ─────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>(iosLt16 ? "upload" : "record");
@@ -204,8 +214,8 @@ export function AudioSlotCard({
       uploadedId = res.data.id;
       await client.patch(`/audio/${uploadedId}/activate`);
       return null;
-    } catch {
-      return uploadedId ? ACTIVATION_FAILED : UPLOAD_FAILED;
+    } catch (e: unknown) {
+      return getErrorDetail(e, uploadedId ? ACTIVATION_FAILED : UPLOAD_FAILED);
     }
   }
 
@@ -257,8 +267,8 @@ export function AudioSlotCard({
       });
       await client.patch(`/audio/${res.data.id}/activate`);
       onRefresh();
-    } catch {
-      setTtsError("Failed to save TTS.");
+    } catch (e: unknown) {
+      setTtsError(getErrorDetail(e, "Failed to save TTS."));
     } finally {
       setTtsSaving(false);
     }
@@ -283,8 +293,8 @@ export function AudioSlotCard({
     try {
       await client.patch(`/audio/${recordingId}/activate`);
       onRefresh();
-    } catch {
-      setActivateError("Failed to activate version.");
+    } catch (e: unknown) {
+      setActivateError(getErrorDetail(e, "Failed to activate version."));
     }
   }
 
@@ -303,16 +313,25 @@ export function AudioSlotCard({
       </div>
 
       {/* First-time hint */}
-      {!readOnly && !active && (
+      {canEdit && !active && (
         <p className="text-[11px] text-brand-grey-dark mb-3">
           No audio yet — record, upload, or generate a script below
         </p>
       )}
 
+      {!readOnly && isLive && (
+        <p className="text-[11px] text-brand-grey-dark">{LIVE_LOCK}</p>
+      )}
+
       {/* Tabs */}
-      {!readOnly && (
+      {canEdit && (
         <div className="overflow-x-auto whitespace-nowrap border-b border-brand-border">
-          <div role="tablist" onKeyDown={handleTabKeyDown} className="flex gap-0">
+          <div
+            role="tablist"
+            aria-label="Audio source"
+            onKeyDown={handleTabKeyDown}
+            className="flex gap-0"
+          >
             {tabs.map((t) => (
               <button
                 key={t.key}
@@ -327,7 +346,7 @@ export function AudioSlotCard({
                 disabled={t.key === "record" && iosLt16}
                 className={`px-3 py-2 text-xs font-medium border-b-2 min-h-[44px] transition-colors disabled:opacity-40 ${FOCUS_RING} ${
                   activeTab === t.key
-                    ? "border-brand-orange text-brand-orange"
+                    ? "border-brand-orange text-brand-black"
                     : "border-transparent text-brand-grey-dark hover:text-brand-black"
                 }`}
               >
@@ -339,7 +358,7 @@ export function AudioSlotCard({
       )}
 
       {/* Tab: Record */}
-      {!readOnly && activeTab === "record" && (
+      {canEdit && activeTab === "record" && (
         <div
           id="audiotab-panel-record"
           role="tabpanel"
@@ -413,13 +432,13 @@ export function AudioSlotCard({
                     <button
                       onClick={saveRecording}
                       disabled={recordSaving}
-                      className={`inline-flex min-h-[44px] items-center justify-center px-4 py-1.5 bg-brand-orange text-white rounded-control text-xs font-medium disabled:opacity-50 ${FOCUS_RING}`}
+                      className={BUTTON_PRIMARY}
                     >
                       {recordSaving ? "Saving…" : "Save recording"}
                     </button>
                     <button
                       onClick={discardRecording}
-                      className={`inline-flex min-h-[44px] items-center justify-center px-4 py-1.5 border border-brand-border text-brand-grey-dark rounded-control text-xs ${FOCUS_RING}`}
+                      className={BUTTON_SECONDARY}
                     >
                       Discard
                     </button>
@@ -436,7 +455,7 @@ export function AudioSlotCard({
       )}
 
       {/* Tab: Upload */}
-      {!readOnly && activeTab === "upload" && (
+      {canEdit && activeTab === "upload" && (
         <div
           id="audiotab-panel-upload"
           role="tabpanel"
@@ -504,7 +523,7 @@ export function AudioSlotCard({
       )}
 
       {/* Tab: TTS */}
-      {!readOnly && activeTab === "tts" && (
+      {canEdit && activeTab === "tts" && (
         <div
           id="audiotab-panel-tts"
           role="tabpanel"
@@ -541,7 +560,7 @@ export function AudioSlotCard({
             <button
               onClick={saveTts}
               disabled={ttsSaving || !ttsInput.trim()}
-              className={`inline-flex min-h-[44px] items-center justify-center px-4 py-1.5 bg-brand-orange text-white rounded-control text-xs font-medium disabled:opacity-50 ${FOCUS_RING}`}
+              className={BUTTON_PRIMARY}
             >
               {ttsSaving ? "Saving…" : "Save as audio"}
             </button>
@@ -609,7 +628,7 @@ export function AudioSlotCard({
                     onClick={() => activate(v.id)}
                     disabled={isLive}
                     aria-disabled={isLive}
-                    title={isLive ? "Pause the campaign to change audio" : undefined}
+                    title={isLive ? LIVE_LOCK : undefined}
                     className={`${LINK_BUTTON} text-brand-orange disabled:opacity-40 disabled:cursor-not-allowed`}
                   >
                     Make active

@@ -360,6 +360,58 @@ async def test_undialable_rep_phone_is_dropped_and_never_dialed(
         await redis.delete(f"rep_token:{planted}")
 
 
+async def test_configured_target_on_the_reps_number_is_not_dialed_twice(
+    client: AsyncClient,
+    db: AsyncSession,
+    live_campaign: Campaign,
+) -> None:
+    """A configured target that is the looked-up rep drops out of the dial order."""
+    duplicate = Target(
+        name="Same Office",
+        phone_number=REP_PHONE,
+        title="Senator",
+        location="WA",
+    )
+    other = Target(
+        name="Other Office",
+        phone_number="+12025550301",
+        title="Representative",
+        location="WA-07",
+    )
+    db.add_all([duplicate, other])
+    await db.flush()
+    db.add_all([
+        CampaignTarget(campaign_id=live_campaign.id, target_id=duplicate.id, order=0),
+        CampaignTarget(campaign_id=live_campaign.id, target_id=other.id, order=1),
+    ])
+    await db.commit()
+    target_ids = [duplicate.id, other.id]
+
+    try:
+        rep_token = await _issue_token(live_campaign.id)
+        resp = await client.post(
+            "/api/v1/calls/create",
+            json={
+                "campaign_id": str(live_campaign.id),
+                "phone_number": "+12025550205",
+                "rep_token": rep_token,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
+        state = await load_call_state(resp.json()["session_id"])
+        assert state is not None
+        assert str(duplicate.id) not in state["target_ids"]
+        assert state["target_ids"][1:] == [str(other.id)]
+        assert await _dialed_phone(db, resp.json()["session_id"]) == REP_PHONE
+    finally:
+        await db.execute(delete(Call).where(Call.target_id.in_(target_ids)))
+        await db.execute(delete(CampaignTarget).where(CampaignTarget.target_id.in_(target_ids)))
+        await db.commit()
+        await db.execute(delete(Target).where(Target.id.in_(target_ids)))
+        await db.commit()
+
+
 async def test_reps_response_carries_token_not_phone(
     client: AsyncClient,
     live_campaign: Campaign,
@@ -856,13 +908,14 @@ async def test_webrtc_webhook_limit_is_counted_per_ip_and_answered_in_twiml(
             )
         )
 
-    assert "<Gather" in responses[0].text
-    assert "<Gather" in responses[1].text
+    # A browser caller has no keypad, so the intro redirects straight to the dial.
+    assert "dial-target" in responses[0].text
+    assert "dial-target" in responses[1].text
 
     limited = responses[2]
     assert limited.status_code == 200
     assert "<Hangup" in limited.text
-    assert "<Gather" not in limited.text
+    assert "dial-target" not in limited.text
     assert limited.headers["content-type"].startswith("application/xml")
     assert "Too many requests" not in limited.text
 

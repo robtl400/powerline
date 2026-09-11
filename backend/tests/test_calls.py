@@ -22,6 +22,7 @@ from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
+from app.services.call_state import load_call_state, save_call_state
 
 pytestmark = pytest.mark.usefixtures("mock_twilio")
 
@@ -34,14 +35,20 @@ MODULE_PHONES = [
     "+12025550181",
     "+12025550182",
     "+12025550183",
+    "+12025550184",
+    "+12025550185",
+    "+12025550186",
+    "+12025550187",
 ]
 
 
 @pytest.fixture(autouse=True)
 async def clear_rate_buckets(clear_rate_keys):
     """Drop every rate-limit bucket this module touches, before and after."""
-    await clear_rate_keys(["call-ip"], ["127.0.0.1"])
-    await clear_rate_keys(["call"], [phone_hash(phone) for phone in MODULE_PHONES])
+    await clear_rate_keys(["call-ip", "call-webhook-ip", "skip"], ["127.0.0.1"])
+    await clear_rate_keys(
+        ["call", "call-webhook"], [phone_hash(phone) for phone in MODULE_PHONES]
+    )
 
 
 @pytest.fixture
@@ -85,6 +92,42 @@ async def campaign_with_target(
     await db.execute(delete(CallSession).where(CallSession.campaign_id == campaign_id))
     await db.execute(delete(CampaignTarget).where(CampaignTarget.target_id == target_id))
     await db.execute(delete(Target).where(Target.id == target_id))
+    await db.commit()
+
+
+@pytest.fixture
+async def campaign_with_two_targets(
+    db: AsyncSession, live_campaign: Campaign
+) -> tuple[Campaign, list[Target]]:
+    """A shuffling campaign with two targets, so the dial order is settled server-side."""
+    live_campaign.target_ordering = "shuffle"
+    targets = [
+        Target(
+            name=f"Shuffled Official {i}",
+            phone_number=f"+1555000333{i}",
+            title=f"Title {i}",
+            location="WA",
+        )
+        for i in (1, 2)
+    ]
+    db.add_all(targets)
+    await db.flush()
+    db.add_all([
+        CampaignTarget(campaign_id=live_campaign.id, target_id=t.id, order=i)
+        for i, t in enumerate(targets)
+    ])
+    await db.commit()
+
+    target_ids = [t.id for t in targets]
+    campaign_id = live_campaign.id
+
+    yield live_campaign, targets
+
+    live_campaign.target_ordering = "in_order"
+    await db.execute(delete(Call).where(Call.target_id.in_(target_ids)))
+    await db.execute(delete(CallSession).where(CallSession.campaign_id == campaign_id))
+    await db.execute(delete(CampaignTarget).where(CampaignTarget.target_id.in_(target_ids)))
+    await db.execute(delete(Target).where(Target.id.in_(target_ids)))
     await db.commit()
 
 
@@ -382,3 +425,139 @@ async def test_lookup_require_mobile_allows_mobile(
         json={"campaign_id": str(campaign.id), "phone_number": "+12025550181"},
     )
     assert resp.status_code == 200, resp.text
+
+
+# ---------------------------------------------------------------------------
+# first_target: the official the first dial will reach
+# ---------------------------------------------------------------------------
+
+
+async def test_create_call_names_the_first_target_in_the_settled_order(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_two_targets: tuple[Campaign, list[Target]],
+) -> None:
+    """first_target is the head of the shuffled order the server stored, not target[0]."""
+    campaign, targets = campaign_with_two_targets
+
+    resp = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": "+12025550184"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    body = resp.json()
+    state = await load_call_state(body["session_id"])
+    assert state is not None
+
+    first = {str(t.id): t for t in targets}[state["target_ids"][0]]
+    assert body["first_target"] == {"name": first.name, "title": first.title}
+
+
+async def test_create_call_first_target_matches_the_only_target(
+    client: AsyncClient,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    campaign, target = campaign_with_target
+
+    resp = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": "+12025550185"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["first_target"] == {"name": target.name, "title": target.title}
+
+
+# ---------------------------------------------------------------------------
+# POST /calls/{session_id}/skip
+# ---------------------------------------------------------------------------
+
+
+async def test_skip_records_the_index_the_call_is_on(
+    client: AsyncClient,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """A skip signal writes the current index into the call's Redis state."""
+    campaign, _ = campaign_with_target
+
+    create = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": "+12025550186"},
+    )
+    assert create.status_code == 200, create.text
+    session_id = create.json()["session_id"]
+
+    before = await load_call_state(session_id)
+    assert before is not None
+    assert "skip_requested" not in before
+
+    resp = await client.post(f"/api/v1/calls/{session_id}/skip")
+    assert resp.status_code == 204, resp.text
+    assert resp.content == b""
+
+    after = await load_call_state(session_id)
+    assert after is not None
+    assert after["skip_requested"] == 0
+    # The rest of the state is untouched, so the webhook chain still resolves.
+    assert after["target_ids"] == before["target_ids"]
+    assert after["current_target_index"] == 0
+
+
+async def test_skip_follows_the_call_to_the_next_target(
+    client: AsyncClient,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """The recorded index is the one the flow is on now, not the one it started on."""
+    campaign, _ = campaign_with_target
+
+    create = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": "+12025550187"},
+    )
+    assert create.status_code == 200, create.text
+    session_id = create.json()["session_id"]
+
+    state = await load_call_state(session_id)
+    assert state is not None
+    state["current_target_index"] = 2
+    await save_call_state(session_id, state)
+
+    resp = await client.post(f"/api/v1/calls/{session_id}/skip")
+    assert resp.status_code == 204, resp.text
+
+    after = await load_call_state(session_id)
+    assert after is not None
+    assert after["skip_requested"] == 2
+
+
+async def test_skip_without_call_state_is_404(client: AsyncClient) -> None:
+    """An unknown or expired session cannot be skipped, and says so the same way."""
+    resp = await client.post(f"/api/v1/calls/{uuid.uuid4()}/skip")
+    assert resp.status_code == 404
+
+
+async def test_skip_rejects_a_malformed_session_id(client: AsyncClient) -> None:
+    resp = await client.post("/api/v1/calls/not-a-uuid/skip")
+    assert resp.status_code == 422
+
+
+async def test_skip_is_rate_limited_per_client_ip(
+    client: AsyncClient,
+    campaign_with_target: tuple[Campaign, Target],
+    monkeypatch,
+) -> None:
+    """The public skip budget is per IP, so one caller cannot flood the endpoint."""
+    campaign, _ = campaign_with_target
+    monkeypatch.setattr(settings, "PUBLIC_RATE_LIMIT", 2)
+
+    create = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": "+12025550143"},
+    )
+    assert create.status_code == 200, create.text
+    session_id = create.json()["session_id"]
+
+    for _ in range(2):
+        assert (await client.post(f"/api/v1/calls/{session_id}/skip")).status_code == 204
+
+    assert (await client.post(f"/api/v1/calls/{session_id}/skip")).status_code == 429

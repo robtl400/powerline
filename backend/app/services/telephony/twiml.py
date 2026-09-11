@@ -9,7 +9,7 @@ from __future__ import annotations
 import dataclasses
 import re
 
-from twilio.twiml.voice_response import Dial, VoiceResponse
+from twilio.twiml.voice_response import Dial, Gather, VoiceResponse
 
 
 @dataclasses.dataclass
@@ -31,17 +31,19 @@ def _render_text(template: str, context: dict) -> str:
     return re.sub(r"\{\{(\w+)\}\}", replacer, template)
 
 
-def _add_audio(response: VoiceResponse, audio: AudioConfig, context: dict) -> None:
-    """Append a <Play> or <Say> verb to the response.
+def _add_audio(
+    node: VoiceResponse | Gather, audio: AudioConfig, context: dict
+) -> None:
+    """Append a <Play> or <Say> verb to a response or to a <Gather>.
 
     <Play> takes priority over <Say> when both file_url and tts_text are set.
     If neither is set, nothing is appended (silent step).
     """
     if audio.file_url:
-        response.play(audio.file_url)
+        node.play(audio.file_url)
     elif audio.tts_text:
         rendered = _render_text(audio.tts_text, context)
-        response.say(rendered, voice=audio.voice)
+        node.say(rendered, voice=audio.voice)
 
 
 def build_gather_intro(
@@ -61,6 +63,10 @@ def build_gather_intro(
 
     actionOnEmptyResult keeps a silent caller in the flow: Twilio posts to
     action_url with no Digits instead of falling off the end of the document.
+
+    Only a caller with a keypad can answer this, so it is served to phone
+    callers; the WebRTC entry point in webhooks.py plays its intro and moves on
+    without waiting for digits the widget cannot send.
     """
     r = VoiceResponse()
     gather = r.gather(
@@ -70,17 +76,9 @@ def build_gather_intro(
         timeout=10,
         action_on_empty_result=True,
     )
-    if audio.file_url:
-        gather.play(audio.file_url)
-    elif audio.tts_text:
-        gather.say(_render_text(audio.tts_text, context), voice=audio.voice)
+    _add_audio(gather, audio, context)
     if confirm_audio is not None:
-        if confirm_audio.file_url:
-            gather.play(confirm_audio.file_url)
-        elif confirm_audio.tts_text:
-            gather.say(
-                _render_text(confirm_audio.tts_text, context), voice=confirm_audio.voice
-            )
+        _add_audio(gather, confirm_audio, context)
     return str(r)
 
 
@@ -117,8 +115,9 @@ def build_target_intro_and_dial(
 def build_between_targets(audio: AudioConfig, context: dict, redirect_url: str) -> str:
     """TwiML for the transition between targets: play bridging message then redirect.
 
-    Used both as the make-calls response (block intro → first target) and
-    as the call-complete response when more targets remain.
+    Used as the make-calls response (block intro → first target), as the
+    call-complete response when more targets remain, and as the WebRTC entry
+    response, where the intro leads straight into the first target.
     """
     r = VoiceResponse()
     _add_audio(r, audio, context)

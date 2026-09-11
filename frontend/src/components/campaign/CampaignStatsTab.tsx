@@ -7,8 +7,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { BUTTON_SECONDARY, CARD_CLASS, FOCUS_RING } from "@/lib/styles";
+import { BUTTON_SECONDARY, CARD_CLASS, FOCUS_RING, SECTION_HEADING } from "@/lib/styles";
 import type { CampaignStats, DailyCount, QualityData } from "@/types/campaign";
+
+const CONTROL_CLASS =
+  "min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white " +
+  FOCUS_RING;
 
 export function CampaignStatsTab({
   campaignStats,
@@ -40,7 +44,7 @@ export function CampaignStatsTab({
   return (
     <section className="space-y-8">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">Campaign Analytics</h2>
+        <h2 className={SECTION_HEADING}>Campaign Analytics</h2>
         <button
           onClick={onViewCallLog}
           className={BUTTON_SECONDARY}
@@ -89,32 +93,52 @@ export function CampaignStatsTab({
 
           {/* Volume chart with date controls */}
           <div className={`${CARD_CLASS} p-5`}>
-            <div className="flex flex-wrap items-center gap-3 mb-4">
-              <h3 className="text-sm font-medium flex-1">Call Volume</h3>
-              <input
-                type="date"
-                className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white ${FOCUS_RING}`}
-                value={statsStartDate}
-                max={statsEndDate}
-                onChange={(e) => setStatsStartDate(e.target.value)}
-              />
-              <span className="text-xs text-brand-grey-dark">to</span>
-              <input
-                type="date"
-                className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white ${FOCUS_RING}`}
-                value={statsEndDate}
-                min={statsStartDate}
-                max={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => setStatsEndDate(e.target.value)}
-              />
-              <select
-                className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white ${FOCUS_RING}`}
-                value={statsGranularity}
-                onChange={(e) => setStatsGranularity(e.target.value as "day" | "week")}
-              >
-                <option value="day">Daily</option>
-                <option value="week">Weekly</option>
-              </select>
+            <div className="flex flex-wrap items-end gap-3 mb-4">
+              <h3 className="flex-1 text-sm font-medium">Call Volume</h3>
+              <div>
+                <label htmlFor="stats-start" className="block text-xs text-brand-grey-dark mb-1">
+                  From
+                </label>
+                <input
+                  id="stats-start"
+                  type="date"
+                  className={CONTROL_CLASS}
+                  value={statsStartDate}
+                  max={statsEndDate}
+                  onChange={(e) => setStatsStartDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="stats-end" className="block text-xs text-brand-grey-dark mb-1">
+                  To
+                </label>
+                <input
+                  id="stats-end"
+                  type="date"
+                  className={CONTROL_CLASS}
+                  value={statsEndDate}
+                  min={statsStartDate}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setStatsEndDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="stats-granularity"
+                  className="block text-xs text-brand-grey-dark mb-1"
+                >
+                  Interval
+                </label>
+                <select
+                  id="stats-granularity"
+                  className={CONTROL_CLASS}
+                  value={statsGranularity}
+                  onChange={(e) => setStatsGranularity(e.target.value as "day" | "week")}
+                >
+                  <option value="day">Daily</option>
+                  <option value="week">Weekly</option>
+                </select>
+              </div>
             </div>
             {chartData.length === 0 || chartData.every((d) => d.count === 0) ? (
               <p className="py-8 text-center text-sm text-brand-grey-dark">No calls in this date range.</p>

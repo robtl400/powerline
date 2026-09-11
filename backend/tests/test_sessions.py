@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User
 from app.services.auth import (
     RefreshOutcome,
+    create_access_token,
     decode_token,
     hash_password,
     issue_refresh_token,
@@ -21,6 +22,9 @@ from app.services.auth import (
     refresh_key,
     refresh_logout_key,
     refresh_pred_key,
+    refresh_set_key,
+    retire_refresh_token,
+    revoke_user_sessions,
     rotate_refresh_token,
     session_floor_key,
 )
@@ -68,6 +72,7 @@ async def session_user(db: AsyncSession, redis) -> AsyncGenerator[User, None]:
         await redis.delete(*keys)
     await redis.delete(
         session_floor_key(str(user.id)),
+        refresh_set_key(str(user.id)),
         f"reset:{user.email.lower()}",
         f"reset_attempts:{user.email.lower()}",
     )
@@ -337,6 +342,107 @@ async def test_password_reset_kills_outstanding_access_tokens(
     assert replay.status_code == 401
 
 
+async def test_rotation_tracks_the_successor_and_keeps_the_retired_jti(
+    session_user: User, redis
+) -> None:
+    """The set names every jti revocation has to sweep, retired ones included."""
+    user_id = str(session_user.id)
+    jti = decode_token(await issue_refresh_token(redis, user_id))["jti"]
+
+    rotation = await rotate_refresh_token(redis, user_id, jti)
+    successor_jti = decode_token(rotation.token)["jti"]
+
+    assert await redis.smembers(refresh_set_key(user_id)) == {jti, successor_jti}
+    assert await redis.exists(refresh_key(user_id, jti)) == 0
+    assert await redis.exists(refresh_key(user_id, successor_jti)) == 1
+
+    replay = await rotate_refresh_token(redis, user_id, "never-issued")
+    assert replay.outcome is RefreshOutcome.REPLAYED
+    assert await redis.smembers(refresh_set_key(user_id)) == {jti, successor_jti}
+
+
+async def test_logout_drops_the_whole_chain_from_the_set(
+    session_user: User, redis
+) -> None:
+    """A chain the user signed out of leaves nothing for revocation to sweep."""
+    user_id = str(session_user.id)
+    jti = decode_token(await issue_refresh_token(redis, user_id))["jti"]
+    rotation = await rotate_refresh_token(redis, user_id, jti)
+    successor_jti = decode_token(rotation.token)["jti"]
+
+    await retire_refresh_token(redis, user_id, successor_jti, 60)
+
+    assert await redis.smembers(refresh_set_key(user_id)) == set()
+    assert await redis.exists(refresh_logout_key(user_id, jti)) == 1
+    assert await redis.exists(refresh_logout_key(user_id, successor_jti)) == 1
+
+
+async def test_revocation_clears_every_key_the_set_names(
+    client: AsyncClient, session_user: User, db: AsyncSession, redis
+) -> None:
+    user_id = str(session_user.id)
+    first = await _login(client, session_user)
+    second = await _login(client, session_user)
+    jtis = {
+        decode_token(first["refresh_token"])["jti"],
+        decode_token(second["refresh_token"])["jti"],
+    }
+    assert await redis.smembers(refresh_set_key(user_id)) == jtis
+
+    await revoke_user_sessions(redis, user_id, db)
+    await db.commit()
+
+    assert await redis.exists(refresh_set_key(user_id)) == 0
+    for jti in jtis:
+        assert await redis.exists(refresh_key(user_id, jti)) == 0
+
+
+async def test_revocation_sweeps_a_token_still_inside_its_grace_window(
+    client: AsyncClient, session_user: User, db: AsyncSession, redis
+) -> None:
+    """A retired predecessor must not mint an access token issued after the floor."""
+    user_id = str(session_user.id)
+    tokens = await _login(client, session_user)
+    jti = decode_token(tokens["refresh_token"])["jti"]
+
+    rotation = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert rotation.status_code == 200
+    assert await redis.exists(refresh_grace_key(user_id, jti)) == 1
+
+    await revoke_user_sessions(redis, user_id, db)
+    await db.commit()
+
+    assert await redis.exists(refresh_grace_key(user_id, jti)) == 0
+    replay = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert replay.status_code == 401
+
+
+async def test_session_floor_outlives_the_redis_key(
+    client: AsyncClient, session_user: User, db: AsyncSession, redis
+) -> None:
+    """Losing the Redis floor must not bring a revoked access token back."""
+    user_id = str(session_user.id)
+    tokens = await _login(client, session_user)
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    assert (await client.get("/api/v1/users/me", headers=headers)).status_code == 200
+
+    await revoke_user_sessions(redis, user_id, db)
+    await db.commit()
+    assert (await client.get("/api/v1/users/me", headers=headers)).status_code == 401
+
+    await redis.delete(session_floor_key(user_id))
+    assert (await client.get("/api/v1/users/me", headers=headers)).status_code == 401
+
+    minted_after = {"Authorization": f"Bearer {create_access_token(user_id)}"}
+    assert (
+        await client.get("/api/v1/users/me", headers=minted_after)
+    ).status_code == 200
+
+
 async def test_users_list_honours_skip_and_limit(
     client: AsyncClient, admin_headers: dict, session_user: User
 ) -> None:
@@ -364,7 +470,7 @@ async def test_phone_numbers_list_accepts_pagination(
 ) -> None:
     resp = await client.get("/api/v1/phone-numbers?skip=0&limit=1", headers=admin_headers)
     assert resp.status_code == 200
-    assert len(resp.json()) <= 1
+    assert len(resp.json()["items"]) <= 1
 
     assert (
         await client.get("/api/v1/phone-numbers?limit=0", headers=admin_headers)

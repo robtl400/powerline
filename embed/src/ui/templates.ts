@@ -172,15 +172,17 @@ export function renderAudioCheck(): string {
       <li>Check that the correct audio output device is selected</li>
       <li>Try refreshing the page and clicking Call Now again</li>
     </ul>
-    <button class="pl-btn pl-btn-primary pl-mt-10" data-pl-action="dismiss-audio-check">
-      I can hear it — go back
-    </button>
-    <button class="pl-btn pl-btn-secondary pl-mt-10" data-pl-action="retry-webrtc">
-      Try Again
-    </button>
-    <button class="pl-btn pl-btn-ghost" data-pl-action="show-phone">
-      Use phone call instead
-    </button>
+    <div class="pl-actions-stack">
+      <button class="pl-btn pl-btn-primary" data-pl-action="dismiss-audio-check">
+        I can hear it — go back
+      </button>
+      <button class="pl-btn pl-btn-secondary" data-pl-action="retry-webrtc">
+        Try Again
+      </button>
+      <button class="pl-btn pl-btn-ghost" data-pl-action="show-phone">
+        Use phone call instead
+      </button>
+    </div>
   </div>`;
 }
 
@@ -291,13 +293,21 @@ export function renderPhoneInput(campaign: CampaignPublic, message?: string): st
     <p class="pl-subtext">
       Enter your phone number and we'll connect you to ${esc(campaign.name)}.
     </p>
+    <label for="pl-phone-input" class="pl-label">Your phone number</label>
     <input
       class="pl-input"
       id="pl-phone-input"
       type="tel"
       placeholder="+1 (555) 000-0000"
       autocomplete="tel"
+      aria-describedby="pl-phone-error"
     />
+    <div
+      id="pl-phone-error"
+      class="pl-error-text"
+      role="alert"
+      aria-live="polite"
+    ></div>
     <button class="pl-btn pl-btn-primary" data-pl-action="submit-phone">
       ${iconPhone(18)}<span>Call Me</span>
     </button>

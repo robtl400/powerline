@@ -17,6 +17,7 @@ from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
+from app.services.call_state import load_call_state
 
 pytestmark = pytest.mark.usefixtures("mock_twilio")
 
@@ -107,12 +108,12 @@ async def test_tokens_voice_returns_session(
 # ---------------------------------------------------------------------------
 
 
-async def test_webrtc_voice_app_returns_gather_twiml(
+async def test_webrtc_voice_app_redirects_to_the_dial(
     client: AsyncClient,
     db: AsyncSession,
     webrtc_campaign_with_target: tuple[Campaign, Target],
 ) -> None:
-    """Full WebRTC smoke: token → voice-app → <Gather> TwiML, session in_progress."""
+    """Full WebRTC smoke: token → voice-app → dial redirect, session in_progress."""
     campaign, _ = webrtc_campaign_with_target
 
     # Step 1: widget requests a token (WebRTC path)
@@ -135,8 +136,11 @@ async def test_webrtc_voice_app_returns_gather_twiml(
     assert webhook_resp.status_code == 200, webhook_resp.text
     assert webhook_resp.headers["content-type"] == "application/xml"
 
+    # A browser caller has no keypad to answer a Gather with, so the intro plays
+    # and the call goes straight on to the first target.
     xml = webhook_resp.text
-    assert "<Gather" in xml, f"Expected <Gather> in TwiML:\n{xml}"
+    assert "dial-target" in xml, f"Expected a dial-target redirect in TwiML:\n{xml}"
+    assert "<Gather" not in xml, xml
 
     # Verify DB: session advanced to in_progress with the Twilio CallSid.
     result = await db.execute(
@@ -175,3 +179,24 @@ async def test_rate_limit_tokens_voice(
         json={"campaign_id": str(campaign.id)},
     )
     assert resp.status_code == 429, f"Expected 429 on 6th token request, got {resp.status_code}"
+
+
+async def test_tokens_voice_names_the_first_target(
+    client: AsyncClient,
+    db: AsyncSession,
+    webrtc_campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """first_target is the head of the dial order the server stored in Redis."""
+    campaign, target = webrtc_campaign_with_target
+
+    resp = await client.post(
+        "/api/v1/tokens/voice",
+        json={"campaign_id": str(campaign.id)},
+    )
+    assert resp.status_code == 200, resp.text
+
+    body = resp.json()
+    state = await load_call_state(body["session_id"])
+    assert state is not None
+    assert state["target_ids"][0] == str(target.id)
+    assert body["first_target"] == {"name": target.name, "title": target.title}

@@ -63,6 +63,7 @@ class Call(Base):
             "no_answer",
             "failed",
             "canceled",
+            "skipped",
             name="call_status",
         ),
         nullable=False,

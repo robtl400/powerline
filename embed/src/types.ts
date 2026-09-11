@@ -32,15 +32,27 @@ export interface RepsResponse {
   message?: string | null;
 }
 
+/**
+ * The target the backend will actually dial first. Campaigns may shuffle their
+ * dial order, so the connected screen names this rather than the first entry of
+ * the public target list.
+ */
+export interface FirstTarget {
+  name: string;
+  title: string;
+}
+
 export interface VoiceTokenResponse {
   token: string;
   /** Session UUID — passed to device.connect({ params: { session_id } }). */
   session_id: string;
+  first_target?: FirstTarget | null;
 }
 
 export interface CallCreateResponse {
   session_id: string;
   status: string;
+  first_target?: FirstTarget | null;
 }
 
 /**

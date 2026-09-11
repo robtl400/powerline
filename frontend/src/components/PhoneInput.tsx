@@ -39,6 +39,7 @@ interface PhoneInputProps {
 
 export function PhoneInput({ value, onChange, required, placeholder = "(555) 555-5555", className }: PhoneInputProps) {
   const [touched, setTouched] = React.useState(false);
+  const errorId = `${React.useId()}-phone-error`;
 
   // Derive display value from E.164
   const digits = value.startsWith("+1") ? value.slice(2) : value.replace(/\D/g, "");
@@ -81,6 +82,8 @@ export function PhoneInput({ value, onChange, required, placeholder = "(555) 555
           maxLength={14}
           autoComplete="tel"
           required={required}
+          aria-invalid={isInvalid || undefined}
+          aria-describedby={isInvalid ? errorId : undefined}
           value={display}
           onChange={handleChange}
           onPaste={handlePaste}
@@ -90,7 +93,7 @@ export function PhoneInput({ value, onChange, required, placeholder = "(555) 555
         />
       </div>
       {isInvalid && (
-        <p className="mt-1 text-[11px] text-brand-grey-dark">
+        <p id={errorId} role="alert" className="mt-1 text-[11px] text-brand-grey-dark">
           {PHONE_VALIDATION_MESSAGE}
         </p>
       )}

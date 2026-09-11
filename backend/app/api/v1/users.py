@@ -3,17 +3,17 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
 from app.models.user import User
 from app.redis_client import get_redis
+from app.schemas.common import Page
 from app.schemas.user import (
     UserCreate,
     UserCreateResponse,
-    UserPage,
     UserResponse,
     UserUpdate,
 )
@@ -22,6 +22,23 @@ from app.services.sms import send_sms_async
 
 log = structlog.get_logger()
 router = APIRouter(prefix="/users", tags=["users"])
+
+# One key for the whole admin population: the guard asks how many admins exist,
+# which every other demotion can change, so they queue behind one another.
+_ADMIN_GUARD_LOCK_KEY = "powerline:last_admin_guard"
+
+
+async def _lock_admin_guard(db: AsyncSession) -> None:
+    """Serialise the last-admin check with the write it protects.
+
+    Transaction-scoped: Postgres releases it at the commit that demotes or
+    deactivates the user, so two concurrent demotions cannot both read a count
+    taken before the other's write.
+    """
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(CAST(:guard_key AS text)))"),
+        {"guard_key": _ADMIN_GUARD_LOCK_KEY},
+    )
 
 
 async def _other_active_admins(db: AsyncSession, user_id: uuid.UUID) -> int:
@@ -39,18 +56,18 @@ async def get_me(current_user: CurrentUser) -> User:
     return current_user
 
 
-@router.get("", response_model=UserPage)
+@router.get("", response_model=Page[UserResponse])
 async def list_users(
     db: DB,
     _: AdminUser,
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=500),
-) -> UserPage:
+) -> Page[UserResponse]:
     total = await db.scalar(select(func.count()).select_from(User))
     result = await db.execute(
         select(User).order_by(User.created_at).offset(skip).limit(limit)
     )
-    return UserPage(
+    return Page[UserResponse](
         total=int(total or 0),
         items=[UserResponse.model_validate(user) for user in result.scalars().all()],
     )
@@ -127,11 +144,13 @@ async def update_user(
         losing_admin = changes.get("is_active") is False or (
             "role" in changes and changes["role"] is not None and changes["role"] != "admin"
         )
-        if losing_admin and await _other_active_admins(db, user.id) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Cannot deactivate or demote the last active admin",
-            )
+        if losing_admin:
+            await _lock_admin_guard(db)
+            if await _other_active_admins(db, user.id) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Cannot deactivate or demote the last active admin",
+                )
 
     # A user who loses access or changes role must not keep working with the
     # tokens they already hold.
@@ -142,11 +161,13 @@ async def update_user(
     for field, value in changes.items():
         setattr(user, field, value)
 
+    if ends_sessions:
+        await revoke_user_sessions(get_redis(), str(user.id), db)
+
     await db.commit()
     await db.refresh(user)
 
     if ends_sessions:
-        await revoke_user_sessions(get_redis(), str(user.id))
         log.info("user_sessions_revoked", user_id=str(user.id))
 
     return user

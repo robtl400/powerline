@@ -7,7 +7,7 @@
  * The audio-check screen must only ever replace a live call — a stray timer
  * firing after a disconnect must not clobber the completion or idle screen.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   ApiError,
   fetchCallCount,
@@ -41,6 +41,7 @@ vi.mock("./api.js", async () => {
   return {
     ...actual,
     fetchCampaign: vi.fn(async () => fakeCampaign),
+    createCall: vi.fn(async () => ({ session_id: "s-1", status: "queued" })),
     fetchCallCount: vi.fn(async () => ({ total: 0, last_24h: 0, last_7d: 0 })),
     fetchReps: vi.fn(async () => ({ reps: [], message: null })),
     isRepsError: vi.fn(() => false),
@@ -605,6 +606,62 @@ describe("PowerlineWidget completion screen", () => {
   });
 });
 
+describe("PowerlineWidget phone entry", () => {
+  let container: HTMLElement;
+
+  const phoneInput = () =>
+    container.querySelector<HTMLInputElement>("#pl-phone-input")!;
+  const phoneError = () =>
+    container.querySelector<HTMLElement>("#pl-phone-error")!;
+
+  beforeEach(async () => {
+    document.body.innerHTML = "";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    mockFetchCampaign.mockResolvedValue(fakeCampaign);
+
+    await new PowerlineWidget({ campaignId: "campaign-1", container }).init();
+    container
+      .querySelector<HTMLElement>('[data-pl-action="show-phone"]')!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  it("labels the number field and points it at its error region", () => {
+    const label = container.querySelector<HTMLLabelElement>(
+      'label[for="pl-phone-input"]'
+    );
+
+    expect(label).not.toBeNull();
+    expect(phoneInput().getAttribute("aria-describedby")).toBe("pl-phone-error");
+    expect(phoneError().getAttribute("role")).toBe("alert");
+  });
+
+  it("marks an empty submission invalid without leaving the screen", () => {
+    container
+      .querySelector<HTMLElement>('[data-pl-action="submit-phone"]')!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(phoneInput().getAttribute("aria-invalid")).toBe("true");
+    expect(phoneError().textContent).toBe("Please enter a phone number.");
+    expect(container.innerHTML).not.toContain("Something went wrong");
+  });
+
+  it("places the callback once a number is entered", async () => {
+    const submit = container.querySelector<HTMLElement>(
+      '[data-pl-action="submit-phone"]'
+    )!;
+    submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    phoneInput().value = "+15555550123";
+    submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(container.querySelector("#pl-phone-input")).toBeNull();
+    await vi.waitFor(() =>
+      expect(container.innerHTML).toContain("We're calling you!")
+    );
+  });
+});
+
 describe("PowerlineWidget on-demand WebRTC bundle", () => {
   let container: HTMLElement;
 
@@ -633,7 +690,7 @@ describe("PowerlineWidget on-demand WebRTC bundle", () => {
     mockLoadWebRTCClient.mockResolvedValue(MockWebRTCClient);
   });
 
-  it("does not fetch the bundle before a call starts", async () => {
+  it("does not fetch the bundle while the campaign is still rendering", async () => {
     document.body.innerHTML = "";
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -674,5 +731,98 @@ describe("PowerlineWidget on-demand WebRTC bundle", () => {
       expect(container.innerHTML).toContain("Browser calling could not be loaded")
     );
     expect(MockWebRTCClient).not.toHaveBeenCalled();
+  });
+});
+
+describe("PowerlineWidget bundle prefetch", () => {
+  let container: HTMLElement;
+
+  /** Render the widget and settle the campaign fetch. */
+  async function render(campaign: CampaignPublic): Promise<PowerlineWidget> {
+    document.body.innerHTML = "";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    mockFetchCampaign.mockResolvedValue(campaign);
+
+    const widget = new PowerlineWidget({ campaignId: "campaign-1", container });
+    await widget.init();
+    return widget;
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("RTCPeerConnection", vi.fn());
+    MockWebRTCClient.mockClear();
+    mockLoadWebRTCClient.mockReset();
+    mockLoadWebRTCClient.mockResolvedValue(MockWebRTCClient);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("warms the bundle once the idle screen has settled", async () => {
+    await render(fakeCampaign);
+
+    expect(mockLoadWebRTCClient).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(mockLoadWebRTCClient).toHaveBeenCalledTimes(1);
+    expect(mockLoadWebRTCClient).toHaveBeenCalledWith("");
+  });
+
+  it("warms the bundle through requestIdleCallback when the browser has one", async () => {
+    const idle = vi.fn((cb: () => void) => {
+      cb();
+      return 1;
+    });
+    vi.stubGlobal("requestIdleCallback", idle);
+
+    await render(fakeCampaign);
+
+    expect(idle).toHaveBeenCalledTimes(1);
+    expect(mockLoadWebRTCClient).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the bundle alone for a campaign without browser calling", async () => {
+    await render({ ...fakeCampaign, allow_webrtc: false });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(mockLoadWebRTCClient).not.toHaveBeenCalled();
+  });
+
+  it("leaves the bundle alone where the browser cannot make the call", async () => {
+    vi.stubGlobal("RTCPeerConnection", undefined);
+
+    await render(fakeCampaign);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(mockLoadWebRTCClient).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failed prefetch off the screen", async () => {
+    mockLoadWebRTCClient.mockRejectedValue(new Error("offline"));
+
+    await render(fakeCampaign);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(container.innerHTML).toContain("Call Now");
+    expect(container.innerHTML).not.toContain("Something went wrong");
+  });
+
+  it("starts the call off the prefetched bundle", async () => {
+    await render(fakeCampaign);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    container
+      .querySelector<HTMLElement>('[data-pl-action="call-now"]')!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(MockWebRTCClient).toHaveBeenCalledTimes(1);
   });
 });

@@ -124,6 +124,10 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> A
     is ordinary. Any other second presentation is a replay — a stolen copy —
     and it ends every session the user has, on the assumption the chain is
     compromised.
+
+    Only the two failures are branched on. A consumed token and one answered
+    from the grace window both carry a live successor, so they share the path
+    that returns a new pair.
     """
     invalid = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
@@ -148,7 +152,8 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> A
     if rotation.outcome is RefreshOutcome.LOGGED_OUT:
         raise invalid
     if rotation.outcome is RefreshOutcome.REPLAYED:
-        await revoke_user_sessions(redis, str(user.id))
+        await revoke_user_sessions(redis, str(user.id), db)
+        await db.commit()
         log.warning("refresh_token_replayed", user_id=str(user.id))
         raise invalid
 
@@ -275,7 +280,7 @@ async def reset_confirm(
         raise invalid
 
     user.hashed_password = await hash_password_async(body.new_password)
+    await revoke_user_sessions(redis, str(user.id), db)
     await db.commit()
 
     await redis.delete(key, attempts_key)
-    await revoke_user_sessions(redis, str(user.id))

@@ -1,6 +1,13 @@
 import { AlertTriangle, Check, Phone } from "lucide-react";
 import { STATUS_LABELS } from "@/lib/constants";
-import { BUTTON_PRIMARY, BUTTON_SECONDARY, FOCUS_RING, INPUT_CLASS, LINK_BUTTON } from "@/lib/styles";
+import {
+  BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
+  FOCUS_RING,
+  INPUT_CLASS,
+  LINK_BUTTON,
+  SECTION_HEADING,
+} from "@/lib/styles";
 import type { CampaignChecklist, CampaignForm } from "@/types/campaign";
 
 type TabType = "settings" | "targets" | "audio" | "embed" | "stats";
@@ -22,6 +29,7 @@ export function CampaignSettingsTab({
   checklistLoading,
   onTabChange,
   onOpenTestCall,
+  defaultRateLimit = null,
   readOnly = false,
 }: {
   form: CampaignForm;
@@ -40,6 +48,7 @@ export function CampaignSettingsTab({
   checklistLoading: boolean;
   onTabChange: (tab: TabType) => void;
   onOpenTestCall: () => void;
+  defaultRateLimit?: number | null;
   readOnly?: boolean;
 }) {
   function field(label: string, children: React.ReactNode, hint?: string): React.ReactNode {
@@ -74,7 +83,7 @@ export function CampaignSettingsTab({
     <div className="space-y-8">
       {/* Basic Info */}
       <section>
-        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">Basic Info</h2>
+        <h2 className={`${SECTION_HEADING} mb-4 pb-2 border-b border-brand-border`}>Basic Info</h2>
         <div className="space-y-4">
           {field(
             "Name *",
@@ -145,7 +154,11 @@ export function CampaignSettingsTab({
                 disabled={readOnly}
                 value={form.rate_limit}
                 onChange={(e) => setForm((f) => ({ ...f, rate_limit: e.target.value }))}
-                placeholder="Blank = default (5/hour)"
+                placeholder={
+                  defaultRateLimit != null
+                    ? `Blank = default (${defaultRateLimit}/hour)`
+                    : "Blank = server default"
+                }
                 min={1}
               />,
               "Max calls per phone/IP per hour"
@@ -156,7 +169,7 @@ export function CampaignSettingsTab({
 
       {/* Connection Modes */}
       <section>
-        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
+        <h2 className={`${SECTION_HEADING} mb-4 pb-2 border-b border-brand-border`}>
           Connection Modes
         </h2>
         <div className="space-y-3">
@@ -169,7 +182,7 @@ export function CampaignSettingsTab({
 
       {/* Talking Points */}
       <section>
-        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
+        <h2 className={`${SECTION_HEADING} mb-4 pb-2 border-b border-brand-border`}>
           Talking Points
         </h2>
         {field(
@@ -189,7 +202,7 @@ export function CampaignSettingsTab({
       {/* Launch Checklist — shown when campaign is live */}
       {status === "live" && (
         <section>
-          <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
+          <h2 className={`${SECTION_HEADING} mb-4 pb-2 border-b border-brand-border`}>
             Launch Checklist
           </h2>
           {checklistLoading && (
@@ -236,7 +249,7 @@ export function CampaignSettingsTab({
       {/* Test Call button — opens modal when campaign is live */}
       {status === "live" && form.allow_phone_callback && (
         <section>
-          <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
+          <h2 className={`${SECTION_HEADING} mb-4 pb-2 border-b border-brand-border`}>
             Test Call
           </h2>
           <p className="text-sm text-brand-grey-dark mb-3">

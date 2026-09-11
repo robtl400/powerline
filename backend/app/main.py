@@ -1,8 +1,10 @@
+import hashlib
 import os
 import posixpath
 import re
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
@@ -18,6 +20,7 @@ from app.api.v1.analytics import router as analytics_router
 from app.api.v1.audio import router_audio, router_campaign_audio
 from app.config import settings
 from app.dependencies import _trusted_proxy_networks
+from app.redis_client import get_redis
 from app.version import __version__
 
 log = structlog.get_logger()
@@ -179,6 +182,63 @@ def _validate_startup_config() -> None:
         raise RuntimeError(
             f"PUBLIC_BASE_URL must use https:// in production, got: {settings.PUBLIC_BASE_URL}"
         )
+    if urlsplit(settings.PUBLIC_BASE_URL).path not in ("", "/"):
+        raise RuntimeError(
+            "PUBLIC_BASE_URL must carry no path, got: "
+            f"{settings.PUBLIC_BASE_URL}. The webhook URLs handed to Twilio are "
+            "root-absolute, so a path prefix is dropped from the callback and "
+            "from the URL every signature is reconstructed over."
+        )
+
+
+PEPPER_FINGERPRINT_KEY = "phone_hash_pepper_fp"
+
+
+def _pepper_fingerprint() -> str:
+    """A short digest of the running pepper, safe to store next to the data."""
+    return hashlib.sha256(settings.PHONE_HASH_PEPPER.encode()).hexdigest()[:16]
+
+
+async def check_pepper_fingerprint(redis) -> None:
+    """Compare the running pepper against the one the stored digests were made with.
+
+    Every phone number is stored only as a digest under PHONE_HASH_PEPPER, so
+    changing the pepper silently voids every blocklist entry and session hash
+    already written. The first start records a fingerprint; a later start whose
+    pepper does not match it refuses to run in production, and says so in
+    development, where a throwaway database is the usual reason.
+
+    Redis holds the fingerprint, so a Redis that is down or wiped costs the
+    check rather than the boot.
+    """
+    current = _pepper_fingerprint()
+    try:
+        stored = await redis.get(PEPPER_FINGERPRINT_KEY)
+    except Exception:
+        log.warning("pepper_fingerprint_unavailable", exc_info=True)
+        return
+
+    if stored is None:
+        try:
+            await redis.set(PEPPER_FINGERPRINT_KEY, current)
+        except Exception:
+            log.warning("pepper_fingerprint_unavailable", exc_info=True)
+        return
+
+    if stored == current:
+        return
+
+    message = (
+        "PHONE_HASH_PEPPER does not match the value this deployment's stored "
+        "digests were made with. Every blocklist entry and call-session hash "
+        "written under the old pepper stops matching the numbers behind it. "
+        "Restore the previous pepper, or clear the "
+        f"{PEPPER_FINGERPRINT_KEY} key once the stored digests have been rebuilt."
+    )
+    if settings.is_development:
+        log.warning("phone_hash_pepper_changed", detail=message)
+        return
+    raise RuntimeError(message)
 
 
 @asynccontextmanager
@@ -189,6 +249,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         environment=settings.ENVIRONMENT,
     )
     _validate_startup_config()
+    await check_pepper_fingerprint(get_redis())
     if not settings.GOOGLE_CIVIC_API_KEY:
         log.warning("civic_key_missing", key="GOOGLE_CIVIC_API_KEY")
     if not settings.OPENSTATES_API_KEY:

@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import random
 import uuid
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -17,6 +18,8 @@ from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
+from app.schemas.calls import TargetPreview
+from app.schemas.target import MAX_LENGTHS
 from app.services.call_state import save_call_state
 from app.services.civic_service import normalize_rep_phone, resolve_rep_token
 
@@ -140,7 +143,9 @@ async def resolve_target_ids(
     the server-stored rep record, marked with external_id="rep_lookup" and
     target_metadata {"transient": True} so the cleanup task can find it, and
     puts it first, ahead of the campaign's configured targets in their
-    configured order. Without a rep the configured targets stand alone.
+    configured order. A configured target that carries the same number as the
+    rep is dropped, so one office is never dialed twice in a session. Without a
+    rep the configured targets stand alone.
 
     Raises:
         HTTPException: 422 when the stored rep record holds a number that is
@@ -148,14 +153,15 @@ async def resolve_target_ids(
             handle that never resolved.
     """
     ct_result = await db.execute(
-        select(CampaignTarget)
+        select(CampaignTarget.target_id, Target.phone_number)
+        .join(Target, Target.id == CampaignTarget.target_id)
         .where(CampaignTarget.campaign_id == campaign.id)
         .order_by(CampaignTarget.order)
     )
-    configured = [str(ct.target_id) for ct in ct_result.scalars().all()]
+    configured_rows = ct_result.all()
 
     if not rep:
-        return configured
+        return [str(row.target_id) for row in configured_rows]
 
     phone = normalize_rep_phone(rep.get("phone"))
     if not phone:
@@ -165,10 +171,18 @@ async def resolve_target_ids(
             detail={"message": INVALID_REP_SELECTION, "code": REP_TOKEN_INVALID_CODE},
         )
 
+    configured = [
+        str(row.target_id)
+        for row in configured_rows
+        if (normalize_rep_phone(row.phone_number) or row.phone_number) != phone
+    ]
+    if len(configured) != len(configured_rows):
+        log.info("rep_target_deduplicated", campaign_id=str(campaign.id))
+
     target = Target(
         id=uuid.uuid4(),
-        name=(rep.get("name") or "Your Representative")[:200],
-        title=(rep.get("title") or "Elected Official")[:100],
+        name=(rep.get("name") or "Your Representative")[: MAX_LENGTHS["name"]],
+        title=(rep.get("title") or "Elected Official")[: MAX_LENGTHS["title"]],
         phone_number=phone,
         location=(rep.get("level") or "").capitalize(),
         external_id="rep_lookup",
@@ -221,6 +235,13 @@ async def reserve_call_slot(campaign: Campaign, db: AsyncSession) -> None:
         )
 
 
+class StartedCall(NamedTuple):
+    """The open session and the target its first dial will reach."""
+
+    session_id: uuid.UUID
+    first_target: TargetPreview | None
+
+
 async def start_call_session(
     campaign: Campaign,
     db: AsyncSession,
@@ -230,12 +251,16 @@ async def start_call_session(
     client_ip: str,
     caller_phone_hash: str | None = None,
     referral_code: str | None = None,
-) -> uuid.UUID:
+) -> StartedCall:
     """Resolve the call's targets, claim a ceiling slot, and open a CallSession.
 
     Shared by both public call paths: it settles the target list, reserves the
     session against the campaign's ceiling and inserts it in one transaction,
     then writes the Redis state the webhook chain reads.
+
+    Returns the session id alongside the name and title of the first target in
+    the settled order, so the widget names the official it is about to dial
+    even when the campaign shuffles.
 
     Both network hops belong to the caller, not to this helper: place the
     Twilio call after it returns, so the ceiling lock is never held across an
@@ -256,6 +281,15 @@ async def start_call_session(
 
     if campaign.target_ordering == "shuffle" and rep is None:
         random.shuffle(target_ids)
+
+    first_row = (
+        await db.execute(
+            select(Target.name, Target.title).where(Target.id == uuid.UUID(target_ids[0]))
+        )
+    ).first()
+    first_target = (
+        TargetPreview(name=first_row.name, title=first_row.title) if first_row else None
+    )
 
     await reserve_call_slot(campaign, db)
 
@@ -292,4 +326,4 @@ async def start_call_session(
         },
     )
 
-    return session_id
+    return StartedCall(session_id=session_id, first_target=first_target)

@@ -163,7 +163,9 @@ async def test_stats_totals_and_breakdowns(
 ) -> None:
     campaign, first, second = seeded
 
-    resp = await client.get(f"/api/v1/campaigns/{campaign.id}/stats", headers=admin_headers)
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/stats?{IN_RANGE}", headers=admin_headers
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
@@ -178,6 +180,7 @@ async def test_stats_totals_and_breakdowns(
     assert [row["target_id"] for row in per_target] == [str(first.id), str(second.id)]
     assert per_target[0]["total_calls"] == 3
     assert per_target[0]["completed_calls"] == 2
+    assert per_target[0]["skipped_calls"] == 0
     assert per_target[0]["avg_duration_seconds"] == pytest.approx(100 / 3)
     assert per_target[1]["total_calls"] == 2
     assert per_target[1]["completed_calls"] == 1
@@ -474,7 +477,9 @@ async def test_quality_scores_failures_and_connection_rate(
 ) -> None:
     campaign, _, _ = seeded
 
-    resp = await client.get(f"/api/v1/campaigns/{campaign.id}/quality", headers=admin_headers)
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/quality?{IN_RANGE}", headers=admin_headers
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json() == {
         "total_calls": 5,
@@ -497,3 +502,215 @@ async def test_quality_on_an_empty_campaign_is_all_zeros(
         "connection_rate": 0.0,
         "failure_breakdown": {},
     }
+
+
+# ---------------------------------------------------------------------------
+# The stats and quality windows
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("route", ["stats", "quality"])
+async def test_aggregates_default_to_the_last_thirty_days(
+    client: AsyncClient,
+    seeded: tuple[Campaign, Target, Target],
+    admin_headers: dict,
+    route: str,
+) -> None:
+    """Without a range, history older than the window is not read at all."""
+    campaign, _, _ = seeded
+
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/{route}", headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total_sessions" if route == "stats" else "total_calls"] == 0
+
+
+@pytest.mark.parametrize("route", ["stats", "quality"])
+async def test_aggregates_take_the_call_logs_range(
+    client: AsyncClient,
+    seeded: tuple[Campaign, Target, Target],
+    admin_headers: dict,
+    route: str,
+) -> None:
+    campaign, _, _ = seeded
+
+    inside = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/{route}?{IN_RANGE}", headers=admin_headers
+    )
+    assert inside.status_code == 200, inside.text
+    assert inside.json()["total_sessions" if route == "stats" else "total_calls"] > 0
+
+    outside = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/{route}?{OUT_OF_RANGE}", headers=admin_headers
+    )
+    assert outside.status_code == 200, outside.text
+    assert outside.json()["total_sessions" if route == "stats" else "total_calls"] == 0
+
+
+@pytest.mark.parametrize("route", ["stats", "quality"])
+async def test_aggregates_reject_an_unparseable_range(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, route: str
+) -> None:
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/{route}?start=last-tuesday", headers=admin_headers
+    )
+    assert resp.status_code == 422
+    assert "Invalid date format" in resp.json()["detail"]
+
+
+async def test_per_target_breakdown_is_capped(
+    client: AsyncClient,
+    seeded: tuple[Campaign, Target, Target],
+    admin_headers: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The breakdown keeps the busiest targets rather than every target ever dialed."""
+    campaign, first, _ = seeded
+    monkeypatch.setattr(analytics, "MAX_PER_TARGET_ROWS", 1)
+
+    resp = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/stats?{IN_RANGE}", headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+    per_target = resp.json()["per_target"]
+    assert len(per_target) == 1
+    assert per_target[0]["target_id"] == str(first.id)
+
+
+# ---------------------------------------------------------------------------
+# Skipped targets and zero-valued averages
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def recent(
+    db: AsyncSession, campaign: Campaign, monkeypatch: pytest.MonkeyPatch
+) -> AsyncGenerator[tuple[Campaign, Target, Target], None]:
+    """One session inside the default window: one dialed call, one skipped target.
+
+    The dialed call scores 0.0 on both averages, so the aggregates have to tell
+    a real zero from no data at all.
+    """
+    monkeypatch.setattr(settings, "TIMEZONE", "UTC")
+
+    dialed = Target(
+        name="Dialed Office", title="Senator", phone_number="+12025556011", location="WA"
+    )
+    skipped = Target(
+        name="Skipped Office",
+        title="Representative",
+        phone_number="+12025556012",
+        location="WA-07",
+    )
+    db.add_all([dialed, skipped])
+    await db.flush()
+    db.add_all([
+        CampaignTarget(campaign_id=campaign.id, target_id=dialed.id, order=0),
+        CampaignTarget(campaign_id=campaign.id, target_id=skipped.id, order=1),
+    ])
+
+    session = CallSession(
+        campaign_id=campaign.id,
+        connection_type="webrtc",
+        twilio_call_sid=f"CAre{uuid.uuid4().hex[:20]}",
+        status="completed",
+        duration=0,
+        created_at=datetime.now(UTC),
+    )
+    db.add(session)
+    await db.flush()
+    db.add_all([
+        Call(
+            session_id=session.id,
+            campaign_id=campaign.id,
+            target_id=dialed.id,
+            twilio_call_sid=f"CAlg{uuid.uuid4().hex[:20]}",
+            status="completed",
+            duration=0,
+            quality_score=0.0,
+        ),
+        Call(
+            session_id=session.id,
+            campaign_id=campaign.id,
+            target_id=skipped.id,
+            twilio_call_sid=f"CAlg{uuid.uuid4().hex[:20]}",
+            status="skipped",
+            duration=0,
+        ),
+    ])
+    await db.commit()
+
+    target_ids = [dialed.id, skipped.id]
+    yield campaign, dialed, skipped
+
+    await db.execute(delete(Call).where(Call.session_id == session.id))
+    await db.execute(delete(CallSession).where(CallSession.id == session.id))
+    await db.execute(delete(CampaignTarget).where(CampaignTarget.target_id.in_(target_ids)))
+    await db.commit()
+    await db.execute(delete(Target).where(Target.id.in_(target_ids)))
+    await db.commit()
+
+
+async def test_stats_keep_skipped_targets_out_of_the_call_counts(
+    client: AsyncClient,
+    recent: tuple[Campaign, Target, Target],
+    admin_headers: dict,
+) -> None:
+    """A skipped target was never dialed: it counts once, in skipped_calls."""
+    campaign, dialed, skipped = recent
+
+    resp = await client.get(f"/api/v1/campaigns/{campaign.id}/stats", headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["total_sessions"] == 1
+    assert body["completed_sessions"] == 1
+    assert body["completion_rate"] == 1.0
+    # Two Call rows, one of them skipped, so one dial for the one session.
+    assert body["avg_calls_per_session"] == 1.0
+
+    rows = {row["target_id"]: row for row in body["per_target"]}
+    assert rows[str(dialed.id)]["total_calls"] == 1
+    assert rows[str(dialed.id)]["skipped_calls"] == 0
+    assert rows[str(skipped.id)]["total_calls"] == 0
+    assert rows[str(skipped.id)]["completed_calls"] == 0
+    assert rows[str(skipped.id)]["skipped_calls"] == 1
+    assert rows[str(skipped.id)]["avg_duration_seconds"] is None
+
+
+async def test_quality_reports_skipped_in_the_breakdown_only(
+    client: AsyncClient,
+    recent: tuple[Campaign, Target, Target],
+    admin_headers: dict,
+) -> None:
+    campaign, _, _ = recent
+
+    resp = await client.get(f"/api/v1/campaigns/{campaign.id}/quality", headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["total_calls"] == 1
+    assert body["failure_breakdown"] == {"skipped": 1}
+
+
+async def test_a_zero_average_is_reported_as_zero_not_missing(
+    client: AsyncClient,
+    recent: tuple[Campaign, Target, Target],
+    admin_headers: dict,
+) -> None:
+    """0.0 is data: only the absence of any scored call reads as None."""
+    campaign, dialed, _ = recent
+
+    quality = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/quality", headers=admin_headers
+    )
+    assert quality.status_code == 200, quality.text
+    assert quality.json()["calls_with_quality"] == 1
+    assert quality.json()["avg_quality_score"] == 0.0
+
+    stats = await client.get(f"/api/v1/campaigns/{campaign.id}/stats", headers=admin_headers)
+    assert stats.status_code == 200, stats.text
+    rows = {row["target_id"]: row for row in stats.json()["per_target"]}
+    assert rows[str(dialed.id)]["avg_duration_seconds"] == 0.0

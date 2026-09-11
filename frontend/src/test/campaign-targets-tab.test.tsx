@@ -22,11 +22,11 @@ function target(id: string, order: number): Target {
   };
 }
 
-function renderTab(props: { targets: Target[]; targetsTotal: number }) {
+function renderTab(props: { targets: Target[]; targetCount: number }) {
   return render(
     <CampaignTargetsTab
       targets={props.targets}
-      targetsTotal={props.targetsTotal}
+      targetCount={props.targetCount}
       addingTarget={false}
       setAddingTarget={vi.fn()}
       targetForm={emptyTargetForm()}
@@ -65,7 +65,7 @@ function renderTab(props: { targets: Target[]; targetsTotal: number }) {
 
 describe("CampaignTargetsTab — truncated target list", () => {
   it("says how many targets are missing from the list", () => {
-    renderTab({ targets: [target("t1", 0), target("t2", 1)], targetsTotal: 750 });
+    renderTab({ targets: [target("t1", 0), target("t2", 1)], targetCount: 750 });
 
     const notice = screen.getByText(/Showing the first 2 of 750 targets/);
     expect(notice).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe("CampaignTargetsTab — truncated target list", () => {
   });
 
   it("stays quiet when the whole campaign is on screen", () => {
-    renderTab({ targets: [target("t1", 0), target("t2", 1)], targetsTotal: 2 });
+    renderTab({ targets: [target("t1", 0), target("t2", 1)], targetCount: 2 });
 
     expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
   });

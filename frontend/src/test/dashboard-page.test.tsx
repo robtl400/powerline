@@ -134,3 +134,23 @@ describe("Dashboard — live campaigns", () => {
     expect(table().getByText("No live campaigns")).toBeInTheDocument();
   });
 });
+
+describe("Dashboard — section styling", () => {
+  it("titles each section with the shared section heading", async () => {
+    await renderDashboard();
+
+    for (const heading of screen.getAllByRole("heading", { level: 2 })) {
+      expect(heading.className).toContain("text-[13px]");
+      expect(heading.className).toContain("font-bold");
+      expect(heading.className).toContain("text-brand-grey-dark");
+    }
+  });
+
+  it("colours View all as the action it is", async () => {
+    await renderDashboard();
+
+    for (const link of screen.getAllByRole("button", { name: "View all" })) {
+      expect(link.className).toContain("text-brand-orange");
+    }
+  });
+});

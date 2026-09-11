@@ -19,6 +19,10 @@ log = logging.getLogger(__name__)
 REP_LOOKUP_EXTERNAL_ID = "rep_lookup"
 _RETENTION_DAYS = 30
 
+# Beat fires this once a day. The TTL is generous enough for one slow pass over
+# a large backlog — a second worker must not start the same delete — and far
+# shorter than the gap to the next run, so a crashed worker cannot wedge the
+# schedule: the lock is gone long before tomorrow's tick.
 _LOCK_KEY = "lock:cleanup_rep_targets"
 _LOCK_TTL = 3300
 

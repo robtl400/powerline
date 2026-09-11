@@ -27,6 +27,9 @@ class User(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+    sessions_valid_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 Index("ix_users_email_lower", func.lower(User.__table__.c.email), unique=True)

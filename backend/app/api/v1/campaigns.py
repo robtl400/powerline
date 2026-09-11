@@ -3,13 +3,13 @@ import csv
 import io
 import json
 import logging
-import secrets
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile, status
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, func, insert, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,17 +37,17 @@ from app.schemas.campaign import (
     CampaignChecklist,
     CampaignCreate,
     CampaignDetailResponse,
-    CampaignPage,
     CampaignPublicResponse,
     CampaignResponse,
     CampaignStatus,
     CampaignUpdate,
     TargetPublicInfo,
 )
+from app.schemas.common import Page
 from app.schemas.target import ImportResult, ImportRowError, ReorderRequest, TargetCreate, TargetInCampaign, TargetUpdate
 from app.schemas.target import MAX_LENGTHS, to_us_e164
 from app.services.rate_limiter import check_rate_limit
-from app.tasks.lock import RELEASE_IF_OWNER
+from app.services.redis_lock import acquire_async, refresh_async, release_async
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +166,19 @@ async def _get_session_counts(campaign_id: uuid.UUID, db: AsyncSession) -> _Sess
     return _SessionCounts(total=row.total, completed=row.completed)
 
 
+async def _lock_campaign_targets(campaign_id: uuid.UUID, db: AsyncSession) -> None:
+    """Serialise this transaction's target writes against other writers.
+
+    Transaction-scoped, so Postgres drops it at the commit that writes the rows:
+    the `order` a caller picks cannot go stale between reading the maximum and
+    inserting behind it.
+    """
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(CAST(:campaign_key AS text)))"),
+        {"campaign_key": str(campaign_id)},
+    )
+
+
 async def _next_order(campaign_id: uuid.UUID, db: AsyncSession) -> int:
     """The order value that appends a target to the end of a campaign's list."""
     result = await db.execute(
@@ -202,7 +215,7 @@ async def _get_target_in_campaign_or_404(
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=CampaignPage)
+@router.get("", response_model=Page[CampaignResponse])
 async def list_campaigns(
     _: CurrentUser,
     db: DB,
@@ -210,7 +223,7 @@ async def list_campaigns(
     q: str | None = Query(default=None, max_length=100),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=200, le=500),
-) -> CampaignPage:
+) -> Page[CampaignResponse]:
     """One page of campaigns, with `total` counting every campaign the filters match.
 
     The page is fetched first and its per-campaign target and session counts are
@@ -242,7 +255,7 @@ async def list_campaigns(
         .all()
     )
     if not page:
-        return CampaignPage(total=total or 0, items=[])
+        return Page[CampaignResponse](total=total or 0, items=[])
 
     page_ids = [campaign.id for campaign in page]
 
@@ -281,7 +294,7 @@ async def list_campaigns(
                 completed,
             )
         )
-    return CampaignPage(total=total or 0, items=items)
+    return Page[CampaignResponse](total=total or 0, items=items)
 
 
 @router.post("", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
@@ -393,35 +406,25 @@ async def get_campaign_public(
 ) -> CampaignPublicResponse:
     """Public campaign info for the embed widget.
 
-    Returns campaign metadata and target display info (no phone numbers).
-    Only live campaigns are accessible, and callers are rate limited per IP.
+    Returns campaign metadata and the first `_PUBLIC_TARGETS_LIMIT` targets in
+    campaign order, as display info only (no phone numbers). Only live
+    campaigns are accessible, and callers are rate limited per IP.
     """
     await check_rate_limit(get_redis(), "public", get_client_ip(request), settings.PUBLIC_RATE_LIMIT)
 
     campaign = await get_live_campaign_or_404(campaign_id, db)
 
-    ct_result = await db.execute(
-        select(CampaignTarget)
+    rows = await db.execute(
+        select(Target.id, Target.name, Target.title, Target.location)
+        .join(CampaignTarget, CampaignTarget.target_id == Target.id)
         .where(CampaignTarget.campaign_id == campaign.id)
         .order_by(CampaignTarget.order)
+        .limit(_PUBLIC_TARGETS_LIMIT)
     )
-    campaign_targets = ct_result.scalars().all()
-
-    target_infos: list[TargetPublicInfo] = []
-    if campaign_targets:
-        target_ids = [ct.target_id for ct in campaign_targets]
-        t_result = await db.execute(select(Target).where(Target.id.in_(target_ids)))
-        targets_by_id = {t.id: t for t in t_result.scalars().all()}
-        target_infos = [
-            TargetPublicInfo(
-                id=ct.target_id,
-                name=targets_by_id[ct.target_id].name,
-                title=targets_by_id[ct.target_id].title,
-                location=targets_by_id[ct.target_id].location,
-            )
-            for ct in campaign_targets
-            if ct.target_id in targets_by_id
-        ]
+    target_infos = [
+        TargetPublicInfo(id=row.id, name=row.name, title=row.title, location=row.location)
+        for row in rows
+    ]
 
     embed_config: dict = campaign.embed_config or {}
     response.headers["Cache-Control"] = "public, max-age=60"
@@ -446,16 +449,16 @@ async def get_campaign(
     targets_limit: int = Query(default=500, ge=1, le=2000),
 ) -> CampaignDetailResponse:
     """Campaign detail. `targets` holds at most `targets_limit` rows in campaign order;
-    `targets_total` reports how many the campaign has."""
+    `target_count` reports how many the campaign has."""
     result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
     campaign = result.scalar_one_or_none()
     if not campaign:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
 
-    targets_total = await _get_target_count(campaign_id, db)
+    target_count = await _get_target_count(campaign_id, db)
 
     targets_in_campaign: list[TargetInCampaign] = []
-    if include_targets and targets_total:
+    if include_targets and target_count:
         rows = await db.execute(
             select(Target, CampaignTarget.order)
             .join(CampaignTarget, CampaignTarget.target_id == Target.id)
@@ -467,12 +470,8 @@ async def get_campaign(
 
     sessions = await _get_session_counts(campaign_id, db)
 
-    base = _campaign_to_response(campaign, targets_total, sessions.total, sessions.completed)
-    return CampaignDetailResponse(
-        **base.model_dump(),
-        targets=targets_in_campaign,
-        targets_total=targets_total,
-    )
+    base = _campaign_to_response(campaign, target_count, sessions.total, sessions.completed)
+    return CampaignDetailResponse(**base.model_dump(), targets=targets_in_campaign)
 
 
 @router.patch("/{campaign_id}", response_model=CampaignResponse)
@@ -590,13 +589,27 @@ async def reorder_targets(
     ]
 
 
-# Keep in sync with _FIELD_ALIASES in frontend/src/hooks/useCampaignData.ts
+# Keep in sync with FIELD_ALIASES in frontend/src/lib/csv.ts
 _KNOWN_FIELDS = {"name", "title", "phone_number", "location", "external_id"}
 _REQUIRED_FIELDS = {"name", "title", "phone_number", "location"}
 _MAX_CSV_BYTES = 5 * 1024 * 1024  # 5 MB
 _COUNT_CACHE_TTL_SECONDS = 600
-_IMPORT_LOCK_TTL_SECONDS = 300
 _IMPORT_ERRORS_TTL_SECONDS = 3600
+
+# Targets the embed widget is given. It lists the officials a supporter is
+# about to call, so a campaign with tens of thousands of rows must not turn one
+# page load into an unbounded response.
+_PUBLIC_TARGETS_LIMIT = 500
+
+# The import lock covers work whose length the uploaded file decides, so it is
+# taken for a short window and extended after every batch of rows: a request
+# that dies frees the campaign in five minutes rather than holding it for the
+# longest import anyone might run.
+_IMPORT_LOCK_TTL_SECONDS = 300
+
+# Rows per executemany batch. Large enough that a 50k-row import is a few dozen
+# statements, small enough that one batch's parameters stay a reasonable size.
+_IMPORT_BATCH_ROWS = 1000
 
 # A cell starting with one of these is read as a formula by spreadsheet software,
 # so exported values are prefixed with a quote to keep them inert text.
@@ -711,11 +724,24 @@ def _parse_import_csv(content: bytes) -> tuple[list[_ImportRow], list[ImportRowE
     return parsed, errors
 
 
+async def _write_batches(
+    db: AsyncSession,
+    statement,
+    rows: list[dict],
+    heartbeat: Callable[[], Awaitable[None]],
+) -> None:
+    """Run one statement over `rows` in batches, keeping the lock alive between them."""
+    for start in range(0, len(rows), _IMPORT_BATCH_ROWS):
+        await db.execute(statement, rows[start : start + _IMPORT_BATCH_ROWS])
+        await heartbeat()
+
+
 async def _do_import(
     campaign_id: uuid.UUID,
     file: UploadFile,
     db: AsyncSession,
     redis: object,
+    heartbeat: Callable[[], Awaitable[None]],
 ) -> ImportResult:
     """Core import logic — called inside the per-campaign Redis lock."""
     content = await read_upload_limited(file, _MAX_CSV_BYTES)
@@ -735,61 +761,72 @@ async def _do_import(
 
     campaign = await get_campaign_or_404(campaign_id, db)
 
-    # Load existing targets in this campaign keyed by external_id for upsert lookup
-    existing_result = await db.execute(
-        select(Target, CampaignTarget)
+    await _lock_campaign_targets(campaign_id, db)
+
+    # The upsert matches on external_id, so the id and that key are all it needs:
+    # a campaign with 50k targets is not read into memory as ORM objects to find
+    # out which of them this file already names.
+    existing_rows = await db.execute(
+        select(Target.id, Target.external_id)
         .join(CampaignTarget, CampaignTarget.target_id == Target.id)
         .where(
             CampaignTarget.campaign_id == campaign_id,
             Target.external_id.isnot(None),
         )
     )
-    existing_by_ext_id: dict[str, Target] = {
-        row.Target.external_id: row.Target for row in existing_result.all()
+    target_id_by_ext_id: dict[str, uuid.UUID] = {
+        row.external_id: row.id for row in existing_rows
     }
 
     next_order = await _next_order(campaign_id, db)
 
-    new_targets: list[Target] = []
-    updated_count = 0
+    new_targets: list[dict] = []
+    new_links: list[dict] = []
+    updates: list[dict] = []
 
     for row in parsed_rows:
-        # Upsert: update existing if external_id matches. Targets built earlier in
-        # this file join the map too, so a repeated external_id updates the pending
-        # row rather than inserting a second one.
-        if row.external_id and row.external_id in existing_by_ext_id:
-            existing = existing_by_ext_id[row.external_id]
-            existing.name = row.name
-            existing.title = row.title
-            existing.phone_number = row.phone_number
-            existing.location = row.location
-            existing.target_metadata = row.target_metadata
-            updated_count += 1
-        else:
-            target = Target(
-                name=row.name,
-                title=row.title,
-                phone_number=row.phone_number,
-                location=row.location,
-                external_id=row.external_id,
-                target_metadata=row.target_metadata,
-            )
-            new_targets.append(target)
-            if row.external_id:
-                existing_by_ext_id[row.external_id] = target
+        # Upsert: a row whose external_id is already in the campaign updates it.
+        # Ids minted earlier in this file join the map too, so a repeated
+        # external_id updates the row this import is inserting rather than
+        # adding a second one.
+        if row.external_id and row.external_id in target_id_by_ext_id:
+            updates.append({
+                "id": target_id_by_ext_id[row.external_id],
+                "name": row.name,
+                "title": row.title,
+                "phone_number": row.phone_number,
+                "location": row.location,
+                "target_metadata": row.target_metadata,
+            })
+            continue
 
-    # Bulk insert new targets
-    if new_targets:
-        db.add_all(new_targets)
-        await db.flush()
+        target_id = uuid.uuid4()
+        new_targets.append({
+            "id": target_id,
+            "name": row.name,
+            "title": row.title,
+            "phone_number": row.phone_number,
+            "location": row.location,
+            "external_id": row.external_id,
+            "target_metadata": row.target_metadata,
+        })
+        new_links.append({
+            "campaign_id": campaign.id,
+            "target_id": target_id,
+            "order": next_order + len(new_links),
+        })
+        if row.external_id:
+            target_id_by_ext_id[row.external_id] = target_id
 
-        new_cts = [
-            CampaignTarget(campaign_id=campaign.id, target_id=t.id, order=next_order + i)
-            for i, t in enumerate(new_targets)
-        ]
-        db.add_all(new_cts)
+    # Ids are minted here rather than by the database, so the rows and the links
+    # that point at them go in as batched statements instead of one round trip
+    # per row. Inserts run before the updates: a file that names the same
+    # external_id twice updates the row its own first occurrence just created.
+    await _write_batches(db, insert(Target), new_targets, heartbeat)
+    await _write_batches(db, insert(CampaignTarget), new_links, heartbeat)
+    await _write_batches(db, update(Target), updates, heartbeat)
 
-    if new_targets or updated_count:
+    if new_targets or updates:
         campaign.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
@@ -808,7 +845,7 @@ async def _do_import(
             campaign_id,
         )
 
-    return ImportResult(imported=len(new_targets), updated=updated_count, errors=errors)
+    return ImportResult(imported=len(new_targets), updated=len(updates), errors=errors)
 
 
 @router.post("/{campaign_id}/targets/import", response_model=ImportResult)
@@ -823,18 +860,20 @@ async def import_targets(
     # duplicate targets when the same external_id appears in overlapping requests.
     redis = get_redis()
     lock_key = f"import_lock:{campaign_id}"
-    token = secrets.token_hex(8)
-    locked = await redis.set(lock_key, token, nx=True, ex=_IMPORT_LOCK_TTL_SECONDS)
-    if not locked:
+    token = await acquire_async(redis, lock_key, _IMPORT_LOCK_TTL_SECONDS)
+    if token is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An import is already in progress for this campaign. Please wait and try again.",
         )
 
+    async def keep_lock() -> None:
+        await refresh_async(redis, lock_key, token, _IMPORT_LOCK_TTL_SECONDS)
+
     try:
-        return await _do_import(campaign_id, file, db, redis)
+        return await _do_import(campaign_id, file, db, redis, keep_lock)
     finally:
-        await redis.eval(RELEASE_IF_OWNER, 1, lock_key, token)
+        await release_async(redis, lock_key, token)
 
 
 @router.get("/{campaign_id}/targets/import-errors")
@@ -878,6 +917,7 @@ async def add_target(
 ) -> TargetInCampaign:
     campaign = await get_campaign_or_404(campaign_id, db)
 
+    await _lock_campaign_targets(campaign.id, db)
     next_order = await _next_order(campaign.id, db)
 
     target = Target(

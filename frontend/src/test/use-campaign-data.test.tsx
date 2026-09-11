@@ -68,7 +68,7 @@ function baseCampaign(): CampaignDetail {
     talking_points: "Be polite",
     embed_config: { target_levels: ["federal"], theme: "light" },
     targets: [target("t1", "Alpha", 0), target("t2", "Bravo", 1)],
-    targets_total: 2,
+    target_count: 2,
   };
 }
 
@@ -99,6 +99,8 @@ beforeEach(() => {
       return Promise.resolve({ data: CHECKLIST });
     if (url === `/campaigns/${ID}/targets/import-errors`)
       return Promise.resolve({ data: new Blob(["row,error\n"]) });
+    if (url === "/health")
+      return Promise.resolve({ data: { status: "ok", version: "1.0.0", default_rate_limit: 5 } });
     return Promise.resolve({ data: [] });
   });
   mockClient.patch.mockResolvedValue({ data: {} });
@@ -119,18 +121,36 @@ describe("useCampaignData — load", () => {
     });
     expect(result.current.status).toBe("draft");
     expect(result.current.targets.map((t) => t.id)).toEqual(["t1", "t2"]);
-    expect(result.current.targetsTotal).toBe(2);
+    expect(result.current.targetCount).toBe(2);
     expect(result.current.targetLevels).toEqual(["federal"]);
     expect(result.current.error).toBeNull();
   });
 
   it("keeps the full target count when the response is truncated", async () => {
-    campaign = { ...campaign, targets_total: 750 };
+    campaign = { ...campaign, target_count: 750 };
 
     const { result } = await mountHook();
 
     expect(result.current.targets).toHaveLength(2);
-    expect(result.current.targetsTotal).toBe(750);
+    expect(result.current.targetCount).toBe(750);
+  });
+
+  it("takes the default rate limit from the health endpoint", async () => {
+    const { result } = await mountHook();
+
+    await waitFor(() => expect(result.current.defaultRateLimit).toBe(5));
+  });
+
+  it("leaves the default rate limit unknown when health is unreachable", async () => {
+    mockClient.get.mockImplementation((url: string) => {
+      if (url === `/campaigns/${ID}`) return Promise.resolve({ data: campaign });
+      if (url === "/health") return Promise.reject(new Error("offline"));
+      return Promise.resolve({ data: [] });
+    });
+
+    const { result } = await mountHook();
+
+    expect(result.current.defaultRateLimit).toBeNull();
   });
 
   it("reports a load failure", async () => {
@@ -223,7 +243,7 @@ describe("useCampaignData — drag reorder", () => {
   });
 
   it("refuses to reorder a truncated target list", async () => {
-    campaign = { ...campaign, targets_total: 750 };
+    campaign = { ...campaign, target_count: 750 };
     const { result } = await mountHook();
 
     await act(async () => {
@@ -280,7 +300,7 @@ describe("useCampaignData — CSV import", () => {
     campaign = {
       ...campaign,
       targets: [...campaign.targets, target("t3", "Charlie", 2)],
-      targets_total: 3,
+      target_count: 3,
     };
 
     await act(async () => {
@@ -300,7 +320,7 @@ describe("useCampaignData — CSV import", () => {
       errors: [],
     });
     expect(result.current.targets.map((t) => t.id)).toEqual(["t1", "t2", "t3"]);
-    expect(result.current.targetsTotal).toBe(3);
+    expect(result.current.targetCount).toBe(3);
   });
 
   it("leaves the target list alone when nothing was imported", async () => {

@@ -1,37 +1,19 @@
 """Redis lock for periodic tasks.
 
 Beat fires on a schedule regardless of whether the previous run finished, so
-long-running tasks need a lock to avoid two workers doing the same work. The
-lock is released only by its owner: a run that overran its TTL must not delete
-the lock a later run is holding.
+long-running tasks need a lock to avoid two workers doing the same work.
+The primitive itself lives in app.services.redis_lock, shared with the request
+handlers; this module adds the context manager the tasks use.
 """
 from __future__ import annotations
 
-import secrets
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-RELEASE_IF_OWNER = """
-if redis.call('get', KEYS[1]) == ARGV[1] then
-    return redis.call('del', KEYS[1])
-end
-return 0
-"""
+from app.services.redis_lock import RELEASE_IF_OWNER, acquire, release
 
-
-
-def acquire(client: Any, key: str, ttl: int) -> str | None:
-    """Take the lock, returning the owner token, or None when already held."""
-    token = secrets.token_urlsafe(16)
-    if client.set(key, token, nx=True, ex=ttl):
-        return token
-    return None
-
-
-def release(client: Any, key: str, token: str) -> bool:
-    """Release the lock only when this token still owns it."""
-    return bool(client.eval(RELEASE_IF_OWNER, 1, key, token))
+__all__ = ["RELEASE_IF_OWNER", "acquire", "release", "task_lock"]
 
 
 @contextmanager

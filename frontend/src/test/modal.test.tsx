@@ -118,4 +118,17 @@ describe("Modal", () => {
     fireEvent.keyDown(document, { key: "Tab" });
     expect(first).toHaveFocus();
   });
+
+  it("caps the panel at 90vh and scrolls its own content", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+
+    const panel = screen.getByRole("dialog");
+    expect(panel.className).toContain("max-h-[90vh]");
+    expect(panel.className).toContain("overflow-y-auto");
+
+    // The title and the close button scroll with the panel, so both stay reachable.
+    expect(panel).toContainElement(screen.getByRole("heading", { name: "Harness Dialog" }));
+    expect(panel).toContainElement(screen.getByRole("button", { name: "Close" }));
+  });
 });

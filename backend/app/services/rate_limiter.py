@@ -26,6 +26,7 @@ import uuid
 import structlog
 from fastapi import HTTPException
 from redis.asyncio import Redis
+from redis.commands.core import AsyncScript
 
 log = structlog.get_logger()
 
@@ -49,6 +50,21 @@ redis.call('ZADD', KEYS[1], ARGV[2], ARGV[5])
 redis.call('EXPIRE', KEYS[1], ARGV[4])
 return {0, count + 1}
 """
+
+_admit: AsyncScript | None = None
+
+
+def _admit_script(redis: Redis) -> AsyncScript:
+    """Return the registered admission script.
+
+    The script is registered once and executed against whichever client is
+    passed in, so an attempt costs one EVALSHA and the body goes over the wire
+    only when a restarted or failed-over server answers NOSCRIPT.
+    """
+    global _admit
+    if _admit is None:
+        _admit = redis.register_script(_ADMIT_LUA)
+    return _admit
 
 
 async def check_rate_limit(
@@ -80,15 +96,10 @@ async def check_rate_limit(
     window_start = now - window_seconds
     key = rate_key(scope, identifier)
 
-    rejected, count = await redis.eval(
-        _ADMIT_LUA,
-        1,
-        key,
-        window_start,
-        now,
-        effective_limit,
-        window_seconds,
-        str(uuid.uuid4()),
+    rejected, count = await _admit_script(redis)(
+        keys=[key],
+        args=[window_start, now, effective_limit, window_seconds, str(uuid.uuid4())],
+        client=redis,
     )
 
     if rejected:

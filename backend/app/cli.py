@@ -12,11 +12,20 @@ from sqlalchemy import func, select
 
 from app.db import AsyncSessionLocal
 from app.models.user import User
+from app.schemas.target import normalize_phone
 from app.services.auth import hash_password, validate_password_strength
 
 
 async def _create_admin(email: str, phone: str, password: str) -> None:
     email = email.strip().lower()
+
+    # Same canonical form the API stores, so an admin created here can be found
+    # by the number they give and can be sent a password-reset code.
+    try:
+        phone = normalize_phone(phone)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return
 
     try:
         validate_password_strength(password)

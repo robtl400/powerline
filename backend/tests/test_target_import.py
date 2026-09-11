@@ -477,3 +477,77 @@ async def test_add_target_rejects_a_976_number(
         headers=admin_headers,
     )
     assert resp.status_code == 422, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Rows go in as batched statements, and the lock survives a long import
+# ---------------------------------------------------------------------------
+
+
+def _bulk_csv(rows: int) -> str:
+    lines = ["name,title,phone_number,location,external_id"]
+    for i in range(rows):
+        lines.append(f"Rep {i},Representative,+1202555{6000 + i:04d},CA-{i:02d},bulk-{i:04d}")
+    return "\n".join(lines) + "\n"
+
+
+async def test_import_writes_rows_in_batches(
+    client: AsyncClient,
+    campaign: Campaign,
+    admin_headers: dict,
+    db: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file longer than one batch still lands as one contiguous, ordered block."""
+    from app.api.v1 import campaigns as campaigns_module
+
+    monkeypatch.setattr(campaigns_module, "_IMPORT_BATCH_ROWS", 2)
+
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets/import",
+        files=_csv_file(_bulk_csv(5)),
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["imported"] == 5
+
+    rows = await db.execute(
+        select(Target.external_id, CampaignTarget.order)
+        .join(CampaignTarget, CampaignTarget.target_id == Target.id)
+        .where(CampaignTarget.campaign_id == campaign.id)
+        .order_by(CampaignTarget.order)
+    )
+    listed = rows.all()
+    assert [order for _, order in listed] == [0, 1, 2, 3, 4]
+    assert [external_id for external_id, _ in listed] == [f"bulk-{i:04d}" for i in range(5)]
+
+
+async def test_import_extends_its_lock_while_the_rows_go_in(
+    client: AsyncClient,
+    campaign: Campaign,
+    admin_headers: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The lock TTL is a window per batch, not a bet on how long the file takes."""
+    from app.api.v1 import campaigns as campaigns_module
+
+    refreshed: list[tuple[str, int]] = []
+    real_refresh = campaigns_module.refresh_async
+
+    async def _record(client_, key: str, token: str, ttl: int) -> bool:
+        refreshed.append((key, ttl))
+        return await real_refresh(client_, key, token, ttl)
+
+    monkeypatch.setattr(campaigns_module, "_IMPORT_BATCH_ROWS", 2)
+    monkeypatch.setattr(campaigns_module, "refresh_async", _record)
+
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets/import",
+        files=_csv_file(_bulk_csv(5)),
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert refreshed
+    assert all(key == f"import_lock:{campaign.id}" for key, _ in refreshed)
+    assert {ttl for _, ttl in refreshed} == {campaigns_module._IMPORT_LOCK_TTL_SECONDS}

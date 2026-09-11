@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
@@ -47,6 +47,21 @@ MAX_EXPORT_ROWS = 100_000
 # Rows accumulate in a StringIO until it holds at least this many characters,
 # then the buffer is drained into the response and reused.
 EXPORT_CHUNK_CHARS = 32_768
+
+# Stats and quality read a trailing window rather than a campaign's whole
+# history, so an aggregate stays bounded as a campaign ages.
+DEFAULT_WINDOW_DAYS = 30
+
+# Rows in the per-target breakdown. The list is ordered by call volume, so the
+# cap keeps the targets a campaign actually dialed.
+MAX_PER_TARGET_ROWS = 100
+
+# A target the supporter skipped was never dialed: it is not a completed call
+# and it is not a failed one, so it stays out of the volume and quality
+# aggregates and is reported in the status breakdowns instead.
+SKIPPED = "skipped"
+
+FAILURE_STATUSES = ["failed", "busy", "no_answer", "canceled", SKIPPED]
 
 EXPORT_FIELDS = [
     "id",
@@ -176,9 +191,7 @@ async def calls_by_date(
     """
     await get_campaign_or_404(campaign_id, db)
 
-    now = datetime.now(timezone.utc)
-    start_dt = _parse_date(start) if start else (now - timedelta(days=30))
-    end_dt = _parse_date(end, end_of_day=True) if end else now
+    start_dt, end_dt = _window(start, end)
 
     trunc = func.date_trunc(
         granularity, func.timezone(local_timezone().key, CallSession.created_at)
@@ -208,60 +221,73 @@ async def campaign_stats(
     campaign_id: uuid.UUID,
     _: CurrentUser,
     db: DB,
+    start: str | None = Query(default=None, description="ISO date, e.g. 2026-01-01"),
+    end: str | None = Query(default=None, description="ISO date, e.g. 2026-03-01"),
 ) -> CampaignStatsResponse:
-    """Return aggregated stats for a campaign."""
+    """Return aggregated stats for the campaign's sessions in a date range.
+
+    Defaults to the last 30 days, and takes the same start/end the call log
+    takes. Session totals, the completion rate and the connection-type split
+    all come from one grouped pass; the per-target breakdown is a second, and
+    is capped at MAX_PER_TARGET_ROWS rows.
+    """
     await get_campaign_or_404(campaign_id, db)
+    start_dt, end_dt = _window(start, end)
 
-    # Total sessions
-    total_sessions: int = await db.scalar(
-        select(func.count()).select_from(CallSession).where(CallSession.campaign_id == campaign_id)
-    ) or 0
+    dialed = func.count(Call.id).filter(Call.status != SKIPPED)
 
-    # Completed sessions
-    completed_sessions: int = await db.scalar(
-        select(func.count()).select_from(CallSession).where(
-            CallSession.campaign_id == campaign_id,
-            CallSession.status == "completed",
+    session_rows = (
+        await db.execute(
+            select(
+                CallSession.connection_type,
+                CallSession.status,
+                func.count(func.distinct(CallSession.id)).label("sessions"),
+                dialed.label("calls"),
+            )
+            .outerjoin(Call, Call.session_id == CallSession.id)
+            .where(
+                CallSession.campaign_id == campaign_id,
+                CallSession.created_at >= start_dt,
+                CallSession.created_at <= end_dt,
+            )
+            .group_by(CallSession.connection_type, CallSession.status)
         )
-    ) or 0
+    ).all()
+
+    total_sessions = sum(row.sessions for row in session_rows)
+    completed_sessions = sum(row.sessions for row in session_rows if row.status == "completed")
+    total_calls = sum(row.calls for row in session_rows)
+
+    connection_type_breakdown: dict[str, int] = {}
+    for row in session_rows:
+        connection_type_breakdown[row.connection_type] = (
+            connection_type_breakdown.get(row.connection_type, 0) + row.sessions
+        )
 
     completion_rate = completed_sessions / total_sessions if total_sessions else 0.0
-
-    # Average calls per session — requires subquery to nest AVG over COUNT
-    calls_per_session_subq = (
-        select(func.count(Call.id).label("call_cnt"))
-        .select_from(CallSession)
-        .outerjoin(Call, Call.session_id == CallSession.id)
-        .where(CallSession.campaign_id == campaign_id)
-        .group_by(CallSession.id)
-        .subquery()
-    )
-    avg_row = await db.scalar(select(func.avg(calls_per_session_subq.c.call_cnt)))
-    avg_calls_per_session = float(avg_row) if avg_row else 0.0
-
-    # Connection type breakdown
-    ct_result = await db.execute(
-        select(CallSession.connection_type, func.count().label("cnt"))
-        .where(CallSession.campaign_id == campaign_id)
-        .group_by(CallSession.connection_type)
-    )
-    connection_type_breakdown = {row.connection_type: row.cnt for row in ct_result.all()}
+    avg_calls_per_session = total_calls / total_sessions if total_sessions else 0.0
 
     # Per-target breakdown: join calls → targets
     target_result = await db.execute(
         select(
             Target.id.label("target_id"),
             Target.name,
-            func.count(Call.id).label("total_calls"),
-            func.sum(case((Call.status == "completed", 1), else_=0)).label("completed_calls"),
-            func.avg(Call.duration).label("avg_duration"),
+            dialed.label("total_calls"),
+            func.count(Call.id).filter(Call.status == "completed").label("completed_calls"),
+            func.count(Call.id).filter(Call.status == SKIPPED).label("skipped_calls"),
+            func.avg(Call.duration).filter(Call.status != SKIPPED).label("avg_duration"),
         )
         .select_from(Call)
         .join(Target, Target.id == Call.target_id)
         .join(CallSession, CallSession.id == Call.session_id)
-        .where(CallSession.campaign_id == campaign_id)
+        .where(
+            CallSession.campaign_id == campaign_id,
+            CallSession.created_at >= start_dt,
+            CallSession.created_at <= end_dt,
+        )
         .group_by(Target.id, Target.name)
-        .order_by(func.count(Call.id).desc())
+        .order_by(dialed.desc())
+        .limit(MAX_PER_TARGET_ROWS)
     )
 
     per_target = [
@@ -269,8 +295,11 @@ async def campaign_stats(
             target_id=row.target_id,
             name=row.name,
             total_calls=row.total_calls,
-            completed_calls=int(row.completed_calls or 0),
-            avg_duration_seconds=float(row.avg_duration) if row.avg_duration else None,
+            completed_calls=row.completed_calls,
+            skipped_calls=row.skipped_calls,
+            avg_duration_seconds=(
+                float(row.avg_duration) if row.avg_duration is not None else None
+            ),
         )
         for row in target_result.all()
     ]
@@ -320,8 +349,17 @@ async def list_campaign_calls(
 
     base_stmt = _apply_session_filters(base_stmt, status, connection_type, start, end)
 
-    # Count total
-    count_stmt = select(func.count()).select_from(base_stmt.subquery())
+    # The page's rows are one per session, so the total is a plain count of the
+    # sessions the filters match rather than a count over the grouped join.
+    count_stmt = _apply_session_filters(
+        select(func.count())
+        .select_from(CallSession)
+        .where(CallSession.campaign_id == campaign_id),
+        status,
+        connection_type,
+        start,
+        end,
+    )
     total: int = await db.scalar(count_stmt) or 0
 
     # Paginate
@@ -353,42 +391,54 @@ async def campaign_quality(
     campaign_id: uuid.UUID,
     _: CurrentUser,
     db: DB,
+    start: str | None = Query(default=None, description="ISO date, e.g. 2026-01-01"),
+    end: str | None = Query(default=None, description="ISO date, e.g. 2026-03-01"),
 ) -> QualityResponse:
-    """Return call quality metrics for a campaign."""
-    await get_campaign_or_404(campaign_id, db)
+    """Return call quality metrics for the campaign's sessions in a date range.
 
-    # Quality metrics across all Call records for this campaign
-    quality_result = await db.execute(
-        select(
-            func.count(Call.id).label("total_calls"),
-            func.count(Call.quality_score).label("calls_with_quality"),
-            func.avg(Call.quality_score).label("avg_quality"),
-        )
-        .join(CallSession, CallSession.id == Call.session_id)
-        .where(CallSession.campaign_id == campaign_id)
+    Defaults to the last 30 days, and takes the same start/end the call log
+    takes. Skipped targets were never dialed, so they are counted in the
+    breakdown and nowhere else.
+    """
+    await get_campaign_or_404(campaign_id, db)
+    start_dt, end_dt = _window(start, end)
+
+    in_window = (
+        CallSession.campaign_id == campaign_id,
+        CallSession.created_at >= start_dt,
+        CallSession.created_at <= end_dt,
     )
-    quality_row = quality_result.one()
+
+    # Quality metrics across the dialed Call records for this campaign
+    quality_row = (
+        await db.execute(
+            select(
+                func.count(Call.id).filter(Call.status != SKIPPED).label("total_calls"),
+                func.count(Call.quality_score).label("calls_with_quality"),
+                func.avg(Call.quality_score).label("avg_quality"),
+            )
+            .join(CallSession, CallSession.id == Call.session_id)
+            .where(*in_window)
+        )
+    ).one()
 
     # Session completion rate
-    total_sessions: int = await db.scalar(
-        select(func.count()).select_from(CallSession).where(CallSession.campaign_id == campaign_id)
-    ) or 0
-    completed_sessions: int = await db.scalar(
-        select(func.count()).select_from(CallSession).where(
-            CallSession.campaign_id == campaign_id,
-            CallSession.status == "completed",
+    session_rows = (
+        await db.execute(
+            select(CallSession.status, func.count().label("cnt"))
+            .where(*in_window)
+            .group_by(CallSession.status)
         )
-    ) or 0
+    ).all()
+    total_sessions = sum(row.cnt for row in session_rows)
+    completed_sessions = sum(row.cnt for row in session_rows if row.status == "completed")
     connection_rate = completed_sessions / total_sessions if total_sessions else 0.0
 
-    # Failure breakdown by call status
+    # Breakdown by call status, for every status that is not a connected call
     failure_result = await db.execute(
         select(Call.status, func.count().label("cnt"))
         .join(CallSession, CallSession.id == Call.session_id)
-        .where(
-            CallSession.campaign_id == campaign_id,
-            Call.status.in_(["failed", "busy", "no_answer", "canceled"]),
-        )
+        .where(*in_window, Call.status.in_(FAILURE_STATUSES))
         .group_by(Call.status)
     )
     failure_breakdown = {row.status: row.cnt for row in failure_result.all()}
@@ -396,7 +446,11 @@ async def campaign_quality(
     return QualityResponse(
         total_calls=quality_row.total_calls or 0,
         calls_with_quality=quality_row.calls_with_quality or 0,
-        avg_quality_score=round(float(quality_row.avg_quality), 2) if quality_row.avg_quality else None,
+        avg_quality_score=(
+            round(float(quality_row.avg_quality), 2)
+            if quality_row.avg_quality is not None
+            else None
+        ),
         connection_rate=round(connection_rate, 4),
         failure_breakdown=failure_breakdown,
     )
@@ -422,6 +476,18 @@ def _parse_date(value: str, end_of_day: bool = False) -> datetime:
     if end_of_day and "T" not in value:
         dt = dt.replace(hour=23, minute=59, second=59, microsecond=999000)
     return dt
+
+
+def _window(start: str | None, end: str | None) -> tuple[datetime, datetime]:
+    """Resolve a start/end pair into the range an aggregate reads.
+
+    An absent bound falls back to the trailing DEFAULT_WINDOW_DAYS days, so no
+    aggregate scans a campaign's whole history by default.
+    """
+    now = datetime.now(timezone.utc)
+    start_dt = _parse_date(start) if start else now - timedelta(days=DEFAULT_WINDOW_DAYS)
+    end_dt = _parse_date(end, end_of_day=True) if end else now
+    return start_dt, end_dt
 
 
 def _apply_session_filters(stmt, status, connection_type, start, end):

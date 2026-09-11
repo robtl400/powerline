@@ -42,6 +42,22 @@ describe("CampaignTabs", () => {
     }
   });
 
+  it("marks the active tab with the shared orange underline and black label", () => {
+    render(<Harness />);
+
+    const [settings, targets] = screen.getAllByRole("tab");
+    expect(settings.className).toContain("border-brand-orange");
+    expect(settings.className).toContain("text-brand-black");
+    expect(targets.className).toContain("border-transparent");
+  });
+
+  it("carries no attribute nothing reads", () => {
+    render(<Harness />);
+
+    const strip = screen.getByRole("tablist").parentElement as HTMLElement;
+    expect(strip).not.toHaveAttribute("data-overflow");
+  });
+
   it("moves selection and focus with ArrowRight", () => {
     render(<Harness />);
 

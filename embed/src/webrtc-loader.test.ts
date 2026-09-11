@@ -121,6 +121,22 @@ describe("loadWebRTCClient", () => {
     expect(injected()).toHaveLength(1);
   });
 
+  it("serves an idle prefetch and a later click from one script tag", async () => {
+    const { loadWebRTCClient } = await importLoader(WIDGET_SRC);
+
+    const prefetched = loadWebRTCClient("https://api.example.org");
+    expect(injected()).toHaveLength(1);
+
+    publishGlobal();
+    injected()[0].onload!(new Event("load"));
+    await expect(prefetched).resolves.toBe(FakeWebRTCClient);
+
+    const onClick = loadWebRTCClient("https://api.example.org");
+
+    await expect(onClick).resolves.toBe(FakeWebRTCClient);
+    expect(injected()).toHaveLength(1);
+  });
+
   it("rejects when the bundle cannot be fetched", async () => {
     const { loadWebRTCClient } = await importLoader(WIDGET_SRC);
 

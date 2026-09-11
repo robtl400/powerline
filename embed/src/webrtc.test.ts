@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { WebRTCClient } from "./webrtc.js";
-import { ApiError, requestToken } from "./api.js";
+import { ApiError, requestToken, skipTarget } from "./api.js";
 import type { CampaignPublic } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -58,9 +58,11 @@ vi.mock("./api.js", async (importOriginal) => ({
     token: "test-token",
     session_id: "test-session-id",
   }),
+  skipTarget: vi.fn().mockResolvedValue(undefined),
 }));
 
 const mockRequestToken = vi.mocked(requestToken);
+const mockSkipTarget = vi.mocked(skipTarget);
 
 // ---------------------------------------------------------------------------
 // Minimal campaign stub
@@ -126,6 +128,8 @@ describe("WebRTCClient", () => {
       token: "test-token",
       session_id: "test-session-id",
     });
+    mockSkipTarget.mockReset();
+    mockSkipTarget.mockResolvedValue(undefined);
   });
 
   it("mic permission denied → transitions to phone_input state", async () => {
@@ -216,6 +220,65 @@ describe("WebRTCClient", () => {
 
   describe("connected payload", () => {
     it("reports the first campaign target when no rep was chosen", async () => {
+      mockRegister.mockResolvedValueOnce(undefined);
+      const call = makeCallStub();
+      mockConnect.mockResolvedValueOnce(call);
+
+      const client = new WebRTCClient(
+        "http://localhost",
+        fakeCampaign,
+        onStateChange,
+        onTimerTick
+      );
+
+      await client.start();
+      call.fire("accept");
+
+      expect(onStateChange).toHaveBeenCalledWith("connected", {
+        target: fakeCampaign.targets[0],
+        targetIndex: 0,
+        totalTargets: 1,
+      });
+    });
+
+    it("names the target the backend says it will dial first", async () => {
+      mockRequestToken.mockResolvedValue({
+        token: "test-token",
+        session_id: "test-session-id",
+        first_target: { name: "Rep Shuffled", title: "U.S. Representative" },
+      });
+      mockRegister.mockResolvedValueOnce(undefined);
+      const call = makeCallStub();
+      mockConnect.mockResolvedValueOnce(call);
+
+      const client = new WebRTCClient(
+        "http://localhost",
+        fakeCampaign,
+        onStateChange,
+        onTimerTick
+      );
+
+      await client.start();
+      call.fire("accept");
+
+      expect(onStateChange).toHaveBeenCalledWith("connected", {
+        target: {
+          id: "first",
+          name: "Rep Shuffled",
+          title: "U.S. Representative",
+          location: "",
+        },
+        targetIndex: 0,
+        totalTargets: 1,
+      });
+    });
+
+    it("keeps the campaign record when the dialed target is a known one", async () => {
+      mockRequestToken.mockResolvedValue({
+        token: "test-token",
+        session_id: "test-session-id",
+        first_target: { name: "Senator Test", title: "Senator" },
+      });
       mockRegister.mockResolvedValueOnce(undefined);
       const call = makeCallStub();
       mockConnect.mockResolvedValueOnce(call);
@@ -438,7 +501,37 @@ describe("WebRTCClient", () => {
       const call = makeCallStub();
       const client = await startWith(call);
 
-      client.skip();
+      await client.skip();
+
+      expect(call.sendDigits).toHaveBeenCalledWith("*");
+    });
+
+    it("tells the backend the leg was skipped before sending the digit", async () => {
+      const call = makeCallStub();
+      const order: string[] = [];
+      mockSkipTarget.mockImplementation(async () => {
+        order.push("signal");
+      });
+      call.sendDigits.mockImplementation(() => {
+        order.push("digit");
+      });
+      const client = await startWith(call);
+
+      await client.skip();
+
+      expect(mockSkipTarget).toHaveBeenCalledWith(
+        "http://localhost",
+        "test-session-id"
+      );
+      expect(order).toEqual(["signal", "digit"]);
+    });
+
+    it("still sends the digit when the skip signal fails", async () => {
+      const call = makeCallStub();
+      mockSkipTarget.mockRejectedValue(new ApiError("Not Found", 404));
+      const client = await startWith(call);
+
+      await client.skip();
 
       expect(call.sendDigits).toHaveBeenCalledWith("*");
     });

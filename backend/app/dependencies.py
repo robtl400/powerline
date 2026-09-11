@@ -35,10 +35,13 @@ def _parse_trusted_proxies(raw: str) -> tuple[_Network, ...]:
     return tuple(networks)
 
 
-def _trusted_proxy_networks() -> tuple[_Network, ...]:
+def trusted_proxy_networks() -> tuple[_Network, ...]:
     from app.config import settings
 
     return _parse_trusted_proxies(settings.TRUSTED_PROXIES)
+
+
+_trusted_proxy_networks = trusted_proxy_networks
 
 
 def _is_ip(candidate: str) -> bool:
@@ -69,7 +72,7 @@ def get_client_ip(request: Request) -> str:
     and a chain of nothing but trusted proxies falls back to the peer.
     """
     peer = request.client.host if request.client else ""
-    networks = _trusted_proxy_networks()
+    networks = trusted_proxy_networks()
 
     if not _is_trusted(peer, networks):
         return peer
@@ -103,20 +106,23 @@ async def get_current_user(
         if payload.get("type") != "access":
             raise ValueError("wrong token type")
         user_id = payload["sub"]
+        user_uuid = uuid.UUID(user_id)
         issued_at = float(payload["iat"])
     except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
         raise rejected
 
-    # Deactivation and password resets move the user's session floor forward,
-    # which retires access tokens minted before it without waiting for expiry.
-    floor = await session_floor(get_redis(), user_id)
-    if floor is not None and issued_at < floor:
-        raise rejected
-
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    # Deactivation and password resets move the user's session floor forward,
+    # which retires access tokens minted before it without waiting for expiry.
+    # The row is already loaded, so the durable copy of the floor costs nothing.
+    floor = await session_floor(get_redis(), user_id, user)
+    if floor is not None and issued_at < floor:
+        raise rejected
+
     return user
 
 

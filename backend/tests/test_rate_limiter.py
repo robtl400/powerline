@@ -14,6 +14,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.config import settings
+from app.services import rate_limiter
 from app.services.rate_limiter import check_rate_limit, rate_key
 
 SCOPE = "test-rate-limiter"
@@ -116,5 +117,34 @@ async def test_concurrent_attempts_admit_exactly_the_limit(redis, identifier):
     assert len(rejected) == 17
     assert all(r.status_code == 429 for r in rejected)
     assert await redis.zcard(key) == 3
+
+    await redis.delete(key)
+
+
+async def test_the_admission_script_is_registered_once(redis, identifier):
+    """Attempts run as EVALSHA against one registered script, not a fresh EVAL."""
+    key = f"rate:{SCOPE}:{identifier}"
+
+    await check_rate_limit(redis, SCOPE, identifier, 3)
+
+    script = rate_limiter._admit
+    assert script is not None
+    assert await redis.script_exists(script.sha) == [True]
+
+    await check_rate_limit(redis, SCOPE, identifier, 3)
+    assert rate_limiter._admit is script
+
+    await redis.delete(key)
+
+
+async def test_admits_after_the_server_forgets_the_script(redis, identifier):
+    """A flushed script cache is reloaded on NOSCRIPT, not answered as an error."""
+    key = f"rate:{SCOPE}:{identifier}"
+
+    await check_rate_limit(redis, SCOPE, identifier, 3)
+    await redis.script_flush()
+    await check_rate_limit(redis, SCOPE, identifier, 3)
+
+    assert await redis.zcard(key) == 2
 
     await redis.delete(key)

@@ -53,10 +53,7 @@ export function CampaignTabs({
   }
 
   return (
-    <div
-      className="relative mb-6"
-      data-overflow={overflowing ? "true" : "false"}
-    >
+    <div className="relative mb-6">
       <div
         ref={stripRef}
         role="tablist"

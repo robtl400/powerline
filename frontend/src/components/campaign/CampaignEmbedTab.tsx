@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import client from "@/api/client";
-import { BUTTON_SECONDARY, INPUT_CLASS } from "@/lib/styles";
+import { BUTTON_SECONDARY, INPUT_CLASS, SECTION_HEADING } from "@/lib/styles";
 
 /**
  * Each preview mount boots a real widget against the backend, spending from the
@@ -93,7 +93,7 @@ export function PowerlineWidget() {
     <section className="space-y-8">
       {/* API URL editor */}
       <div>
-        <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">
+        <h2 className={`${SECTION_HEADING} mb-4 pb-2 border-b border-brand-border`}>
           Embed Code Generator
         </h2>
         <div className="mb-4">
@@ -167,6 +167,7 @@ export function PowerlineWidget() {
             srcDoc={previewSrcDoc}
             title="Widget preview"
             className="w-full h-full"
+            allow="microphone"
             sandbox="allow-scripts allow-same-origin allow-forms"
           />
         </div>

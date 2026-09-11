@@ -185,3 +185,19 @@ describe("CampaignSettingsTab — test call", () => {
     expect(screen.queryByText("Test Call")).not.toBeInTheDocument();
   });
 });
+
+describe("CampaignSettingsTab — rate limit placeholder", () => {
+  it("names the server default once it is known", () => {
+    renderTab({ defaultRateLimit: 12 });
+
+    expect(
+      screen.getByPlaceholderText("Blank = default (12/hour)")
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to a generic hint while the default is unknown", () => {
+    renderTab();
+
+    expect(screen.getByPlaceholderText("Blank = server default")).toBeInTheDocument();
+  });
+});

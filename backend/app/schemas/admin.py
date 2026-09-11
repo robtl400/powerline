@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from app.schemas.common import Page
+
 _PHONE_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -54,6 +56,4 @@ class BlocklistResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class BlocklistPage(BaseModel):
-    total: int
-    items: list[BlocklistResponse]
+BlocklistPage = Page[BlocklistResponse]

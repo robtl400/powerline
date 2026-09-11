@@ -205,7 +205,8 @@ describe("Users — invite result", () => {
 
     await waitFor(() =>
       expect(mockToast.warning).toHaveBeenCalledWith(
-        "Account created, but the invite SMS could not be sent. Share the reset flow with the user."
+        "Account created, but the invite SMS could not be sent. Share the reset flow with the user.",
+        { duration: 8000 }
       )
     );
     expect(await table().findByText("Nia New")).toBeInTheDocument();
@@ -238,6 +239,50 @@ describe("Users — paging", () => {
     await waitFor(() => expect(mockClient.get).toHaveBeenLastCalledWith("/users?skip=2"));
     expect(await table().findByText("Kit Staff")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the next page window where the server left it after an invite", async () => {
+    const INVITED = {
+      id: "staff-9",
+      email: "nia@example.com",
+      name: "Nia New",
+      phone: "+12025550009",
+      role: "staff",
+      is_active: true,
+      created_at: "2026-01-09T00:00:00Z",
+    };
+    const THIRD = {
+      id: "staff-2",
+      email: "kit@example.com",
+      name: "Kit Staff",
+      phone: "+12025550004",
+      role: "staff",
+      is_active: true,
+      created_at: "2026-01-04T00:00:00Z",
+    };
+    mockClient.get.mockResolvedValueOnce({ data: { total: 3, items: USER_ROWS } });
+    mockClient.get.mockResolvedValueOnce({ data: { total: 4, items: [THIRD, INVITED] } });
+    mockClient.post.mockResolvedValue({ data: { ...INVITED, invite_sent: true } });
+
+    await renderUsers();
+    fireEvent.click(screen.getByRole("button", { name: "Invite User" }));
+    fireEvent.change(screen.getByPlaceholderText("Full name"), { target: { value: "Nia New" } });
+    fireEvent.change(screen.getByPlaceholderText("user@example.com"), {
+      target: { value: "nia@example.com" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("(555) 555-5555"), {
+      target: { value: "2025550009" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send Invite" }));
+
+    expect(await table().findByText("Nia New")).toBeInTheDocument();
+    expect(screen.getByText("Showing 3 of 4")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+
+    await waitFor(() => expect(mockClient.get).toHaveBeenLastCalledWith("/users?skip=2"));
+    expect(await table().findByText("Kit Staff")).toBeInTheDocument();
+    expect(table().getAllByText("Nia New")).toHaveLength(1);
   });
 });
 

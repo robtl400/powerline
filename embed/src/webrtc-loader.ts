@@ -5,15 +5,10 @@
  * than split. The Twilio Voice SDK therefore lives in its own IIFE, fetched by
  * injecting a script tag the first time a visitor starts a browser call.
  */
+import { BUNDLE_FILENAME, GLOBAL_NAME } from "./bundle-names.js";
 import type { WebRTCClient } from "./webrtc.js";
 
 export type WebRTCClientConstructor = typeof WebRTCClient;
-
-/** Sibling of the widget bundle in the same /static directory. */
-const BUNDLE_FILENAME = "powerline-embed-webrtc.iife.js";
-
-/** Global the companion bundle publishes (vite.webrtc.config.ts `lib.name`). */
-const GLOBAL_NAME = "PowerlineWebRTC";
 
 const LOAD_FAILED = "Browser calling could not be loaded.";
 

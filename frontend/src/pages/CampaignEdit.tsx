@@ -77,6 +77,7 @@ export default function CampaignEdit() {
             checklist={data.checklist}
             checklistLoading={data.checklistLoading}
             onTabChange={setActiveTab}
+            defaultRateLimit={data.defaultRateLimit}
             onOpenTestCall={() => {
               data.setTestCallOpen(true);
               data.setTestCallState("idle");
@@ -89,7 +90,7 @@ export default function CampaignEdit() {
         {activeTab === "targets" && (
           <CampaignTargetsTab
             targets={data.targets}
-            targetsTotal={data.targetsTotal}
+            targetCount={data.targetCount}
             addingTarget={data.addingTarget}
             setAddingTarget={data.setAddingTarget}
             targetForm={data.targetForm}

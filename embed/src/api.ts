@@ -24,7 +24,7 @@ export class ApiError extends Error {
 }
 
 /** Read a FastAPI `detail`, which is either a plain string or a message/code object. */
-function parseDetail(detail: unknown, fallback: string): ErrorDetail {
+export function parseDetail(detail: unknown, fallback: string): ErrorDetail {
   if (typeof detail === "string" && detail) return { message: detail };
   if (typeof detail === "object" && detail !== null) {
     const d = detail as { message?: unknown; code?: unknown };
@@ -113,9 +113,33 @@ export async function createCall(
   });
 }
 
-/** Representative lookup error returned when the backend signals fallback: manual_entry. */
+/**
+ * Mark the leg the caller is on as skipped, so the backend records it as
+ * `skipped` rather than `completed`. Sent before the DTMF digit that moves the
+ * call along; a 404 means the session has no live state left to mark.
+ */
+export async function skipTarget(
+  baseUrl: string,
+  sessionId: string
+): Promise<void> {
+  const res = await fetch(
+    `${baseUrl}/api/v1/calls/${encodeURIComponent(sessionId)}/skip`,
+    { method: "POST", headers: { "Content-Type": "application/json" } }
+  );
+  if (!res.ok) {
+    throw new ApiError(res.statusText, res.status);
+  }
+}
+
+/** Backend code for a representative lookup the providers could not answer. */
+const REPS_UNAVAILABLE = "reps_unavailable";
+
+/** Recovery the backend names for such a lookup: let the visitor type a number. */
+const MANUAL_ENTRY = "manual_entry";
+
+/** Representative lookup error returned when the backend signals manual entry. */
 export interface RepsError {
-  fallback: "manual_entry";
+  fallback: typeof MANUAL_ENTRY;
   message: string;
 }
 
@@ -140,10 +164,10 @@ export async function fetchReps(
     } catch { /* ignore */ }
 
     if (res.status === 503 && typeof detail === "object" && detail !== null) {
-      const d = detail as { fallback?: string; message?: string };
-      if (d.fallback === "manual_entry") {
+      const d = detail as { code?: string; fallback?: string; message?: string };
+      if (d.code === REPS_UNAVAILABLE || d.fallback === MANUAL_ENTRY) {
         return {
-          fallback: "manual_entry",
+          fallback: MANUAL_ENTRY,
           message: d.message ?? "Representative lookup is temporarily unavailable.",
         };
       }

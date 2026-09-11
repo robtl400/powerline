@@ -10,6 +10,7 @@ import {
 import { formatDateTime } from "@/lib/formatters";
 import { BUTTON_SECONDARY, CARD_CLASS, FOCUS_RING, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
 import { EmptyTableRow } from "@/components/EmptyState";
+import type { Page } from "@/types/api";
 
 interface CallSessionRow {
   id: string;
@@ -18,11 +19,6 @@ interface CallSessionRow {
   status: string;
   call_count: number;
   duration: number | null;
-}
-
-interface CallSessionPage {
-  total: number;
-  items: CallSessionRow[];
 }
 
 interface CampaignBasic {
@@ -45,7 +41,7 @@ export default function CallLog() {
   const navigate = useNavigate();
 
   const [campaign, setCampaign] = useState<CampaignBasic | null>(null);
-  const [page, setPage] = useState<CallSessionPage>({ total: 0, items: [] });
+  const [page, setPage] = useState<Page<CallSessionRow>>({ total: 0, items: [] });
   const [skip, setSkip] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +81,7 @@ export default function CallLog() {
     if (!id) return;
     setLoading(true);
     client
-      .get<CallSessionPage>(`/campaigns/${id}/calls?${buildParams()}`)
+      .get<Page<CallSessionRow>>(`/campaigns/${id}/calls?${buildParams()}`)
       .then((res) => {
         setPage(res.data);
         setError(null);
@@ -282,7 +278,7 @@ export default function CallLog() {
               ) : (
                 page.items.map((row) => (
                   <tr key={row.id} className="border-b last:border-0 hover:bg-page-bg/50 transition-colors">
-                    <td className="px-5 py-3 font-mono text-xs tabular-nums text-brand-grey-dark">
+                    <td className="px-5 py-3 text-xs tabular-nums text-brand-grey-dark">
                       {formatDateTime(row.created_at)}
                     </td>
                     <td className="px-5 py-3">

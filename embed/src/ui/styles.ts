@@ -27,7 +27,6 @@ export function injectStyles(): void {
     .pl-center { text-align: center; }
     .pl-actions-row { text-align: center; margin-top: 12px; }
     .pl-mt-4 { margin-top: 4px; }
-    .pl-mt-10 { margin-top: 10px; }
     .pl-mt-12 { margin-top: 12px; }
     .pl-mt-16 { margin-top: 16px; }
     .pl-mb-12 { margin-bottom: 12px; }
@@ -45,7 +44,7 @@ export function injectStyles(): void {
       padding: 24px;
       width: 100%;
       max-width: 400px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
     }
 
     .pl-card ::selection { background: rgba(242,84,45,0.18); }
@@ -137,6 +136,15 @@ export function injectStyles(): void {
       gap: 10px;
     }
     .pl-actions .pl-btn { flex: 1; }
+
+    /* ── Stacked actions (one width per screen) ───────────────────────── */
+    .pl-actions-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .pl-actions-stack .pl-btn { width: 100%; }
 
     /* ── Status text ──────────────────────────────────────────────────── */
     .pl-status {
@@ -297,6 +305,12 @@ export function injectStyles(): void {
     .pl-complete-icon { text-align: center; margin-bottom: 12px; }
     .pl-heading { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
     .pl-subtext { color: #53565B; font-size: 14px; margin: 0 0 16px; }
+
+    /* ── Reduced motion ───────────────────────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      .pl-spinner { animation: none; }
+      .pl-btn:active { transform: none; }
+    }
   `;
   document.head.appendChild(style);
 }

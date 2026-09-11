@@ -76,7 +76,7 @@ export function CampaignCardList({ campaigns, empty }: CampaignCardListProps) {
                     aria-valuemin={0}
                     aria-valuemax={100}
                     style={{ width: `${percent}%` }}
-                    className={`h-full ${c.status === "live" ? "bg-brand-orange" : "bg-[#D1D3D9]"}`}
+                    className={`h-full ${c.status === "live" ? "bg-brand-orange" : "bg-brand-grey-mid"}`}
                   />
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-brand-grey-dark">

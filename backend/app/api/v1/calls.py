@@ -6,6 +6,7 @@ org website on behalf of a supporter who wants to be called back.
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, status
@@ -19,7 +20,7 @@ from app.models.blocklist import BlocklistEntry
 from app.models.call_session import CallSession
 from app.redis_client import get_redis
 from app.schemas.calls import CallCreateRequest, CallCreateResponse
-from app.services.call_state import get_campaign_caller_id
+from app.services.call_state import get_campaign_caller_id, load_call_state, save_call_state
 from app.services.rate_limiter import check_rate_limit
 from app.services.telephony import get_provider
 
@@ -92,7 +93,7 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
             )
 
     # 6. Claim a slot under the campaign ceiling, open the session, store its state
-    session_id = await start_call_session(
+    started = await start_call_session(
         campaign,
         db,
         connection_type="outbound_phone",
@@ -101,6 +102,7 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
         caller_phone_hash=caller_hash,
         referral_code=body.referral_code,
     )
+    session_id = started.session_id
 
     # 7. Place Twilio outbound call (skipped in dev when credentials are absent)
     if settings.TWILIO_ACCOUNT_SID and settings.PUBLIC_BASE_URL:
@@ -143,4 +145,39 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
             reason="TWILIO_ACCOUNT_SID or PUBLIC_BASE_URL not set",
         )
 
-    return CallCreateResponse(session_id=str(session_id), status="initiated")
+    return CallCreateResponse(
+        session_id=str(session_id),
+        status="initiated",
+        first_target=started.first_target,
+    )
+
+
+@router.post("/calls/{session_id}/skip", status_code=status.HTTP_204_NO_CONTENT)
+async def skip_current_target(session_id: uuid.UUID, request: Request) -> None:
+    """Ask the call flow to hang up on the target it is dialing and move on.
+
+    No auth required — the supporter's own widget posts this while the call is
+    up, and the session id is the only capability involved. The request is a
+    signal, not a command: it records the index the caller is on, and the
+    call-complete webhook logs that target as skipped and advances. A signal
+    for an index the flow has already left is therefore harmless.
+
+    Raises:
+        HTTPException: 404 when the session has no live call state, which is
+            the same answer an unknown session id gets.
+    """
+    ip = get_client_ip(request)
+    await check_rate_limit(get_redis(), "skip", ip, settings.PUBLIC_RATE_LIMIT)
+
+    state = await load_call_state(str(session_id))
+    if not state:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
+
+    state["skip_requested"] = int(state["current_target_index"])
+    await save_call_state(session_id, state)
+
+    log.info(
+        "call_skip_requested",
+        session_id=str(session_id),
+        target_index=state["skip_requested"],
+    )

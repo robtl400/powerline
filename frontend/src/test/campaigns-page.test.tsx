@@ -106,6 +106,21 @@ describe("Campaigns — row actions", () => {
     expect(screen.getAllByRole("button", { name: "Resume wizard" })).toHaveLength(1);
   });
 
+  it("keeps draft rows at full contrast — the status chip carries the state", async () => {
+    await renderCampaigns();
+
+    const draftRow = table().getByRole("link", { name: "Draft Drive" }).closest("tr");
+    expect(draftRow?.className).not.toContain("opacity-50");
+  });
+
+  it("marks the active status filter with the shared orange underline", async () => {
+    await renderCampaigns();
+
+    const allTab = screen.getByRole("button", { name: "all" });
+    expect(allTab.className).toContain("border-brand-orange");
+    expect(allTab.className).toContain("text-brand-black");
+  });
+
   it("links the campaign name to its edit page", async () => {
     await renderCampaigns();
 
@@ -137,7 +152,7 @@ describe("Campaigns — mobile cards", () => {
     await renderCampaigns();
 
     expect(card("Live Drive").getByRole("progressbar").className).toContain("bg-brand-orange");
-    expect(card("Draft Drive").getByRole("progressbar").className).toContain("bg-[#D1D3D9]");
+    expect(card("Draft Drive").getByRole("progressbar").className).toContain("bg-brand-grey-mid");
   });
 
   it("shows the call count and completion share on each card", async () => {

@@ -310,3 +310,116 @@ async def test_update_user_is_admin_only(
         json={"name": "Self Promotion"},
     )
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Name is bounded by the column width
+# ---------------------------------------------------------------------------
+
+
+async def test_create_user_rejects_an_over_long_name(
+    client: AsyncClient, admin_headers: dict, new_email: Callable[[], str]
+) -> None:
+    """A name past the column width is a 422, not a DataError at commit."""
+    resp = await client.post(
+        "/api/v1/users",
+        headers=admin_headers,
+        json={"email": new_email(), "name": "N" * 101, "phone": "+12025553120"},
+    )
+    assert resp.status_code == 422
+
+
+async def test_update_user_rejects_an_over_long_name(
+    client: AsyncClient, staff_user: User, admin_headers: dict
+) -> None:
+    resp = await client.patch(
+        f"/api/v1/users/{staff_user.id}",
+        headers=admin_headers,
+        json={"name": "N" * 101},
+    )
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# The last-admin guard holds against concurrent demotions
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def two_admins(db: AsyncSession) -> AsyncGenerator[tuple[User, User], None]:
+    """Two extra active admins, kept apart from whatever else the database holds."""
+    from app.services.auth import hash_password
+
+    made = [
+        User(
+            email=f"pair_{uuid.uuid4().hex[:10]}@test.example",
+            name="Pair Admin",
+            phone="+15550000003",
+            hashed_password=hash_password("adminpass123"),
+            role="admin",
+        )
+        for _ in range(2)
+    ]
+    db.add_all(made)
+    await db.commit()
+    for user in made:
+        await db.refresh(user)
+
+    yield made[0], made[1]
+
+    await db.execute(delete(User).where(User.id.in_([u.id for u in made])))
+    await db.commit()
+
+
+async def test_concurrent_demotions_leave_an_admin_standing(
+    client: AsyncClient,
+    db: AsyncSession,
+    admin_headers: dict,
+    two_admins: tuple[User, User],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two demotions racing on the last two admins: one wins, the other is a 409.
+
+    The guard counts over this pair alone — the shared test database holds other
+    admins — but the count runs on the request's own session, so what is under
+    test is the lock that makes the check and the write one step.
+    """
+    import asyncio
+
+    from sqlalchemy import func
+
+    first, second = two_admins
+    pair = [first.id, second.id]
+
+    async def _admins_in_pair(session: AsyncSession, user_id: uuid.UUID) -> int:
+        result = await session.execute(
+            select(func.count())
+            .select_from(User)
+            .where(
+                User.id.in_(pair),
+                User.role == "admin",
+                User.is_active.is_(True),
+                User.id != user_id,
+            )
+        )
+        return int(result.scalar_one())
+
+    monkeypatch.setattr("app.api.v1.users._other_active_admins", _admins_in_pair)
+
+    responses = await asyncio.gather(
+        client.patch(
+            f"/api/v1/users/{first.id}", headers=admin_headers, json={"role": "staff"}
+        ),
+        client.patch(
+            f"/api/v1/users/{second.id}", headers=admin_headers, json={"role": "staff"}
+        ),
+    )
+
+    assert sorted(r.status_code for r in responses) == [200, 409]
+
+    remaining = await db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(User.id.in_(pair), User.role == "admin", User.is_active.is_(True))
+    )
+    assert remaining == 1
