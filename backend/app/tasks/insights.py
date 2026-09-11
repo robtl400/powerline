@@ -50,6 +50,9 @@ def candidate_calls_query(cutoff: datetime) -> Select:
         Call.quality_details.is_(None),
         Call.created_at >= cutoff,
         Call.twilio_call_sid != "",
+        # A leg Twilio reported without a DialCallSid is stored as
+        # "{parent_sid}:{index}", which names no Twilio call to fetch.
+        ~Call.twilio_call_sid.contains(":"),
     )
 
 

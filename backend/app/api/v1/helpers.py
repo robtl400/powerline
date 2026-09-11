@@ -27,6 +27,13 @@ UPLOAD_CHUNK_BYTES = 64 * 1024
 INVALID_REP_SELECTION = "Invalid or expired representative selection"
 REP_TOKEN_INVALID_CODE = "rep_token_invalid"
 
+# CallSession statuses that count as a call. A session reaches one of these only
+# after Twilio connects it, so an `initiated` row — opened by a public call or
+# token request that may never connect — is not a call. `failed` is excluded
+# because the status column cannot separate a call that connected and then
+# dropped from one that never left the API.
+CONNECTED_CALL_STATUSES = ("in_progress", "completed")
+
 
 def phone_hash(e164: str) -> str:
     """Return the stored digest of a canonical E.164 number.
@@ -175,6 +182,12 @@ async def resolve_target_ids(
 async def reserve_call_slot(campaign: Campaign, db: AsyncSession) -> None:
     """Claim one slot under the campaign's lifetime call ceiling.
 
+    The ceiling bounds connected calls: only sessions in
+    CONNECTED_CALL_STATUSES count against it, so opening a session costs
+    nothing until Twilio connects it. Sessions already sitting at `initiated`
+    are therefore admitted work — N of them may still connect after the ceiling
+    is reached, and the campaign settles at up to call_maximum + N calls.
+
     Takes a transaction-scoped advisory lock on the campaign before counting,
     so concurrent requests queue behind one another and each one's count
     already includes every session committed ahead of it. Postgres releases the
@@ -193,7 +206,12 @@ async def reserve_call_slot(campaign: Campaign, db: AsyncSession) -> None:
     )
 
     count_result = await db.execute(
-        select(func.count()).select_from(CallSession).where(CallSession.campaign_id == campaign.id)
+        select(func.count())
+        .select_from(CallSession)
+        .where(
+            CallSession.campaign_id == campaign.id,
+            CallSession.status.in_(CONNECTED_CALL_STATUSES),
+        )
     )
     if (count_result.scalar_one() or 0) >= campaign.call_maximum:
         log.warning("campaign_call_maximum_reached", campaign_id=str(campaign.id))

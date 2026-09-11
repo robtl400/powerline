@@ -8,7 +8,13 @@
  * firing after a disconnect must not clobber the completion or idle screen.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchCallCount, fetchCampaign, fetchReps, isRepsError } from "./api.js";
+import {
+  ApiError,
+  fetchCallCount,
+  fetchCampaign,
+  fetchReps,
+  isRepsError,
+} from "./api.js";
 import { renderIdle } from "./ui/templates.js";
 import { injectStyles } from "./ui/styles.js";
 import { loadWebRTCClient } from "./webrtc-loader.js";
@@ -30,12 +36,16 @@ const fakeCampaign: CampaignPublic = {
   ],
 };
 
-vi.mock("./api.js", () => ({
-  fetchCampaign: vi.fn(async () => fakeCampaign),
-  fetchCallCount: vi.fn(async () => ({ total: 0, last_24h: 0, last_7d: 0 })),
-  fetchReps: vi.fn(async () => ({ reps: [], message: null })),
-  isRepsError: vi.fn(() => false),
-}));
+vi.mock("./api.js", async () => {
+  const actual = await vi.importActual<typeof import("./api.js")>("./api.js");
+  return {
+    ...actual,
+    fetchCampaign: vi.fn(async () => fakeCampaign),
+    fetchCallCount: vi.fn(async () => ({ total: 0, last_24h: 0, last_7d: 0 })),
+    fetchReps: vi.fn(async () => ({ reps: [], message: null })),
+    isRepsError: vi.fn(() => false),
+  };
+});
 
 // The Twilio SDK ships in a companion bundle the widget loads on demand, so
 // the widget only ever sees the loader.
@@ -416,6 +426,75 @@ describe("PowerlineWidget rep lookup", () => {
 
     expect(container.innerHTML).toContain("Campaign is not accepting calls");
     expect(container.innerHTML).toContain("Something went wrong");
+  });
+});
+
+describe("PowerlineWidget bootstrap failure", () => {
+  let container: HTMLElement;
+
+  const retryButton = () =>
+    container.querySelector<HTMLElement>('[data-pl-action="retry"]');
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    mockFetchCampaign.mockReset();
+  });
+
+  it("says it is loading, not connecting, while the campaign is in flight", () => {
+    mockFetchCampaign.mockReturnValue(new Promise<CampaignPublic>(() => {}));
+
+    void new PowerlineWidget({ campaignId: "campaign-1", container }).init();
+
+    expect(container.textContent).toContain("Loading…");
+    expect(container.textContent).not.toContain("Connecting");
+  });
+
+  it("shows an error screen with a Try Again button", async () => {
+    mockFetchCampaign.mockRejectedValue(new ApiError("Campaign not found", 404));
+
+    await new PowerlineWidget({ campaignId: "campaign-1", container }).init();
+
+    expect(container.textContent).toContain("Campaign not found");
+    expect(retryButton()).not.toBeNull();
+  });
+
+  it("re-fetches the campaign when Try Again is clicked", async () => {
+    mockFetchCampaign.mockRejectedValueOnce(
+      new ApiError("Campaign not found", 404)
+    );
+    mockFetchCampaign.mockResolvedValue(fakeCampaign);
+
+    const widget = new PowerlineWidget({ campaignId: "campaign-1", container });
+    await widget.init();
+
+    retryButton()!.click();
+    await vi.waitFor(() => expect(container.textContent).toContain("Call Now"));
+
+    expect(mockFetchCampaign).toHaveBeenCalledTimes(2);
+    expect(retryButton()).toBeNull();
+  });
+
+  it("keeps offering the retry when the re-fetch fails again", async () => {
+    mockFetchCampaign.mockRejectedValue(new ApiError("Campaign not found", 404));
+
+    const widget = new PowerlineWidget({ campaignId: "campaign-1", container });
+    await widget.init();
+
+    retryButton()!.click();
+    await vi.waitFor(() => expect(mockFetchCampaign).toHaveBeenCalledTimes(2));
+
+    expect(retryButton()).not.toBeNull();
+  });
+
+  it("asks the visitor to wait when the bootstrap is rate limited", async () => {
+    mockFetchCampaign.mockRejectedValue(new ApiError("Too Many Requests", 429));
+
+    await new PowerlineWidget({ campaignId: "campaign-1", container }).init();
+
+    expect(container.textContent).toContain("wait a moment");
+    expect(retryButton()).not.toBeNull();
   });
 });
 

@@ -40,11 +40,15 @@ def providers(monkeypatch: pytest.MonkeyPatch):
 
 
 async def test_a_failing_provider_still_returns_the_other_levels(providers) -> None:
-    providers(federal=_raises(RuntimeError("upstream down")), state=_returns(STATE))
+    failure = RuntimeError("upstream down")
+    providers(federal=_raises(failure), state=_returns(STATE))
 
     result = await lookup(ZIP, {"target_levels": ["federal", "state"]})
 
-    assert result == [STATE]
+    assert result.reps == [STATE]
+    assert result.failed_levels == {"federal"}
+    assert result.all_levels_failed is False
+    assert result.last_failure is failure
 
 
 async def test_both_providers_contribute(providers) -> None:
@@ -52,7 +56,9 @@ async def test_both_providers_contribute(providers) -> None:
 
     result = await lookup(ZIP, {"target_levels": ["federal", "state"]})
 
-    assert sorted(r.level for r in result) == ["federal", "state"]
+    assert sorted(r.level for r in result.reps) == ["federal", "state"]
+    assert result.failures == {}
+    assert result.all_levels_failed is False
 
 
 async def test_missing_api_key_propagates(providers) -> None:
@@ -65,13 +71,20 @@ async def test_missing_api_key_propagates(providers) -> None:
 async def test_unknown_level_yields_no_reps(providers) -> None:
     providers(federal=_returns(FEDERAL))
 
-    assert await lookup(ZIP, {"target_levels": ["martian"]}) == []
+    result = await lookup(ZIP, {"target_levels": ["martian"]})
+
+    assert result.reps == []
+    assert result.attempted_levels == ()
+    assert result.all_levels_failed is False
 
 
 async def test_empty_levels_yield_no_reps(providers) -> None:
     providers(federal=_returns(FEDERAL))
 
-    assert await lookup(ZIP, {"target_levels": []}) == []
+    result = await lookup(ZIP, {"target_levels": []})
+
+    assert result.reps == []
+    assert result.all_levels_failed is False
 
 
 async def test_unknown_levels_are_dropped_but_known_ones_run(providers) -> None:
@@ -79,10 +92,24 @@ async def test_unknown_levels_are_dropped_but_known_ones_run(providers) -> None:
 
     result = await lookup(ZIP, {"target_levels": ["martian", "federal"]})
 
-    assert result == [FEDERAL]
+    assert result.reps == [FEDERAL]
+    assert result.attempted_levels == ("federal",)
 
 
 async def test_default_level_is_federal(providers) -> None:
     providers(federal=_returns(FEDERAL), state=_returns(STATE))
 
-    assert await lookup(ZIP, {}) == [FEDERAL]
+    assert (await lookup(ZIP, {})).reps == [FEDERAL]
+
+
+async def test_every_level_failing_is_reported_with_the_last_error(providers) -> None:
+    first = RuntimeError("federal down")
+    last = RuntimeError("state down")
+    providers(federal=_raises(first), state=_raises(last))
+
+    result = await lookup(ZIP, {"target_levels": ["federal", "state"]})
+
+    assert result.reps == []
+    assert result.failed_levels == {"federal", "state"}
+    assert result.all_levels_failed is True
+    assert result.last_failure is last

@@ -8,6 +8,17 @@ from pydantic import BaseModel, Field, field_validator
 
 _NON_DIGITS = re.compile(r"\D")
 
+# Number classes that bill the caller — or the campaign — for the connection
+# rather than carrying a conversation with a person at the other end.
+_BILLED_NUMBER_TYPES = frozenset(
+    {
+        phonenumbers.PhoneNumberType.PREMIUM_RATE,
+        phonenumbers.PhoneNumberType.SHARED_COST,
+        phonenumbers.PhoneNumberType.UAN,
+        phonenumbers.PhoneNumberType.VOICEMAIL,
+    }
+)
+
 # Column widths of app.models.target.Target. Every write path — the single-target
 # endpoints and the CSV import — bounds its input against these.
 MAX_LENGTHS: dict[str, int] = {
@@ -38,7 +49,8 @@ def to_us_e164(value: str) -> str:
     Accepts the shapes people actually type — "(202) 555-0123", "202-555-0123",
     "12025550123", "+12025550123" — and rejects anything that is not a valid US
     number, so a single canonical string is what gets hashed, rate limited,
-    blocklisted and dialed.
+    blocklisted and dialed. Premium-rate and other billed number classes are
+    refused as well, so no path that dials can be pointed at a 1-900 line.
     """
     candidate = value.strip()
     if not candidate.startswith("+"):
@@ -49,9 +61,13 @@ def to_us_e164(value: str) -> str:
             candidate = f"+{digits}"
 
     normalized = normalize_phone(candidate)
+    parsed = phonenumbers.parse(normalized, None)
 
-    if phonenumbers.region_code_for_number(phonenumbers.parse(normalized, None)) != "US":
+    if phonenumbers.region_code_for_number(parsed) != "US":
         raise ValueError("Only US phone numbers are supported")
+
+    if phonenumbers.number_type(parsed) in _BILLED_NUMBER_TYPES:
+        raise ValueError("Premium-rate numbers are not supported")
 
     return normalized
 

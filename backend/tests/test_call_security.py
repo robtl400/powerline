@@ -62,6 +62,7 @@ MODULE_PHONES = [
     "+12025550212",
     "+12025550213",
     "+12025550214",
+    "+12025550215",
     *CEILING_PHONES,
 ]
 
@@ -499,7 +500,7 @@ async def test_call_maximum_reached_returns_429(
         CallSession(
             campaign_id=campaign.id,
             connection_type="outbound_phone",
-            status="initiated",
+            status="completed",
         )
     )
     campaign.call_maximum = 1
@@ -519,16 +520,50 @@ async def test_call_maximum_reached_returns_429(
     assert token_resp.status_code == 429, token_resp.text
 
 
+async def test_call_maximum_ignores_sessions_that_never_connected(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """Sessions still at `initiated` are not calls, so the ceiling stays open."""
+    campaign, _ = campaign_with_target
+
+    db.add_all(
+        CallSession(
+            campaign_id=campaign.id,
+            connection_type="webrtc",
+            status="initiated",
+        )
+        for _ in range(3)
+    )
+    campaign.call_maximum = 1
+    await db.commit()
+
+    resp = await client.post(
+        "/api/v1/calls/create",
+        json={"campaign_id": str(campaign.id), "phone_number": "+12025550215"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def test_call_maximum_holds_under_concurrent_requests(
     client: AsyncClient,
     db: AsyncSession,
     campaign_with_target: tuple[Campaign, Target],
 ) -> None:
-    """Twice the ceiling, fired at once, still admits exactly the ceiling."""
+    """A reached ceiling refuses every request in a burst fired at once."""
     campaign, _ = campaign_with_target
     ceiling = len(CEILING_PHONES) // 2
     campaign.call_maximum = ceiling
     campaign.rate_limit = 100  # keep the per-IP bucket out of this test's way
+    db.add_all(
+        CallSession(
+            campaign_id=campaign.id,
+            connection_type="outbound_phone",
+            status="completed",
+        )
+        for _ in range(ceiling)
+    )
     await db.commit()
 
     responses = await asyncio.gather(
@@ -540,8 +575,7 @@ async def test_call_maximum_holds_under_concurrent_requests(
             for phone in CEILING_PHONES
         )
     )
-    statuses = sorted(resp.status_code for resp in responses)
-    assert statuses == [200] * ceiling + [429] * ceiling, statuses
+    assert [resp.status_code for resp in responses] == [429] * len(CEILING_PHONES)
 
     count_result = await db.execute(
         select(func.count()).select_from(CallSession).where(CallSession.campaign_id == campaign.id)

@@ -1,5 +1,6 @@
 """Session lifecycle: refresh rotation, logout, and forced revocation."""
 
+import asyncio
 import json
 import uuid
 from collections.abc import AsyncGenerator
@@ -12,10 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.auth import (
+    RefreshOutcome,
     decode_token,
     hash_password,
+    issue_refresh_token,
     refresh_grace_key,
     refresh_key,
+    refresh_logout_key,
+    refresh_pred_key,
+    rotate_refresh_token,
     session_floor_key,
 )
 
@@ -51,7 +57,12 @@ async def session_user(db: AsyncSession, redis) -> AsyncGenerator[User, None]:
     yield user
 
     keys: list[str] = []
-    for pattern in (refresh_key(str(user.id), "*"), refresh_grace_key(str(user.id), "*")):
+    for pattern in (
+        refresh_key(str(user.id), "*"),
+        refresh_grace_key(str(user.id), "*"),
+        refresh_logout_key(str(user.id), "*"),
+        refresh_pred_key(str(user.id), "*"),
+    ):
         keys.extend([key async for key in redis.scan_iter(match=pattern)])
     if keys:
         await redis.delete(*keys)
@@ -168,6 +179,81 @@ async def test_logout_invalidates_the_refresh_token(
         "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
     )
     assert resp.status_code == 401
+
+
+async def test_logout_ends_the_chain_behind_the_token(
+    client: AsyncClient, session_user: User, redis
+) -> None:
+    """The predecessor inside its grace window must not hand the chain back."""
+    other = await _login(client, session_user)
+    tokens = await _login(client, session_user)
+
+    rotation = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert rotation.status_code == 200
+    successor = rotation.json()["refresh_token"]
+
+    logout = await client.post("/api/v1/auth/logout", json={"refresh_token": successor})
+    assert logout.status_code == 204
+
+    replay = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert replay.status_code == 401
+
+    assert await redis.get(session_floor_key(str(session_user.id))) is None
+    survivor = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": other["refresh_token"]}
+    )
+    assert survivor.status_code == 200
+
+
+async def test_logged_out_token_is_refused_without_revoking(
+    client: AsyncClient, session_user: User, redis
+) -> None:
+    """A stray retry after sign-out is ordinary, not evidence of a stolen chain."""
+    other = await _login(client, session_user)
+    tokens = await _login(client, session_user)
+    jti = decode_token(tokens["refresh_token"])["jti"]
+
+    logout = await client.post(
+        "/api/v1/auth/logout", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert logout.status_code == 204
+
+    retry = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert retry.status_code == 401
+
+    rotation = await rotate_refresh_token(redis, str(session_user.id), jti)
+    assert rotation.outcome is RefreshOutcome.LOGGED_OUT
+    assert rotation.token is None
+
+    assert await redis.get(session_floor_key(str(session_user.id))) is None
+    survivor = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": other["refresh_token"]}
+    )
+    assert survivor.status_code == 200
+
+
+async def test_concurrent_rotations_settle_on_one_successor(
+    session_user: User, redis
+) -> None:
+    """The rotation script is atomic: one winner, the rest served the same successor."""
+    user_id = str(session_user.id)
+    jti = decode_token(await issue_refresh_token(redis, user_id))["jti"]
+
+    results = await asyncio.gather(
+        *[rotate_refresh_token(redis, user_id, jti) for _ in range(10)]
+    )
+
+    outcomes = [r.outcome for r in results]
+    assert outcomes.count(RefreshOutcome.CONSUMED) == 1
+    assert outcomes.count(RefreshOutcome.GRACE) == 9
+    assert RefreshOutcome.REPLAYED not in outcomes
+    assert len({r.token for r in results}) == 1
 
 
 async def test_logout_is_quiet_about_junk_tokens(client: AsyncClient) -> None:

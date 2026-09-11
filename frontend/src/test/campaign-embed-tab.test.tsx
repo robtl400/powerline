@@ -1,11 +1,13 @@
 /**
  * CampaignEmbedTab tests: the generated snippets carry a cache-busting version
- * query taken from the backend health endpoint, and degrade to a plain URL when
- * that endpoint is unreachable.
+ * query taken from the backend health endpoint and degrade to a plain URL when
+ * that endpoint is unreachable, and the live preview — a real widget mount that
+ * spends from the visitor rate-limit budget — waits for typing to settle.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import client from "@/api/client";
 import { CampaignEmbedTab } from "@/components/campaign/CampaignEmbedTab";
 
@@ -30,6 +32,29 @@ function renderTab(overrides: Partial<Props> = {}) {
     ...overrides,
   };
   return { props, ...render(<CampaignEmbedTab {...props} />) };
+}
+
+/** The tab as the campaign page uses it, owning the Backend URL value. */
+function ControlledTab() {
+  const [url, setUrl] = useState(API_URL);
+  return (
+    <CampaignEmbedTab
+      campaignId={CAMPAIGN_ID}
+      embedApiUrl={url}
+      setEmbedApiUrl={setUrl}
+      copiedSnippet={null}
+      onCopy={vi.fn()}
+    />
+  );
+}
+
+function previewSrcDoc(): string {
+  const iframe = document.querySelector("iframe") as HTMLIFrameElement;
+  return iframe.getAttribute("srcdoc") ?? "";
+}
+
+function backendUrlInput(): HTMLElement {
+  return screen.getByPlaceholderText("https://yoursite.com");
 }
 
 /** The three places the bundle URL appears: script tag, React snippet, preview. */
@@ -100,5 +125,64 @@ describe("CampaignEmbedTab", () => {
     expect(
       urls.every((u) => u === `${API_URL}/static/powerline-embed.iife.js`)
     ).toBe(true);
+  });
+
+  it("names the companion bundle a strict script-src has to allow", () => {
+    mockGet.mockReturnValue(new Promise<never>(() => {}));
+
+    renderTab();
+
+    expect(
+      screen.getByText("powerline-embed-webrtc.iife.js")
+    ).toBeInTheDocument();
+  });
+});
+
+describe("CampaignEmbedTab live preview", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGet.mockReturnValue(new Promise<never>(() => {}));
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("holds the preview while the backend URL is being typed", () => {
+    render(<ControlledTab />);
+    const input = backendUrlInput();
+
+    fireEvent.change(input, { target: { value: "https://a.example.org" } });
+    fireEvent.change(input, { target: { value: "https://ab.example.org" } });
+    act(() => void vi.advanceTimersByTime(799));
+
+    expect(previewSrcDoc()).toContain(API_URL);
+    expect(previewSrcDoc()).not.toContain("ab.example.org");
+    expect((input as HTMLInputElement).value).toBe("https://ab.example.org");
+  });
+
+  it("remounts the preview once after typing settles", () => {
+    render(<ControlledTab />);
+    const input = backendUrlInput();
+
+    fireEvent.change(input, { target: { value: "https://a.example.org" } });
+    fireEvent.change(input, { target: { value: "https://ab.example.org" } });
+    act(() => void vi.advanceTimersByTime(800));
+
+    const settled = previewSrcDoc();
+    expect(settled).toContain("https://ab.example.org");
+    expect(settled).not.toContain(API_URL);
+    expect(settled).not.toContain("https://a.example.org/");
+  });
+
+  it("updates the preview as soon as the field loses focus", () => {
+    render(<ControlledTab />);
+    const input = backendUrlInput();
+
+    fireEvent.change(input, { target: { value: "https://b.example.org" } });
+    fireEvent.blur(input);
+
+    expect(previewSrcDoc()).toContain("https://b.example.org");
   });
 });

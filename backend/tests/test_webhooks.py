@@ -1,7 +1,8 @@
 """Tests for the Twilio webhook call flow.
 
 Covers the silent-caller retry in make-calls, the DTMF skip and empty-result
-attributes in the generated TwiML, and the abandoned-session status mapping.
+attributes in the generated TwiML, the abandoned-session status mapping, and
+the one-row-per-leg bookkeeping call-complete keeps for a chain of targets.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import uuid
 import pytest
 from fastapi.routing import APIRoute
 from httpx import AsyncClient
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -294,12 +296,19 @@ async def test_busy_status_still_maps_to_failed(
 # ---------------------------------------------------------------------------
 
 
-async def _two_target_state(session_id: uuid.UUID, target_id: uuid.UUID, call_sid: str) -> None:
+async def _chain_state(
+    session_id: uuid.UUID, target_id: uuid.UUID, call_sid: str, targets: int
+) -> None:
+    """Point the session's state at `targets` copies of one target, from index 0."""
     state = await load_call_state(str(session_id))
-    state["target_ids"] = [str(target_id), str(target_id)]
+    state["target_ids"] = [str(target_id)] * targets
     state["current_target_index"] = 0
     state["call_sid"] = call_sid
     await save_call_state(session_id, state)
+
+
+async def _two_target_state(session_id: uuid.UUID, target_id: uuid.UUID, call_sid: str) -> None:
+    await _chain_state(session_id, target_id, call_sid, 2)
 
 
 @pytest.mark.parametrize("dial_status", ["busy", "no-answer", "failed", "canceled"])
@@ -521,6 +530,168 @@ async def test_call_complete_without_a_dial_call_sid_logs_one_call_per_leg(
 
     state = await load_call_state(str(session.id))
     assert state["current_target_index"] == 1
+
+
+FAILED_LEG = {"DialCallStatus": "failed", "DialCallDuration": "0"}
+
+
+async def _dial(client: AsyncClient, session_id: uuid.UUID, call_sid: str):
+    return await client.post(
+        f"/webhooks/twilio/dial-target?session_id={session_id}",
+        data={"CallSid": call_sid},
+    )
+
+
+async def _complete(client: AsyncClient, session_id: uuid.UUID, call_sid: str, **extra):
+    return await client.post(
+        f"/webhooks/twilio/call-complete?session_id={session_id}",
+        data={"CallSid": call_sid, **extra},
+    )
+
+
+async def test_two_legs_without_a_dial_call_sid_are_two_rows_and_two_targets(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """Numbers Twilio never dialed a child leg for still advance the chain."""
+    _, target, session, call_sid = flow
+    await _chain_state(session.id, target.id, call_sid, 3)
+
+    await _dial(client, session.id, call_sid)
+    first = await _complete(client, session.id, call_sid, **FAILED_LEG)
+    assert first.status_code == 200
+    assert "dial-target" in first.text
+
+    await _dial(client, session.id, call_sid)
+    second = await _complete(client, session.id, call_sid, **FAILED_LEG)
+    assert second.status_code == 200
+    assert "<Redirect" in second.text
+    assert "dial-target" in second.text
+    assert "<Hangup" not in second.text
+
+    result = await db.execute(
+        select(Call.twilio_call_sid).where(Call.session_id == session.id)
+    )
+    assert sorted(result.scalars().all()) == [f"{call_sid}:0", f"{call_sid}:1"]
+
+    state = await load_call_state(str(session.id))
+    assert state["current_target_index"] == 2
+    assert state["completed_legs"] == [0, 1]
+
+
+async def test_retrying_a_leg_without_a_dial_call_sid_leaves_the_index_alone(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A retry of a leg the state has passed neither logs nor skips anything."""
+    _, target, session, call_sid = flow
+    await _chain_state(session.id, target.id, call_sid, 3)
+
+    await _dial(client, session.id, call_sid)
+    first = await _complete(client, session.id, call_sid, **FAILED_LEG)
+    assert first.status_code == 200
+
+    retry = await _complete(client, session.id, call_sid, **FAILED_LEG)
+    assert retry.status_code == 200
+    assert retry.text == first.text
+
+    result = await db.execute(
+        select(Call.twilio_call_sid).where(Call.session_id == session.id)
+    )
+    assert result.scalars().all() == [f"{call_sid}:0"]
+
+    state = await load_call_state(str(session.id))
+    assert state["current_target_index"] == 1
+
+
+async def test_a_leg_row_that_already_exists_advances_the_index(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """The unique index rejecting the insert means the leg is done, not pending."""
+    campaign, target, session, call_sid = flow
+    await _chain_state(session.id, target.id, call_sid, 3)
+
+    await _dial(client, session.id, call_sid)
+    db.add(Call(
+        session_id=session.id,
+        campaign_id=campaign.id,
+        target_id=target.id,
+        twilio_call_sid=f"{call_sid}:0",
+        status="failed",
+        duration=0,
+    ))
+    await db.commit()
+
+    resp = await _complete(client, session.id, call_sid, **FAILED_LEG)
+    assert resp.status_code == 200
+    assert "<Redirect" in resp.text
+    assert "dial-target" in resp.text
+
+    result = await db.execute(select(Call.id).where(Call.session_id == session.id))
+    assert len(result.scalars().all()) == 1
+
+    state = await load_call_state(str(session.id))
+    assert state["current_target_index"] == 1
+    assert state["completed_legs"] == [0]
+
+
+async def test_call_complete_does_not_reopen_a_failed_session(
+    client: AsyncClient,
+    db: AsyncSession,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """The last leg cannot mark a session a status callback already failed."""
+    _, _, session, call_sid = flow
+    await db.execute(
+        update(CallSession).where(CallSession.id == session.id).values(status="failed")
+    )
+    await db.commit()
+
+    resp = await _complete(
+        client,
+        session.id,
+        call_sid,
+        DialCallSid=f"CAleg{uuid.uuid4().hex[:16]}",
+        DialCallStatus="completed",
+        DialCallDuration="18",
+    )
+    assert resp.status_code == 200
+    assert "<Hangup" in resp.text
+
+    result = await db.execute(
+        select(CallSession.status).where(CallSession.id == session.id)
+    )
+    assert result.scalar_one() == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Redis outages
+# ---------------------------------------------------------------------------
+
+
+async def test_make_calls_hangs_up_when_redis_is_unreachable(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    flow: tuple[Campaign, Target, CallSession, str],
+) -> None:
+    """A Redis outage answers Twilio with TwiML, never a JSON 500."""
+    _, _, session, call_sid = flow
+
+    async def unreachable(session_id: str) -> dict | None:
+        raise RedisConnectionError("connection refused")
+
+    monkeypatch.setattr("app.api.v1.webhooks.load_call_state", unreachable)
+
+    resp = await client.post(
+        f"/webhooks/twilio/make-calls?session_id={session.id}",
+        data={"CallSid": call_sid, "Digits": "1"},
+    )
+    assert resp.status_code == 200
+    assert "<Hangup" in resp.text
 
 
 # ---------------------------------------------------------------------------

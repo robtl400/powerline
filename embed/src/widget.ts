@@ -36,6 +36,26 @@ import type {
 /** Backend error code returned when a rep_token has expired between lookup and call. */
 const REP_TOKEN_INVALID = "rep_token_invalid";
 
+/** Shown while the campaign bootstrap is in flight, before any call exists. */
+const BOOTSTRAP_LOADING = "Loading…";
+
+const BOOTSTRAP_FAILED = "Failed to load campaign.";
+
+const BOOTSTRAP_RATE_LIMITED =
+  "Too many requests from your network. Please wait a moment and try again.";
+
+/** Message for a failed bootstrap, which is rate limited often enough to name. */
+function bootstrapErrorMessage(err: unknown): string {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { status?: unknown }).status === 429
+  ) {
+    return BOOTSTRAP_RATE_LIMITED;
+  }
+  return err instanceof Error && err.message ? err.message : BOOTSTRAP_FAILED;
+}
+
 /** Read the message/code pair out of an "error" payload, which may be a bare string. */
 function readErrorDetail(data: unknown): ErrorDetail | undefined {
   if (typeof data === "string") return { message: data };
@@ -88,17 +108,18 @@ export class PowerlineWidget {
 
   async init(): Promise<void> {
     injectStyles();
-    this._render("loading");
+    this.state = "loading";
+    this._render("loading", BOOTSTRAP_LOADING);
 
     try {
       this.campaign = await fetchCampaign(this.baseUrl, this.campaignId);
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Failed to load campaign.";
-      this._render("error", msg);
+      this.state = "error";
+      this._render("error", bootstrapErrorMessage(err));
       return;
     }
 
+    this.state = "idle";
     this._render("idle");
     this._bindEvents();
   }
@@ -194,7 +215,7 @@ export class PowerlineWidget {
   private _render(state: WidgetState, message?: string): void {
     if (!this.campaign) {
       if (state === "loading") {
-        this.container.innerHTML = renderLoading();
+        this.container.innerHTML = renderLoading(message ?? BOOTSTRAP_LOADING);
       } else if (state === "error") {
         this.container.innerHTML = renderError(message ?? "Unknown error");
       }
@@ -331,6 +352,10 @@ export class PowerlineWidget {
         this._destroyClients();
         this.phoneFallbackMsg = undefined;
         this._resetRepSelection();
+        if (!this.campaign) {
+          void this.init();
+          break;
+        }
         this.state = "idle";
         this._render("idle");
         break;

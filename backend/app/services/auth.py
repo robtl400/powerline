@@ -76,6 +76,15 @@ def refresh_grace_key(user_id: str, jti: str) -> str:
     return f"refresh_grace:{user_id}:{jti}"
 
 
+def refresh_logout_key(user_id: str, jti: str) -> str:
+    return f"refresh_logout:{user_id}:{jti}"
+
+
+def refresh_pred_key(user_id: str, successor_jti: str) -> str:
+    """Key holding the jti a successor replaced, so logout can find it in O(1)."""
+    return f"refresh_pred:{user_id}:{successor_jti}"
+
+
 def session_floor_key(user_id: str) -> str:
     return f"session_floor:{user_id}"
 
@@ -127,29 +136,46 @@ async def issue_refresh_token(redis: "Redis", user_id: str) -> str:
 
 
 class RefreshOutcome(StrEnum):
-    """What presenting a refresh token's jti turned out to be."""
+    """What presenting a refresh token's jti turned out to be.
+
+    CONSUMED — the jti was live and has just been retired for a successor.
+    GRACE — the jti was retired moments ago and still answers with that successor.
+    LOGGED_OUT — the jti belongs to a chain the user deliberately signed out of.
+    REPLAYED — the jti is unknown: expired, already revoked, or stolen.
+    """
 
     CONSUMED = "consumed"
     GRACE = "grace"
+    LOGGED_OUT = "logged_out"
     REPLAYED = "replayed"
 
 
 @dataclass(frozen=True)
 class RefreshRotation:
-    """The result of rotating a refresh token; `token` is None on a replay."""
+    """The result of rotating a refresh token.
+
+    `token` carries the successor on CONSUMED and GRACE, and is None on
+    LOGGED_OUT and REPLAYED.
+    """
 
     outcome: RefreshOutcome
     token: str | None = None
 
 
-# Retires the presented jti and records its successor, or reports what the jti
-# already is. Runs as one atomic step so two simultaneous presentations cannot
-# both see an unconsumed jti, and so a concurrent second presentation never
-# lands in the gap between the delete and the grace marker.
+# Retires the presented jti, records its successor and a pointer back from that
+# successor, or reports what the jti already is. Runs as one atomic step so two
+# simultaneous presentations cannot both see an unconsumed jti, and so a
+# concurrent second presentation never lands in the gap between the delete and
+# the grace marker. A logout tombstone outranks a grace marker: a chain the user
+# signed out of is dead even if a retired link is still inside its window.
 _ROTATE_LUA = """
 if redis.call('DEL', KEYS[1]) == 1 then
     redis.call('SETEX', KEYS[2], ARGV[2], ARGV[1])
+    redis.call('SETEX', KEYS[4], ARGV[2], ARGV[3])
     return {'consumed', ''}
+end
+if redis.call('EXISTS', KEYS[3]) == 1 then
+    return {'logged_out', ''}
 end
 local successor = redis.call('GET', KEYS[2])
 if successor then
@@ -165,8 +191,8 @@ async def rotate_refresh_token(redis: "Redis", user_id: str, jti: str) -> Refres
     A jti that was still registered is consumed and its successor is recorded
     under a short grace window; presenting the same jti again inside that
     window hands back the same successor, which is what a second browser tab
-    racing the first one needs. A jti that is neither registered nor inside its
-    grace window is a replay.
+    racing the first one needs. A jti carrying a logout tombstone is a token
+    from a chain the user signed out of. A jti that is none of those is a replay.
     """
     successor = create_refresh_token(user_id)
     successor_jti = decode_token(successor)["jti"]
@@ -174,11 +200,14 @@ async def rotate_refresh_token(redis: "Redis", user_id: str, jti: str) -> Refres
 
     outcome, recorded = await redis.eval(
         _ROTATE_LUA,
-        2,
+        4,
         refresh_key(user_id, jti),
         refresh_grace_key(user_id, jti),
+        refresh_logout_key(user_id, jti),
+        refresh_pred_key(user_id, successor_jti),
         successor,
         REFRESH_GRACE_SECONDS,
+        jti,
     )
 
     if outcome == RefreshOutcome.CONSUMED:
@@ -188,19 +217,60 @@ async def rotate_refresh_token(redis: "Redis", user_id: str, jti: str) -> Refres
 
     if outcome == RefreshOutcome.GRACE:
         return RefreshRotation(RefreshOutcome.GRACE, recorded)
+    if outcome == RefreshOutcome.LOGGED_OUT:
+        return RefreshRotation(RefreshOutcome.LOGGED_OUT)
     return RefreshRotation(RefreshOutcome.REPLAYED)
+
+
+async def retire_refresh_token(redis: "Redis", user_id: str, jti: str, ttl: int) -> None:
+    """End the refresh chain a logged-out token sits in, and tombstone it.
+
+    Deleting the jti alone would leave two holes. A retired predecessor whose
+    grace marker still points at this token could exchange for it again, so the
+    marker goes too — found in O(1) through the pointer left when the successor
+    was minted. And an unmarked jti would look stolen on its next presentation
+    and take every other session down with it, so both this jti and the
+    predecessor get a tombstone that answers later presentations quietly.
+    """
+    predecessor = await redis.get(refresh_pred_key(user_id, jti))
+    retired = [jti, predecessor] if predecessor else [jti]
+
+    keys = [refresh_key(user_id, jti), refresh_pred_key(user_id, jti)]
+    keys += [refresh_grace_key(user_id, dead) for dead in retired]
+    await redis.delete(*keys)
+
+    async with redis.pipeline(transaction=False) as pipe:
+        for dead in retired:
+            pipe.setex(refresh_logout_key(user_id, dead), ttl, "1")
+        await pipe.execute()
+
+
+def remaining_lifetime(payload: dict) -> int:
+    """Seconds left on a token, bounded by the refresh-token lifetime."""
+    ttl = refresh_token_ttl()
+    try:
+        remaining = int(float(payload["exp"]) - datetime.now(timezone.utc).timestamp())
+    except (KeyError, TypeError, ValueError):
+        return ttl
+    return max(1, min(remaining, ttl))
 
 
 async def revoke_user_sessions(redis: "Redis", user_id: str) -> None:
     """End every session for a user: refresh tokens and outstanding access tokens.
 
     The session floor is compared against each access token's `iat`, so tokens
-    already in the wild stop working without waiting for their expiry. Grace
-    markers go with the refresh tokens, so no retired jti can still hand out a
-    successor once the sessions behind it are gone.
+    already in the wild stop working without waiting for their expiry. Every
+    marker the rotation chain leaves behind goes with the refresh tokens, so no
+    retired jti can still hand out a successor once the sessions behind it are
+    gone.
     """
     keys: list[str] = []
-    for pattern in (refresh_key(user_id, "*"), refresh_grace_key(user_id, "*")):
+    for pattern in (
+        refresh_key(user_id, "*"),
+        refresh_grace_key(user_id, "*"),
+        refresh_logout_key(user_id, "*"),
+        refresh_pred_key(user_id, "*"),
+    ):
         keys.extend([key async for key in redis.scan_iter(match=pattern)])
     if keys:
         await redis.delete(*keys)

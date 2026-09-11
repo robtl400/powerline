@@ -413,3 +413,67 @@ async def test_import_over_long_cell_fails_only_that_row(
         select(CampaignTarget).where(CampaignTarget.campaign_id == campaign.id)
     )
     assert len(ct_result.scalars().all()) == 2
+
+
+PREMIUM_RATE_CSV = """\
+name,title,phone_number,location
+Rep Smith,Representative,+12025551001,CA-12
+Pay Per Call,Representative,1-900-555-0100,CA-13
+Rep Doe,Representative,+12025551003,NY-10
+"""
+
+
+async def test_import_premium_rate_row_is_a_row_error(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, db: AsyncSession
+) -> None:
+    """A 1-900 line fails its own row; the rest of the file still imports."""
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets/import",
+        files=_csv_file(PREMIUM_RATE_CSV),
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["imported"] == 2
+    assert data["updated"] == 0
+    assert len(data["errors"]) == 1
+    assert data["errors"][0]["row"] == 3
+    assert "Premium-rate numbers are not supported" in data["errors"][0]["error"]
+
+    ct_result = await db.execute(
+        select(CampaignTarget).where(CampaignTarget.campaign_id == campaign.id)
+    )
+    assert len(ct_result.scalars().all()) == 2
+
+
+async def test_add_target_rejects_a_premium_rate_number(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets",
+        json={
+            "name": "Pay Per Call",
+            "title": "Representative",
+            "phone_number": "+19005550100",
+            "location": "CA-13",
+        },
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "Premium-rate numbers are not supported" in resp.text
+
+
+async def test_add_target_rejects_a_976_number(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets",
+        json={
+            "name": "Pay Per Call",
+            "title": "Representative",
+            "phone_number": "+19765550100",
+            "location": "CA-13",
+        },
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422, resp.text

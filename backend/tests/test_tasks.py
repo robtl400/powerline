@@ -101,6 +101,14 @@ def test_insights_query_filters_on_quality_details_not_score() -> None:
     assert "calls.status = " in sql
 
 
+def test_insights_query_skips_legs_recorded_under_the_parent_sid() -> None:
+    """A "{parent_sid}:{index}" leg names no Twilio call, so Insights never fetches it."""
+    sql = str(candidate_calls_query(datetime.now(timezone.utc) - timedelta(hours=24)))
+
+    assert "calls.twilio_call_sid != " in sql
+    assert "calls.twilio_call_sid NOT LIKE" in sql
+
+
 def test_cleanup_query_spares_referenced_and_recent_targets() -> None:
     sql = str(stale_rep_targets_query(datetime.now(timezone.utc) - timedelta(days=30)))
 

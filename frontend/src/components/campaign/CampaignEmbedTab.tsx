@@ -3,6 +3,12 @@ import { useEffect, useState } from "react";
 import client from "@/api/client";
 import { BUTTON_SECONDARY, INPUT_CLASS } from "@/lib/styles";
 
+/**
+ * Each preview mount boots a real widget against the backend, spending from the
+ * same per-IP budget as visitors, so typing a URL settles before it remounts.
+ */
+const PREVIEW_DEBOUNCE_MS = 800;
+
 export function CampaignEmbedTab({
   campaignId,
   embedApiUrl,
@@ -19,6 +25,15 @@ export function CampaignEmbedTab({
   // The bundle is served with a long cache lifetime, so the snippet pins it to
   // the backend release it was generated for.
   const [version, setVersion] = useState<string | null>(null);
+  const [previewApiUrl, setPreviewApiUrl] = useState(embedApiUrl);
+
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setPreviewApiUrl(embedApiUrl),
+      PREVIEW_DEBOUNCE_MS
+    );
+    return () => clearTimeout(timer);
+  }, [embedApiUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,12 +77,16 @@ export function PowerlineWidget() {
   return <div id="powerline-widget" />;
 }`;
 
+  const previewScriptSrc =
+    `${previewApiUrl}/static/powerline-embed.iife.js` +
+    (version ? `?v=${encodeURIComponent(version)}` : "");
+
   const previewSrcDoc = `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>body{margin:0;display:flex;justify-content:center;align-items:flex-start;padding:24px;background:#F4F5F7;min-height:100vh}</style>
 </head><body>
 <div id="powerline-widget"></div>
-<script src="${scriptSrc}" data-campaign="${campaignId}" data-api-url="${embedApiUrl}"></script>
+<script src="${previewScriptSrc}" data-campaign="${campaignId}" data-api-url="${previewApiUrl}"></script>
 </body></html>`;
 
   return (
@@ -85,6 +104,7 @@ export function PowerlineWidget() {
             className={INPUT_CLASS}
             value={embedApiUrl}
             onChange={(e) => setEmbedApiUrl(e.target.value.replace(/\/$/, ""))}
+            onBlur={() => setPreviewApiUrl(embedApiUrl)}
             placeholder="https://yoursite.com"
           />
           <p className="text-xs text-brand-grey-dark mt-1">
@@ -127,6 +147,14 @@ export function PowerlineWidget() {
           {reactSnippet}
         </pre>
       </div>
+
+      <p className="text-xs text-brand-grey-dark">
+        When a browser call starts, the widget loads a second script,{" "}
+        <code className="font-mono">powerline-embed-webrtc.iife.js</code>, from
+        the same <code className="font-mono">/static/</code> directory — a host
+        page with a strict <code className="font-mono">script-src</code> must
+        allow that origin.
+      </p>
 
       {/* Live preview */}
       <div>

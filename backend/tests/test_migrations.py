@@ -23,7 +23,6 @@ EXPECTED_INDEXES = {
     "call_sessions": {
         "ix_call_sessions_created_at",
         "ix_call_sessions_campaign_created",
-        "ix_call_sessions_campaign_id",
     },
     "campaigns": {"ux_campaigns_name_active"},
     "targets": {"ix_targets_rep_lookup"},
@@ -97,6 +96,20 @@ def test_expression_index_targets_the_right_expression(
     )
     index = _index(table_name, index_name)
     assert [str(expression) for expression in index.expressions] == expressions
+
+
+def test_campaign_id_lookups_ride_the_composite_index() -> None:
+    """A standalone call_sessions.campaign_id index is a prefix of the composite."""
+    table = Base.metadata.tables["call_sessions"]
+    single_column = [
+        index.name
+        for index in table.indexes
+        if [column.name for column in index.columns] == ["campaign_id"]
+    ]
+    assert not single_column
+
+    composite = _index("call_sessions", "ix_call_sessions_campaign_created")
+    assert [column.name for column in composite.columns] == ["campaign_id", "created_at"]
 
 
 def test_email_and_number_uniqueness_is_index_only() -> None:

@@ -59,7 +59,7 @@ All notable changes to this project will be documented in this file.
 - **Trimmed Docker build context** — a new `.dockerignore` keeps host `node_modules`, build output, and `.env` out of image builds.
 
 ### Security (sessions and edge)
-- **Refresh tokens rotate and are single-use** — every refresh token carries a `jti` registered in Redis and is consumed on use; `POST /auth/refresh` returns a new access *and* refresh token, and replaying a spent one is a 401.
+- **Refresh tokens rotate and are single-use** — every refresh token carries a `jti` registered in Redis and is consumed on use; `POST /auth/refresh` returns a new access *and* refresh token; a spent token is refused once its 30-second grace window (for concurrent tabs) has passed.
 - **`POST /auth/logout` retires a refresh token** — always answers 204, including for expired, malformed, or already-revoked tokens.
 - **Deactivation, role changes, and password resets end sessions immediately** — all of a user's refresh tokens are dropped and a per-user session floor retires outstanding access tokens instead of letting them run to expiry.
 - **CORS is split by path** — public embed endpoints answer any origin; everything else uses `ADMIN_CORS_ORIGINS`, which emits no CORS headers when empty. Admin routes sharing the `/api/v1/campaigns/` prefix are no longer treated as public.
@@ -89,7 +89,7 @@ All notable changes to this project will be documented in this file.
 ### Changed (schema, tasks, deployment)
 - **Campaign names are unique among active campaigns** — archived campaigns release their name via a partial unique index.
 - **Foreign keys carry indexes** — calls, campaign targets and campaign phone numbers are indexed on the columns they join by; `Campaign.status` matches its existing index.
-- **Listings paginate** — `GET /campaigns`, `GET /users` and `GET /phone-numbers` accept `skip`/`limit` (default 200, max 500); responses are still lists. The public call-count endpoint answers in one query instead of three.
+- **Listings paginate** — `GET /campaigns`, `GET /users` and `GET /phone-numbers` accept `skip`/`limit` (default 200, max 500); campaigns and users answer with the `{total, items}` envelope described below, phone numbers with a list. The public call-count endpoint answers in one query instead of three.
 - **Migrations compare server defaults** — schema drift in column defaults now shows up in `alembic check`, and database URLs containing `%` no longer break Alembic's config parsing. Migration `007_audio_integrity_indexes`.
 - **Token lifetimes come from configuration** — `ACCESS_TOKEN_EXPIRE_MINUTES` and `REFRESH_TOKEN_EXPIRE_DAYS`.
 - **Voice Insights no longer overlaps or leaks connections** — the run holds a Redis lock, reuses one engine per worker, fetches summaries through a bounded 4-thread pool, and selects on `quality_details IS NULL` so a fetched-but-unscored call is not refetched every cycle.
@@ -180,6 +180,17 @@ All notable changes to this project will be documented in this file.
 - **Radii on token everywhere** — no `rounded`, `rounded-md`, `rounded-lg` or bracket radius remains in the admin; panels use `rounded-card`, buttons `rounded-control`, chips and inputs `rounded-field`.
 - **Heading order** — the targets tab opens at `h2` like the other tabs; the audio version badges come from `AUDIO_VERSION_BADGE`; the embed preview background is `page-bg`.
 - **Embed widget** — inputs and every button class carry a visible `focus-visible` ring and a 44px minimum height; the rep buttons gain a hover state; the talking-points callout drops its orange side border for the neutral bordered panel; the font stack prefers DM Sans when the host page loads it and otherwise stays on the system stack, which DESIGN.md now states.
+
+### Fixed (third review)
+- **A failed dial leg no longer loops the call** — a leg Twilio reports without a `DialCallSid` is logged as `{parent_sid}:{index}`, so the call-complete unique index only rejects a true retry; a repeated callback advances the target index if the leg was never advanced, and call-complete can never redirect to the target it just reported. The session's final status is written only while the session is not already terminal, and a Redis failure inside any Twilio webhook answers hangup TwiML instead of a JSON error.
+- **Migrations are re-runnable** — each revision commits with its own stamp, concurrent index builds use `IF NOT EXISTS` and clear an invalid leftover first, 007's downgrade checks for name collisions before dropping anything, 009 builds its index before dropping columns, and the whole run holds an advisory lock. 008 renames legs recorded under the parent CallSid to the leg-unique form instead of deleting them, and drops the `campaign_id` index that the composite index covers. The README carries a migration runbook.
+- **The call ceiling and campaign counts cover connected calls only** — `initiated` sessions created by a token request never count toward `call_maximum`, `session_count` or `completed_session_count`.
+- **A provider outage is no longer cached** — a representative lookup caches its result only when every configured level answered; a partial result is served uncached, and a total failure answers 503 with the manual-entry fallback.
+- **Premium-rate numbers are refused** everywhere a US number is accepted.
+- **Logout ends the chain** — signing out retires the token's grace marker and its predecessor's, and a logged-out token presented again is refused without revoking the user's other sessions; concurrent rotations of one token settle on one successor.
+- **Public endpoints have their own budget** — `/campaigns/{id}/public` and `/count` are limited by `PUBLIC_RATE_LIMIT` (600 per hour per client IP) instead of the rep-lookup limit; the embed's Try Again re-runs the bootstrap after a failed load, a 429 explains itself, and the admin's live preview reloads once per URL edit instead of per keystroke. The snippets name the second bundle a strict `script-src` must allow.
+- **Campaign listing** counts targets and sessions for the returned page only.
+- **Voice Insights** skips legs that name no Twilio call.
 
 ### Fixed (live design review, high impact)
 - **Campaign tabs reachable at 375px** — the five-tab strip scrolls horizontally with proximity snapping, a hidden scrollbar and a right-edge fade that appears only while the strip overflows; the tabs are a real `role="tablist"` with `aria-selected`, roving `tabIndex`, arrow/Home/End navigation and 44px touch targets.

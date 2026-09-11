@@ -17,6 +17,10 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Session-level advisory lock key: concurrent `alembic upgrade` runners queue
+# behind whichever one holds it.
+MIGRATION_LOCK_ID = 0x706F_7765_726C_6E00
+
 
 def run_migrations_offline() -> None:
     context.configure(
@@ -25,19 +29,25 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_server_default=True,
+        transaction_per_migration=True,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection):
+    connection.exec_driver_sql(f"SELECT pg_advisory_lock({MIGRATION_LOCK_ID})")
+    connection.commit()
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
         compare_server_default=True,
+        transaction_per_migration=True,
     )
     with context.begin_transaction():
         context.run_migrations()
+    connection.exec_driver_sql(f"SELECT pg_advisory_unlock({MIGRATION_LOCK_ID})")
+    connection.commit()
 
 
 async def run_migrations_online() -> None:

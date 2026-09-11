@@ -14,7 +14,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
-from app.api.v1.helpers import get_campaign_or_404, get_live_campaign_or_404, read_upload_limited
+from app.api.v1.helpers import (
+    CONNECTED_CALL_STATUSES,
+    get_campaign_or_404,
+    get_live_campaign_or_404,
+    read_upload_limited,
+)
 from app.config import settings
 from app.dependencies import get_client_ip
 from app.models.audio import AudioRecording
@@ -132,7 +137,7 @@ async def _get_target_count(campaign_id: uuid.UUID, db: AsyncSession) -> int:
 
 
 class _SessionCounts(NamedTuple):
-    """Call sessions a campaign has, and how many of them reached `completed`."""
+    """Connected call sessions a campaign has, and how many reached `completed`."""
 
     total: int
     completed: int
@@ -142,12 +147,20 @@ _COMPLETED_SESSIONS = func.count(case((CallSession.status == "completed", 1)))
 
 
 async def _get_session_counts(campaign_id: uuid.UUID, db: AsyncSession) -> _SessionCounts:
+    """Count the campaign's sessions that Twilio connected.
+
+    Sessions still at `initiated` are excluded: the public call and token
+    endpoints open one per request, and one that never connects is not a call.
+    """
     row = (
         await db.execute(
             select(
                 func.count(CallSession.id).label("total"),
                 _COMPLETED_SESSIONS.label("completed"),
-            ).where(CallSession.campaign_id == campaign_id)
+            ).where(
+                CallSession.campaign_id == campaign_id,
+                CallSession.status.in_(CONNECTED_CALL_STATUSES),
+            )
         )
     ).one()
     return _SessionCounts(total=row.total, completed=row.completed)
@@ -198,7 +211,12 @@ async def list_campaigns(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=200, le=500),
 ) -> CampaignPage:
-    """One page of campaigns, with `total` counting every campaign the filters match."""
+    """One page of campaigns, with `total` counting every campaign the filters match.
+
+    The page is fetched first and its per-campaign target and session counts are
+    aggregated in one grouped query each, restricted to the campaigns on the
+    page, so neither aggregate scans rows belonging to campaigns not returned.
+    """
     filters = []
     if status:
         filters.append(Campaign.status == status)
@@ -210,53 +228,60 @@ async def list_campaigns(
         select(func.count()).select_from(Campaign).where(*filters)
     )
 
-    count_sq = (
+    page = (
+        (
+            await db.execute(
+                select(Campaign)
+                .where(*filters)
+                .order_by(Campaign.created_at.desc())
+                .offset(skip)
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not page:
+        return CampaignPage(total=total or 0, items=[])
+
+    page_ids = [campaign.id for campaign in page]
+
+    target_rows = await db.execute(
         select(
             CampaignTarget.campaign_id,
             func.count(CampaignTarget.target_id).label("cnt"),
         )
+        .where(CampaignTarget.campaign_id.in_(page_ids))
         .group_by(CampaignTarget.campaign_id)
-        .subquery()
     )
+    target_counts = {row.campaign_id: row.cnt for row in target_rows}
 
-    session_sq = (
+    session_rows = await db.execute(
         select(
             CallSession.campaign_id,
             func.count(CallSession.id).label("sessions"),
             _COMPLETED_SESSIONS.label("completed"),
         )
-        .group_by(CallSession.campaign_id)
-        .subquery()
-    )
-
-    stmt = (
-        select(
-            Campaign,
-            func.coalesce(count_sq.c.cnt, 0).label("target_count"),
-            func.coalesce(session_sq.c.sessions, 0).label("session_count"),
-            func.coalesce(session_sq.c.completed, 0).label("completed_session_count"),
+        .where(
+            CallSession.campaign_id.in_(page_ids),
+            CallSession.status.in_(CONNECTED_CALL_STATUSES),
         )
-        .outerjoin(count_sq, Campaign.id == count_sq.c.campaign_id)
-        .outerjoin(session_sq, Campaign.id == session_sq.c.campaign_id)
-        .where(*filters)
-        .order_by(Campaign.created_at.desc())
-        .offset(skip)
-        .limit(limit)
+        .group_by(CallSession.campaign_id)
     )
+    session_counts = {row.campaign_id: (row.sessions, row.completed) for row in session_rows}
 
-    rows = await db.execute(stmt)
-    return CampaignPage(
-        total=total or 0,
-        items=[
+    items = []
+    for campaign in page:
+        sessions, completed = session_counts.get(campaign.id, (0, 0))
+        items.append(
             _campaign_to_response(
-                row.Campaign,
-                row.target_count,
-                row.session_count,
-                row.completed_session_count,
+                campaign,
+                target_counts.get(campaign.id, 0),
+                sessions,
+                completed,
             )
-            for row in rows.all()
-        ],
-    )
+        )
+    return CampaignPage(total=total or 0, items=items)
 
 
 @router.post("", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
@@ -285,7 +310,7 @@ async def get_campaign_call_count(
     same 404 as a missing one.
     """
     redis = get_redis()
-    await check_rate_limit(redis, "count", get_client_ip(request), settings.REPS_RATE_LIMIT)
+    await check_rate_limit(redis, "count", get_client_ip(request), settings.PUBLIC_RATE_LIMIT)
 
     await get_live_campaign_or_404(campaign_id, db)
 
@@ -371,7 +396,7 @@ async def get_campaign_public(
     Returns campaign metadata and target display info (no phone numbers).
     Only live campaigns are accessible, and callers are rate limited per IP.
     """
-    await check_rate_limit(get_redis(), "public", get_client_ip(request), settings.REPS_RATE_LIMIT)
+    await check_rate_limit(get_redis(), "public", get_client_ip(request), settings.PUBLIC_RATE_LIMIT)
 
     campaign = await get_live_campaign_or_404(campaign_id, db)
 

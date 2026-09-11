@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.campaign import Campaign
 from app.redis_client import get_redis
+from app.services.civic.base import RepInfo
 from app.services.civic.google_civic import MissingApiKeyError
+from app.services.civic.router import LookupResult
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -133,7 +135,7 @@ async def test_cache_key_tracks_configured_levels(
     await db.commit()
 
     with patch("app.services.civic.router.lookup", new_callable=AsyncMock) as lookup:
-        lookup.return_value = []
+        lookup.return_value = LookupResult(reps=[], attempted_levels=("federal", "state"), failures={})
         resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=54321")
 
     assert resp.status_code == 200
@@ -233,3 +235,161 @@ async def test_missing_api_key_returns_503_with_fallback(
     assert resp.status_code == 503
     detail = resp.json()["detail"]
     assert detail["fallback"] == "manual_entry"
+
+
+# ── Partial and total provider failure ───────────────────────────────────────
+
+
+FEDERAL_REP = RepInfo(
+    name="Sen. Federal", title="U.S. Senator", phone="+12025550100", level="federal"
+)
+STATE_REP = RepInfo(
+    name="Assm. State", title="Assemblymember", phone="+19165550100", level="state"
+)
+
+
+@pytest.fixture
+async def two_level_campaign(db: AsyncSession, live_campaign: Campaign) -> Campaign:
+    live_campaign.embed_config = {"target_levels": ["federal", "state"]}
+    await db.commit()
+    await db.refresh(live_campaign)
+    return live_campaign
+
+
+@pytest.fixture
+def mock_router_lookup():
+    """Patch the civic router so the real cache-first service still runs."""
+    with patch("app.services.civic.router.lookup", new_callable=AsyncMock) as m:
+        yield m
+
+
+@pytest.mark.asyncio
+async def test_partial_failure_returns_survivors_and_caches_nothing(
+    client: AsyncClient,
+    two_level_campaign: Campaign,
+    mock_router_lookup: AsyncMock,
+    redis,
+) -> None:
+    """One dead provider must not pin an incomplete answer to the 24h cache key."""
+    cache_key = f"reps:60601:{two_level_campaign.id}:federal+state"
+    await redis.delete(cache_key)
+    mock_router_lookup.return_value = LookupResult(
+        reps=[STATE_REP],
+        attempted_levels=("federal", "state"),
+        failures={"federal": RuntimeError("google civic down")},
+    )
+
+    resp = await client.get(f"/api/v1/campaigns/{two_level_campaign.id}/reps?zip=60601")
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert [r["name"] for r in data["reps"]] == ["Assm. State"]
+    assert data["message"]
+    assert await redis.get(cache_key) is None
+
+    await redis.delete(cache_key)
+
+
+@pytest.mark.asyncio
+async def test_total_failure_returns_503_and_caches_nothing(
+    client: AsyncClient,
+    two_level_campaign: Campaign,
+    mock_router_lookup: AsyncMock,
+    redis,
+) -> None:
+    """Every level failing is a 503 with the manual-entry fallback, not an empty 200."""
+    cache_key = f"reps:60602:{two_level_campaign.id}:federal+state"
+    await redis.delete(cache_key)
+    mock_router_lookup.return_value = LookupResult(
+        reps=[],
+        attempted_levels=("federal", "state"),
+        failures={
+            "federal": RuntimeError("google civic down"),
+            "state": RuntimeError("openstates down"),
+        },
+    )
+
+    resp = await client.get(f"/api/v1/campaigns/{two_level_campaign.id}/reps?zip=60602")
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["fallback"] == "manual_entry"
+    assert await redis.get(cache_key) is None
+
+    await redis.delete(cache_key)
+
+
+@pytest.mark.asyncio
+async def test_total_failure_keeps_the_retry_after_of_a_429(
+    client: AsyncClient,
+    two_level_campaign: Campaign,
+    mock_router_lookup: AsyncMock,
+    redis,
+) -> None:
+    """A rate-limited provider still reaches the endpoint's Retry-After branch."""
+    cache_key = f"reps:60603:{two_level_campaign.id}:federal+state"
+    await redis.delete(cache_key)
+    rate_limited = httpx.HTTPStatusError(
+        "rate limited", request=None, response=httpx.Response(429, headers={"Retry-After": "45"})
+    )
+    mock_router_lookup.return_value = LookupResult(
+        reps=[],
+        attempted_levels=("federal", "state"),
+        failures={"federal": RuntimeError("google civic down"), "state": rate_limited},
+    )
+
+    resp = await client.get(f"/api/v1/campaigns/{two_level_campaign.id}/reps?zip=60603")
+
+    assert resp.status_code == 503
+    assert resp.headers.get("retry-after") == "45"
+    assert await redis.get(cache_key) is None
+
+    await redis.delete(cache_key)
+
+
+@pytest.mark.asyncio
+async def test_complete_lookup_is_cached_and_served_on_the_next_call(
+    client: AsyncClient,
+    two_level_campaign: Campaign,
+    mock_router_lookup: AsyncMock,
+    redis,
+) -> None:
+    """With every level answering, the payload is cached and reused."""
+    cache_key = f"reps:60604:{two_level_campaign.id}:federal+state"
+    await redis.delete(cache_key)
+    mock_router_lookup.return_value = LookupResult(
+        reps=[FEDERAL_REP, STATE_REP],
+        attempted_levels=("federal", "state"),
+        failures={},
+    )
+
+    first = await client.get(f"/api/v1/campaigns/{two_level_campaign.id}/reps?zip=60604")
+    assert first.status_code == 200, first.text
+    assert len(first.json()["reps"]) == 2
+
+    cached = json.loads(await redis.get(cache_key))
+    assert [r["name"] for r in cached] == ["Sen. Federal", "Assm. State"]
+
+    second = await client.get(f"/api/v1/campaigns/{two_level_campaign.id}/reps?zip=60604")
+    assert second.status_code == 200
+    assert len(second.json()["reps"]) == 2
+    mock_router_lookup.assert_awaited_once()
+
+    await redis.delete(cache_key)
+
+
+@pytest.mark.asyncio
+async def test_premium_rate_rep_gets_no_token(
+    client: AsyncClient,
+    live_campaign: Campaign,
+    mock_lookup: AsyncMock,
+) -> None:
+    """A rep published on a 1-900 line is dropped instead of being made dialable."""
+    mock_lookup.return_value = [
+        {"name": "Sen. Smith", "title": "U.S. Senator", "phone": "+12025550100", "level": "federal"},
+        {"name": "Premium Line", "title": "U.S. Senator", "phone": "+19005550100", "level": "federal"},
+    ]
+
+    resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=90211")
+
+    assert resp.status_code == 200, resp.text
+    assert [r["name"] for r in resp.json()["reps"]] == ["Sen. Smith"]

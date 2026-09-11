@@ -42,8 +42,14 @@ class Settings(BaseSettings):
     # Calls per hour per identifier when a campaign has no rate_limit configured.
     DEFAULT_RATE_LIMIT: int = 5
 
-    # Rep lookups per hour per client IP.
+    # Rep lookups (/campaigns/{id}/reps) per hour per client IP.
     REPS_RATE_LIMIT: int = 20
+
+    # Embed bootstrap requests per hour per client IP, shared by
+    # /campaigns/{id}/public and /campaigns/{id}/count. The widget calls both
+    # once per page load, so this is the budget for one IP's page views —
+    # a NAT or office gateway can carry many of them.
+    PUBLIC_RATE_LIMIT: int = 600
 
     # Login / password-reset attempts per hour per identifier.
     AUTH_RATE_LIMIT: int = 10

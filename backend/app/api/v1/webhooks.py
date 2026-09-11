@@ -20,6 +20,7 @@ from typing import TypeVar
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
+from redis.exceptions import RedisError
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,12 +98,13 @@ def _hangup_xml() -> Response:
 
 
 def _twiml_on_error(handler: _Handler) -> _Handler:
-    """Answer an HTTPException raised inside a webhook with hangup TwiML.
+    """Answer a failure raised inside a webhook with hangup TwiML.
 
     Twilio is an XML client: a JSON error body is an unparseable document that
     drops the call with no log of why. Every handler failure raised as an
     HTTPException — a rate limit, a 404 from a shared helper — is logged and
-    answered with a hangup instead.
+    answered with a hangup instead, and so is a Redis outage, which takes out
+    the call state every handler reads.
 
     The signature check runs as a route dependency, before the handler, so its
     403 still reaches Twilio as a 403.
@@ -116,6 +118,13 @@ def _twiml_on_error(handler: _Handler) -> _Handler:
                 "webhook_http_error",
                 handler=handler.__name__,
                 status_code=exc.status_code,
+            )
+            return _hangup_xml()
+        except RedisError as exc:
+            log.error(
+                "webhook_redis_error",
+                handler=handler.__name__,
+                error=type(exc).__name__,
             )
             return _hangup_xml()
 
@@ -488,14 +497,25 @@ async def call_complete(
     Logs a Call record, advances the target index in Redis, then either
     redirects to the next target or plays goodbye and hangs up.
 
-    Twilio retries this callback, so a repeat is answered with the same TwiML
-    without writing a second Call row or skipping a target. A repeat is
-    recognised three ways:
-      * a DialCallSid already logged for the session, found by the pre-check
-        or by the unique index that rejects the insert underneath it
+    A leg is keyed by its DialCallSid, or by f"{CallSid}:{index}" when Twilio
+    created no child leg at all — an invalid, unreachable or geo-blocked
+    number. Both forms are unique per leg, so the unique index on
+    (session_id, twilio_call_sid) rejects a second row for a leg already
+    logged without collapsing two distinct legs of one session into one row.
+
+    Twilio retries this callback, so a repeat never writes a second Call row
+    and never re-dials a target. A repeat is recognised three ways:
+      * a leg SID already logged for the session, found by the pre-check or by
+        the unique index that rejects the insert underneath it
       * an index already in the state's completed_legs
       * an index dial-target never dialed, which is how a retry looks once the
         first callback has moved the index on and Twilio sent no DialCallSid
+
+    A repeat that reports the leg still in flight advances the index and adds
+    the leg to completed_legs, so the state agrees with the row already in the
+    table. The redirect back to dial-target is served only when the index has
+    moved past the leg this callback reports; a chain that would not advance
+    ends in the goodbye instead of re-dialing the same target.
     """
     form = dict(await request.form())
     session_id = request.query_params.get("session_id") or form.get("session_id", "")
@@ -532,6 +552,14 @@ async def call_complete(
     completed_legs: list[int] = list(state.get("completed_legs") or [])
     dialed_index = state.get("dialed_index")
 
+    # The leg this callback reports. dial-target records the index it dialed;
+    # without it the current index is the most the state can say.
+    leg_index = dialed_index if dialed_index is not None else idx
+
+    # The parent CallSid is shared by every leg of the session, so a leg Twilio
+    # gave no child SID for is keyed by its own index instead.
+    leg_sid = dial_call_sid or f"{parent_call_sid}:{idx}"
+
     duplicate = False
     if dial_call_sid:
         existing = await db.execute(
@@ -548,7 +576,7 @@ async def call_complete(
             session_id=session_uuid,
             campaign_id=campaign_id,
             target_id=uuid.UUID(target_ids[idx]),
-            twilio_call_sid=dial_call_sid or parent_call_sid,
+            twilio_call_sid=leg_sid,
             status=call_status,
             duration=dial_duration,
         )
@@ -556,38 +584,57 @@ async def call_complete(
         try:
             await db.commit()
         except IntegrityError:
-            # The unique index on (session_id, twilio_call_sid) caught a retry
-            # that arrived while the first one was still committing.
+            # The unique index on (session_id, twilio_call_sid) rejected a leg
+            # that is already in the table.
             await db.rollback()
             duplicate = True
         else:
             log.info(
                 "call_logged",
                 session_id=session_id,
-                call_sid=dial_call_sid or parent_call_sid,
+                call_sid=leg_sid,
                 target_id=target_ids[idx],
                 status=call_status,
                 duration=dial_duration,
             )
 
+    # A leg that is logged is finished, whichever check found the row: the
+    # index moves on unless the state already accounted for that leg.
+    advance = not duplicate or (dialed_index == idx and idx not in completed_legs)
+
     if duplicate:
         log.info(
             "call_complete_duplicate",
             session_id=session_id,
-            call_sid=dial_call_sid or parent_call_sid,
+            call_sid=leg_sid,
             target_index=idx,
+            advancing=advance,
         )
-        next_idx = idx
-    else:
-        # Advance to the next target.
+
+    if advance:
         next_idx = idx + 1
         state["current_target_index"] = next_idx
         if idx not in completed_legs:
             completed_legs.append(idx)
         state["completed_legs"] = completed_legs
         await save_call_state(session_id, state)
+    else:
+        next_idx = idx
 
-    if next_idx < len(target_ids):
+    if next_idx <= leg_index:
+        # The index sits at or behind the leg that just ended, so a redirect
+        # would dial that target again.
+        log.error(
+            "call_complete_no_progress",
+            session_id=session_id,
+            call_sid=leg_sid,
+            target_index=idx,
+            dialed_index=dialed_index,
+            next_index=next_idx,
+        )
+        goodbye_audio = await get_audio_config("msg_goodbye", campaign_id, db)
+        twiml = build_goodbye(goodbye_audio, {})
+    elif next_idx < len(target_ids):
         calls_left = len(target_ids) - next_idx
         # A target that never picked up gets the "we'll move on" message instead
         # of the neutral between-calls one.
@@ -601,10 +648,14 @@ async def call_complete(
         redirect_url = f"/webhooks/twilio/dial-target?session_id={session_id}"
         twiml = build_between_targets(between_audio, context, redirect_url)
     else:
-        # All targets done — mark session complete and hang up.
+        # All targets done — mark session complete and hang up. A session a
+        # status callback already closed keeps the status it was given.
         await db.execute(
             update(CallSession)
-            .where(CallSession.id == session_uuid)
+            .where(
+                CallSession.id == session_uuid,
+                CallSession.status.not_in(_TERMINAL_SESSION_STATUSES),
+            )
             .values(status="completed")
         )
         await db.commit()

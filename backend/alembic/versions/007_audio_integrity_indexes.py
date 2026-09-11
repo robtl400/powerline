@@ -12,7 +12,11 @@ ux_audio_recordings_active partial unique index, and the campaigns/users/
 phone_numbers constraint swaps all take ACCESS EXCLUSIVE on their table for
 the duration of a full table scan. Run this migration in a maintenance window
 sized for the audio_recordings and campaigns row counts. The plain lookup
-indexes are built CONCURRENTLY and do not block writes.
+indexes are built CONCURRENTLY and do not block writes; a build cancelled
+part-way leaves an INVALID index that the next run clears before rebuilding.
+
+The downgrade checks for campaign-name collisions before it drops anything, so
+a downgrade it cannot complete leaves the schema untouched.
 """
 from collections.abc import Sequence
 
@@ -97,6 +101,21 @@ LOOKUP_INDEXES = (
     ),
 )
 
+INVALID_INDEX = """
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+    WHERE c.relname = :name
+      AND NOT i.indisvalid
+"""
+
+
+def drop_invalid_index(name: str) -> None:
+    """Clear the stub a cancelled CONCURRENTLY build leaves behind."""
+    leftover = op.get_bind().execute(sa.text(INVALID_INDEX), {"name": name}).scalar()
+    if leftover:
+        op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{name}"')
+
 
 def upgrade() -> None:
     op.execute(DEDUPE_VERSIONS)
@@ -136,16 +155,17 @@ def upgrade() -> None:
 
     with op.get_context().autocommit_block():
         for name, table, columns in LOOKUP_INDEXES:
+            drop_invalid_index(name)
             op.create_index(
-                name, table, columns, postgresql_concurrently=True
+                name,
+                table,
+                columns,
+                postgresql_concurrently=True,
+                if_not_exists=True,
             )
 
 
 def downgrade() -> None:
-    with op.get_context().autocommit_block():
-        for name, table, _columns in reversed(LOOKUP_INDEXES):
-            op.drop_index(name, table_name=table, postgresql_concurrently=True)
-
     collisions = (
         op.get_bind()
         .execute(
@@ -164,6 +184,16 @@ def downgrade() -> None:
             f"{', '.join(repr(name) for name in collisions)}. Rename or delete "
             "the duplicates, then run the downgrade again."
         )
+
+    with op.get_context().autocommit_block():
+        for name, table, _columns in reversed(LOOKUP_INDEXES):
+            op.drop_index(
+                name,
+                table_name=table,
+                postgresql_concurrently=True,
+                if_exists=True,
+            )
+
     op.drop_index("ux_campaigns_name_active", table_name="campaigns")
     op.create_unique_constraint("campaigns_name_key", "campaigns", ["name"])
 

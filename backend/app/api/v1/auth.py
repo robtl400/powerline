@@ -29,7 +29,8 @@ from app.services.auth import (
     hash_password,
     hash_password_async,
     issue_refresh_token,
-    refresh_key,
+    remaining_lifetime,
+    retire_refresh_token,
     revoke_user_sessions,
     rotate_refresh_token,
     verify_password_async,
@@ -118,9 +119,11 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> A
     Each refresh token is registered in Redis and consumed on use. For a short
     grace window after it is consumed, presenting it again returns the same
     successor token and a fresh access token, so two tabs refreshing at once
-    both end up holding the live token. Past that window a second presentation
-    is a replay — a stolen copy, or a token used after logout — and it ends
-    every session the user has, on the assumption the chain is compromised.
+    both end up holding the live token. A token from a chain the user signed
+    out of is refused on its own, since a stray retry after a deliberate logout
+    is ordinary. Any other second presentation is a replay — a stolen copy —
+    and it ends every session the user has, on the assumption the chain is
+    compromised.
     """
     invalid = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
@@ -142,6 +145,8 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> A
 
     redis = get_redis()
     rotation = await rotate_refresh_token(redis, str(user.id), jti)
+    if rotation.outcome is RefreshOutcome.LOGGED_OUT:
+        raise invalid
     if rotation.outcome is RefreshOutcome.REPLAYED:
         await revoke_user_sessions(redis, str(user.id))
         log.warning("refresh_token_replayed", user_id=str(user.id))
@@ -155,7 +160,14 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> A
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(body: RefreshRequest) -> None:
-    """Retire one refresh token. Always 204 — a bad token is already useless."""
+    """End the refresh chain this token sits in. Always 204 — a bad token is already useless.
+
+    The retired predecessor that still points at this token goes with it, so a
+    copy of the older token cannot exchange for the one just signed out. Both
+    are tombstoned for the rest of their lifetime, so a queued request or a
+    restored tab presenting them afterwards is answered with a 401 rather than
+    treated as a theft.
+    """
     try:
         payload = decode_token(body.refresh_token)
     except jwt.InvalidTokenError:
@@ -167,7 +179,9 @@ async def logout(body: RefreshRequest) -> None:
     user_id = payload.get("sub")
     jti = payload.get("jti")
     if user_id and jti:
-        await get_redis().delete(refresh_key(str(user_id), str(jti)))
+        await retire_refresh_token(
+            get_redis(), str(user_id), str(jti), remaining_lifetime(payload)
+        )
 
 
 @router.post("/reset-request", status_code=status.HTTP_204_NO_CONTENT)

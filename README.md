@@ -269,7 +269,43 @@ Then sign in at `https://DOMAIN`. Interactive docs are off in production unless 
 `docker compose -f docker-compose.prod.yml up -d --build` rebuilds and restarts. Two one-shot
 containers run as part of it: `migrate` applies `alembic upgrade head` before the API and Celery
 containers start, and the frontend build republishes `/srv` into the volume Caddy serves, so a
-frontend change needs no Caddy restart. A release carrying new migrations needs nothing extra.
+frontend change needs no Caddy restart.
+
+### Migration runbook
+
+`migrate` gates the release: the API and Celery containers do not start until `alembic upgrade
+head` exits cleanly, so a failed migration leaves the previous release running. The migration holds
+a session-level Postgres advisory lock, so a second runner — a retried deploy, a second host —
+blocks until the first finishes instead of racing it.
+
+Two revisions need planning:
+
+- **007** takes `ACCESS EXCLUSIVE` on `audio_recordings`, `campaigns`, `users` and `phone_numbers`
+  for the length of a full table scan each. Size the maintenance window to those row counts. Its
+  other indexes are built `CONCURRENTLY` and do not block writes.
+- **009** drops `call_sessions.from_number` and `campaigns.allow_call_in`. The data is gone and the
+  downgrade restores only empty columns. **Take a backup before this release.**
+
+If a run dies half-applied:
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm migrate alembic current
+docker compose -f docker-compose.prod.yml exec postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid"
+```
+
+`alembic current` names the last revision that committed — each revision runs in its own
+transaction, so anything it does not name was not applied. A `CONCURRENTLY` build that was
+interrupted leaves an `INVALID` index behind, which the query above lists; the migrations drop such
+an index before rebuilding it, so re-running `migrate` is enough:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d migrate
+```
+
+An index the query lists that no longer belongs to any revision can be dropped by hand with
+`DROP INDEX CONCURRENTLY <name>`.
 
 ### Environment variables to set
 
@@ -286,10 +322,12 @@ frontend change needs no Caddy restart. A release carrying new migrations needs 
 | `SECRET_KEY` | Yes | `openssl rand -hex 32` |
 | `PHONE_HASH_PEPPER` | Recommended | `openssl rand -hex 32`, mixed into every phone-number digest. Numbers are stored only as digests, so a pepper is what stops a stolen database being walked back to phone numbers by hashing the ten-digit space. Set it before the first production call: changing it later invalidates every digest already stored, so existing blocklist entries stop blocking and existing session hashes stop matching their numbers. Empty means plain SHA-256 |
 | `TRUSTED_PROXIES` | Yes (prod) | Comma-separated IPs/CIDRs of your reverse proxies. `X-Forwarded-For` is ignored unless the peer is listed, so every request would be rate limited under the proxy's IP; production startup fails unless at least one entry parses |
+| `RESET_CODE_TTL_SECONDS` | Optional | Lifetime of a password-reset code (default 600) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Optional | Access-token lifetime (default 30) |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | Optional | Refresh-token lifetime (default 7) |
 | `DEFAULT_RATE_LIMIT` | Optional | Calls per hour per phone/IP when a campaign has no `rate_limit` (default 5) |
-| `REPS_RATE_LIMIT` | Optional | Rep lookups per hour per client IP (default 20); the per-campaign ceiling is 25x this |
+| `REPS_RATE_LIMIT` | Optional | Rep lookups per hour per client IP, governing `/campaigns/{id}/reps` only (default 20); the per-campaign ceiling is 25x this |
+| `PUBLIC_RATE_LIMIT` | Optional | Embed bootstrap requests per hour per client IP, shared by `/campaigns/{id}/public` and `/campaigns/{id}/count` (default 600). The widget calls both once per page load, so this is one IP's page-view budget — raise it for the shared gateways many supporters sit behind |
 | `AUTH_RATE_LIMIT` | Optional | Login / password-reset attempts per hour per identifier (default 10) |
 | `TOKEN_RATE_LIMIT` | Optional | WebRTC access tokens per hour per client IP (default 5) |
 | `TOKEN_CAMPAIGN_RATE_LIMIT` | Optional | WebRTC access tokens per hour per campaign (default 500) |

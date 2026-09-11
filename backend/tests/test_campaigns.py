@@ -63,6 +63,7 @@ async def test_list_and_detail_report_session_counts(
     admin_user: User,
     admin_headers: dict,
 ) -> None:
+    """Only sessions Twilio connected count; one still at `initiated` does not."""
     quiet = Campaign(
         name=f"Quiet Campaign {uuid.uuid4().hex[:8]}",
         created_by_id=admin_user.id,
@@ -77,7 +78,7 @@ async def test_list_and_detail_report_session_counts(
             status=status,
         )
 
-    seeded = [_session("completed"), _session("in_progress")]
+    seeded = [_session("completed"), _session("in_progress"), _session("initiated")]
     db.add_all(seeded)
     await db.commit()
 
@@ -105,6 +106,54 @@ async def test_list_and_detail_report_session_counts(
     finally:
         await db.execute(delete(CallSession).where(CallSession.id.in_([s.id for s in seeded])))
         await db.execute(delete(Campaign).where(Campaign.id == quiet.id))
+        await db.commit()
+
+
+async def test_list_counts_ignore_campaigns_outside_the_page(
+    client: AsyncClient,
+    db: AsyncSession,
+    admin_user: User,
+    admin_headers: dict,
+) -> None:
+    """A page's counts are aggregated over the page's own campaigns only."""
+    token = uuid.uuid4().hex[:8]
+    older = Campaign(name=f"Paged {token} older", created_by_id=admin_user.id)
+    db.add(older)
+    await db.commit()
+
+    newer = Campaign(name=f"Paged {token} newer", created_by_id=admin_user.id)
+    db.add(newer)
+
+    seeded = [
+        CallSession(
+            campaign_id=older.id,
+            connection_type="webrtc",
+            twilio_call_sid=f"CApage{uuid.uuid4().hex[:20]}",
+            status="completed",
+        )
+    ]
+    db.add_all(seeded)
+    await db.commit()
+
+    try:
+        listing = await client.get(f"/api/v1/campaigns?q=Paged+{token}&limit=1", headers=admin_headers)
+        assert listing.status_code == 200, listing.text
+        body = listing.json()
+
+        assert body["total"] == 2
+        assert [c["id"] for c in body["items"]] == [str(newer.id)]
+        assert body["items"][0]["session_count"] == 0
+        assert body["items"][0]["completed_session_count"] == 0
+
+        second = await client.get(
+            f"/api/v1/campaigns?q=Paged+{token}&limit=1&skip=1", headers=admin_headers
+        )
+        assert [c["id"] for c in second.json()["items"]] == [str(older.id)]
+        assert second.json()["items"][0]["session_count"] == 1
+        assert second.json()["items"][0]["completed_session_count"] == 1
+    finally:
+        await db.execute(delete(CallSession).where(CallSession.id.in_([s.id for s in seeded])))
+        await db.execute(delete(Campaign).where(Campaign.id.in_([older.id, newer.id])))
         await db.commit()
 
 
@@ -665,6 +714,7 @@ async def test_checklist_ignores_whitespace_only_talking_points(
 # ---------------------------------------------------------------------------
 
 _COUNT_RATE_KEY = "rate:count:127.0.0.1"
+_PUBLIC_RATE_KEY = "rate:public:127.0.0.1"
 
 
 @pytest.fixture
@@ -695,14 +745,18 @@ async def test_count_is_rate_limited_per_client_ip(
     db: AsyncSession,
     campaign: Campaign,
     redis,
+    monkeypatch: pytest.MonkeyPatch,
     clear_count_rate_limit: None,
 ) -> None:
+    """The bucket is PUBLIC_RATE_LIMIT, the budget both embed bootstrap calls share."""
     from app.config import settings
+
+    monkeypatch.setattr(settings, "PUBLIC_RATE_LIMIT", 3)
 
     campaign.status = "live"
     await db.commit()
 
-    for _ in range(settings.REPS_RATE_LIMIT):
+    for _ in range(settings.PUBLIC_RATE_LIMIT):
         allowed = await client.get(f"/api/v1/campaigns/{campaign.id}/count")
         assert allowed.status_code == 200, allowed.text
 
@@ -710,6 +764,33 @@ async def test_count_is_rate_limited_per_client_ip(
     assert blocked.status_code == 429
 
     await redis.delete(f"campaign_count:{campaign.id}")
+
+
+async def test_public_is_rate_limited_per_client_ip(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The public endpoint draws on the same PUBLIC_RATE_LIMIT budget."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "PUBLIC_RATE_LIMIT", 3)
+
+    campaign.status = "live"
+    await db.commit()
+
+    await redis.delete(_PUBLIC_RATE_KEY)
+    try:
+        for _ in range(settings.PUBLIC_RATE_LIMIT):
+            allowed = await client.get(f"/api/v1/campaigns/{campaign.id}/public")
+            assert allowed.status_code == 200, allowed.text
+
+        blocked = await client.get(f"/api/v1/campaigns/{campaign.id}/public")
+        assert blocked.status_code == 429
+    finally:
+        await redis.delete(_PUBLIC_RATE_KEY)
 
 
 async def test_count_reports_completed_sessions_then_serves_the_cache(

@@ -54,6 +54,11 @@ async def lookup_reps(zip_code: str, campaign_id: str, embed_config: dict) -> li
     The configured levels are part of the cache key, so a campaign that changes
     target_levels reads a fresh lookup instead of the previous level set's reps.
 
+    Only a lookup in which every configured level answered is cached for the
+    day; a lookup that lost some levels is returned uncached, and one that lost
+    them all re-raises a provider's error so the endpoint falls back to manual
+    entry.
+
     Raises:
         MissingApiKeyError: propagated from providers → endpoint maps to 503
         httpx.HTTPStatusError: 429 propagated → endpoint maps to 503 + Retry-After
@@ -68,8 +73,21 @@ async def lookup_reps(zip_code: str, campaign_id: str, embed_config: dict) -> li
         log.debug("reps_cache_hit", zip=zip_code, campaign_id=campaign_id)
         return json.loads(cached)
 
-    reps = await router.lookup(zip_code, embed_config)
-    payload = [dataclasses.asdict(r) for r in reps]
+    result = await router.lookup(zip_code, embed_config)
+
+    if result.all_levels_failed:
+        raise result.last_failure
+
+    payload = [dataclasses.asdict(r) for r in result.reps]
+
+    if result.failures:
+        log.warning(
+            "reps_partial_lookup_not_cached",
+            zip=zip_code,
+            campaign_id=campaign_id,
+            failed_levels=sorted(result.failed_levels),
+        )
+        return payload
 
     try:
         await redis.set(cache_key, json.dumps(payload), ex=REPS_CACHE_TTL)
