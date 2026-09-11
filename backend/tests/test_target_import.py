@@ -1,5 +1,8 @@
 """Tests for the CSV target import endpoint."""
 
+import csv
+import io
+import json
 import uuid
 from unittest.mock import patch
 
@@ -38,6 +41,11 @@ name,title,phone_number,location
 Rep Smith,Representative,+12025551001,CA-12
 Rep Ragged,Representative,+12025551004,CA-14,extra,columns
 Rep Doe,Representative,+12025551003,NY-10
+"""
+
+FORMULA_PHONE_CSV = """\
+name,title,phone_number,location
+Rep Evil,Representative,"=HYPERLINK(""http://evil.example"",""click here"")",CA-12
 """
 
 UPSERT_CSV_FIRST = """\
@@ -246,6 +254,52 @@ async def test_import_errors_download(
     text = dl.text
     assert "row" in text
     assert "error_reason" in text
+
+
+async def test_import_errors_download_neutralizes_formula_cells(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict
+) -> None:
+    """A rejected cell that a spreadsheet would evaluate comes back as inert text."""
+    resp = await client.post(
+        f"/api/v1/campaigns/{campaign.id}/targets/import",
+        files=_csv_file(FORMULA_PHONE_CSV),
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["errors"]
+
+    dl = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/targets/import-errors",
+        headers=admin_headers,
+    )
+    assert dl.status_code == 200
+    rows = list(csv.reader(io.StringIO(dl.text)))
+    assert len(rows) >= 2
+    for row in rows:
+        for cell in row:
+            assert cell[:1] not in ("=", "+", "-", "@", "\t", "\r"), cell
+    assert "'=HYPERLINK" in dl.text
+
+
+async def test_import_errors_download_quotes_a_leading_formula_character(
+    client: AsyncClient, campaign: Campaign, admin_headers: dict, redis
+) -> None:
+    """Whatever reaches the cache, the exported cell never starts a formula."""
+    await redis.set(
+        f"import_errors:{campaign.id}",
+        json.dumps([{"row": 2, "error": '=cmd|"/C calc"!A0'}]),
+        ex=60,
+    )
+
+    dl = await client.get(
+        f"/api/v1/campaigns/{campaign.id}/targets/import-errors",
+        headers=admin_headers,
+    )
+    assert dl.status_code == 200
+    rows = list(csv.reader(io.StringIO(dl.text)))
+    assert rows[1][1] == '\'=cmd|"/C calc"!A0'
+
+    await redis.delete(f"import_errors:{campaign.id}")
 
 
 async def test_import_errors_download_no_prior_import(

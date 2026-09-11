@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator, Callable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_telephony_provider
@@ -251,6 +252,35 @@ async def test_assign_twice_is_idempotent(
         .where(CampaignPhoneNumber.campaign_id == campaign.id)
     )
     assert links == 1
+
+
+async def test_assign_returns_success_when_the_row_is_written_concurrently(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_headers: dict,
+    phone: str,
+) -> None:
+    """A composite-key collision from a racing request is still a successful assign."""
+    real_commit = AsyncSession.commit
+    attempts = {"count": 0}
+
+    async def commit_colliding_once(self: AsyncSession) -> None:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise IntegrityError("INSERT", {}, Exception("duplicate key"))
+        await real_commit(self)
+
+    with patch.object(AsyncSession, "commit", commit_colliding_once):
+        resp = await client.post(
+            f"/api/v1/phone-numbers/{phone}/assign",
+            headers=admin_headers,
+            json={"campaign_id": str(campaign.id)},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["id"] == phone
+    assert attempts["count"] == 1
 
 
 async def test_assign_unknown_phone_is_404(

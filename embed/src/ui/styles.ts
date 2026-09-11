@@ -177,6 +177,7 @@ export function injectStyles(): void {
       transition: border-color 0.15s;
     }
     .pl-input:focus { border-color: #F2542D; }
+    .pl-input[aria-invalid="true"] { border-color: #53565B; }
 
     /* ── Field label / help text ─────────────────────────────────────── */
     .pl-label {

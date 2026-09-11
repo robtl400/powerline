@@ -11,7 +11,7 @@ import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import client from "@/api/client";
 import { getErrorDetail } from "@/lib/api-error";
 import { AUDIO_SLOTS, VALID_TRANSITIONS } from "@/lib/constants";
-import { parseCsvHeader, remapCsvHeaders } from "@/lib/csv";
+import { FIELD_ALIASES, autoMapHeaders, parseCsvHeader, remapCsvHeaders } from "@/lib/csv";
 import {
   type AudioRecording,
   type CampaignChecklist,
@@ -26,15 +26,6 @@ import {
   emptyForm,
   emptyTargetForm,
 } from "@/types/campaign";
-
-// Keep in sync with _KNOWN_FIELDS / _REQUIRED_FIELDS in backend/app/api/v1/campaigns.py
-const _FIELD_ALIASES: Record<string, string[]> = {
-  name: ["name", "full name", "fullname"],
-  title: ["title"],
-  phone_number: ["phone", "phone_number", "phone number", "phonenumber"],
-  location: ["location", "district"],
-  external_id: ["external_id", "external id", "id"],
-};
 
 export function useCampaignData(id: string | undefined, activeTab: string) {
   const isNew = !id;
@@ -126,7 +117,6 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
           target_ordering: c.target_ordering,
           call_maximum: c.call_maximum != null ? String(c.call_maximum) : "",
           rate_limit: c.rate_limit != null ? String(c.rate_limit) : "",
-          allow_call_in: c.allow_call_in,
           allow_webrtc: c.allow_webrtc,
           allow_phone_callback: c.allow_phone_callback,
           lookup_validate: c.lookup_validate,
@@ -203,7 +193,6 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
         target_ordering: form.target_ordering,
         call_maximum: form.call_maximum ? parseInt(form.call_maximum, 10) : null,
         rate_limit: form.rate_limit ? parseInt(form.rate_limit, 10) : null,
-        allow_call_in: form.allow_call_in,
         allow_webrtc: form.allow_webrtc,
         allow_phone_callback: form.allow_phone_callback,
         lookup_validate: form.lookup_validate,
@@ -365,19 +354,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
       const text = (e.target?.result as string) ?? "";
       const { fields: headers } = parseCsvHeader(text.replace(/^\uFEFF/, ""));
       setImportHeaders(headers);
-
-      // Auto-map headers to canonical field names
-      const map: Record<string, string> = {};
-      for (const header of headers) {
-        const lower = header.toLowerCase();
-        for (const [field, aliases] of Object.entries(_FIELD_ALIASES)) {
-          if (aliases.includes(lower)) {
-            map[field] = header;
-            break;
-          }
-        }
-      }
-      setImportColumnMap(map);
+      setImportColumnMap(autoMapHeaders(headers));
     };
     reader.readAsText(file);
   }
@@ -390,8 +367,7 @@ export function useCampaignData(id: string | undefined, activeTab: string) {
       let fileToUpload: File | Blob = importFile;
 
       // Only remap if the user changed any column mapping
-      const canonicalFields = ["name", "title", "phone_number", "location", "external_id"];
-      const mappedHeaders = canonicalFields.filter((f) => importColumnMap[f]);
+      const mappedHeaders = Object.keys(FIELD_ALIASES).filter((f) => importColumnMap[f]);
 
       // Check if any header needs renaming
       const anyRenamed = mappedHeaders.some((f) => importColumnMap[f] !== f);

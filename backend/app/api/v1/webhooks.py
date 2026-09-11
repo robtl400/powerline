@@ -13,7 +13,6 @@ status-callback is called asynchronously by Twilio for parent call events.
 from __future__ import annotations
 
 import functools
-import hashlib
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
@@ -26,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB
+from app.api.v1.helpers import phone_hash
 from app.dependencies import validate_twilio_request
 from app.models.blocklist import BlocklistEntry
 from app.models.call import Call
@@ -209,9 +209,8 @@ async def voice_app(
         log.warning("voice_app_bad_session_id", session_id=session_id, call_sid=call_sid)
         return _hangup_xml()
 
-    state = await load_call_state(session_id)
+    state = await _bound_state("voice_app", session_id, call_sid)
     if not state:
-        log.warning("voice_app_state_missing", session_id=session_id, call_sid=call_sid)
         return _hangup_xml()
 
     connection_type = state.get("connection_type")
@@ -231,7 +230,7 @@ async def voice_app(
     # number the session was opened for.
     if connection_type == "outbound_phone" and caller_phone_hash:
         dialed = form.get("To", "")
-        dialed_hash = hashlib.sha256(dialed.encode()).hexdigest() if dialed else ""
+        dialed_hash = phone_hash(dialed) if dialed else ""
         if dialed_hash != caller_phone_hash:
             log.warning(
                 "voice_app_dialed_number_mismatch",
@@ -239,16 +238,6 @@ async def voice_app(
                 call_sid=call_sid,
             )
             return _hangup_xml()
-
-    bound_sid = state.get("call_sid")
-    if bound_sid and bound_sid != call_sid:
-        log.warning(
-            "voice_app_call_sid_mismatch",
-            session_id=session_id,
-            call_sid=call_sid,
-            bound_call_sid=bound_sid,
-        )
-        return _hangup_xml()
 
     redis = get_redis()
 
@@ -283,13 +272,11 @@ async def voice_app(
         log.warning("voice_app_campaign_not_found", session_id=session_id, call_sid=call_sid)
         return _hangup_xml()
 
-    # The blocklist stores sha256 digests, so the caller is identified by the
-    # session's stored hash, falling back to a hash of the From number Twilio
-    # provides. Only the digest is ever logged.
+    # The blocklist stores digests, so the caller is identified by the session's
+    # stored hash, falling back to a hash of the From number Twilio provides.
+    # Only the digest is ever logged.
     from_number = form.get("From", "")
-    identifier_hash = caller_phone_hash or (
-        hashlib.sha256(from_number.encode()).hexdigest() if from_number else ""
-    )
+    identifier_hash = caller_phone_hash or (phone_hash(from_number) if from_number else "")
     client_ip = state.get("client_ip") or ""
 
     # Rate limit check — raises 429, which _twiml_on_error turns into a hangup.

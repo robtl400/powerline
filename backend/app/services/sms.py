@@ -1,23 +1,19 @@
-import hashlib
+import asyncio
 
 import structlog
 from twilio.rest import Client
 
 from app.config import settings
+from app.services.digest import fingerprint
 
 log = structlog.get_logger()
-
-
-def phone_fingerprint(number: str) -> str:
-    """Truncated hash of a phone number, safe to correlate on in logs."""
-    return hashlib.sha256(number.encode()).hexdigest()[:12]
 
 
 def send_sms(to: str, body: str) -> str:
     """Send an SMS via Twilio. Returns the message SID.
 
     The Twilio client is synchronous and performs blocking network I/O, so
-    async callers must dispatch this through a thread (run_in_executor).
+    async callers must go through send_sms_async.
     """
     client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
     message = client.messages.create(
@@ -25,5 +21,10 @@ def send_sms(to: str, body: str) -> str:
         from_=settings.TWILIO_FROM_NUMBER,
         body=body,
     )
-    log.info("sms_sent", to_fingerprint=phone_fingerprint(to), sid=message.sid)
+    log.info("sms_sent", to_fingerprint=fingerprint(to), sid=message.sid)
     return message.sid
+
+
+async def send_sms_async(to: str, body: str) -> str:
+    """Run the blocking Twilio client off the event loop."""
+    return await asyncio.get_running_loop().run_in_executor(None, send_sms, to, body)

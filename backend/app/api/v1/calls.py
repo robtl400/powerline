@@ -6,14 +6,13 @@ org website on behalf of a supporter who wants to be called back.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import or_, select, update
 
 from app.api.deps import DB
-from app.api.v1.helpers import get_live_campaign_or_404, start_call_session
+from app.api.v1.helpers import get_live_campaign_or_404, phone_hash, start_call_session
 from app.config import settings
 from app.dependencies import get_client_ip
 from app.models.blocklist import BlocklistEntry
@@ -52,22 +51,22 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
 
     # 2. Hash the canonical number for privacy-safe storage and rate limiting
     phone = body.phone_number
-    phone_hash = hashlib.sha256(phone.encode()).hexdigest()
+    caller_hash = phone_hash(phone)
     ip = get_client_ip(request)
 
     # 3. Blocklist check — silent 403 to avoid confirming the number exists
     bl_result = await db.execute(
         select(BlocklistEntry)
-        .where(or_(BlocklistEntry.phone_hash == phone_hash, BlocklistEntry.ip_address == ip))
+        .where(or_(BlocklistEntry.phone_hash == caller_hash, BlocklistEntry.ip_address == ip))
         .limit(1)
     )
     if bl_result.scalar_one_or_none():
-        log.warning("calls_create_blocklist_hit", phone_hash=phone_hash[:12], ip=ip)
+        log.warning("calls_create_blocklist_hit", phone_hash=caller_hash[:12], ip=ip)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This number is not eligible to participate")
 
     # 4. Rate limit by caller phone hash and by client IP
     redis = get_redis()
-    await check_rate_limit(redis, "call", phone_hash, campaign.rate_limit)
+    await check_rate_limit(redis, "call", caller_hash, campaign.rate_limit)
     await check_rate_limit(redis, "call-ip", ip, campaign.rate_limit)
 
     # 5. Twilio Lookup validation (only when credentials are present)
@@ -77,7 +76,7 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
         try:
             lookup = await loop.run_in_executor(None, provider.validate_phone, phone)
         except Exception:
-            log.exception("lookup_failed", phone_hash=phone_hash[:12])
+            log.exception("lookup_failed", phone_hash=caller_hash[:12])
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not validate phone number")
 
         if not lookup.is_valid:
@@ -99,8 +98,7 @@ async def create_call(body: CallCreateRequest, request: Request, db: DB) -> Call
         connection_type="outbound_phone",
         rep_token=body.rep_token,
         client_ip=ip,
-        caller_phone_hash=phone_hash,
-        from_number=phone,
+        caller_phone_hash=caller_hash,
         referral_code=body.referral_code,
     )
 

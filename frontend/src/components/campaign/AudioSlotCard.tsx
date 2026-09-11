@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Play } from "lucide-react";
 import client from "@/api/client";
+import { MAX_AUDIO_UPLOAD_BYTES } from "@/lib/constants";
 import { CARD_CLASS, FOCUS_RING, INPUT_CLASS } from "@/lib/styles";
 import type { AudioRecording } from "@/types/campaign";
 
 type Tab = "record" | "upload" | "tts";
 type RecordState = "idle" | "recording" | "stopped";
+
+const UPLOAD_FAILED = "Upload failed — try again";
+const ACTIVATION_FAILED = "Activation failed — check version history to activate manually";
+
+const MAX_AUDIO_UPLOAD_MB = Math.round(MAX_AUDIO_UPLOAD_BYTES / (1024 * 1024));
 
 export function AudioSlotCard({
   slotKey,
@@ -172,70 +178,71 @@ export function AudioSlotCard({
     setWaveHeights([40, 40, 40, 40, 40, 40, 40, 40]);
   }
 
+  /**
+   * Upload `file` into this slot and make it the active version.
+   * Returns the message to show the user, or null when both steps succeeded.
+   */
+  async function uploadAndActivate(
+    file: File,
+    onProgress?: (percent: number) => void
+  ): Promise<string | null> {
+    const formData = new FormData();
+    formData.append("key", slotKey);
+    formData.append("campaign_id", campaignId);
+    formData.append("file", file);
+    let uploadedId: string | null = null;
+    try {
+      const res = await client.post<AudioRecording>("/audio/upload", formData, {
+        onUploadProgress: onProgress
+          ? (e) => {
+              const total = e.total ?? file.size;
+              if (!total) return;
+              onProgress(Math.min(100, Math.round((e.loaded / total) * 100)));
+            }
+          : undefined,
+      });
+      uploadedId = res.data.id;
+      await client.patch(`/audio/${uploadedId}/activate`);
+      return null;
+    } catch {
+      return uploadedId ? ACTIVATION_FAILED : UPLOAD_FAILED;
+    }
+  }
+
   async function saveRecording() {
     if (!recordBlob) return;
     setRecordSaving(true);
     setRecordError(null);
-    let uploadedId: string | null = null;
-    try {
-      const ext = recordBlob.type.includes("webm") ? "webm" : "m4a";
-      const file = new File([recordBlob], `recording.${ext}`, { type: recordBlob.type });
-      const formData = new FormData();
-      formData.append("key", slotKey);
-      formData.append("campaign_id", campaignId);
-      formData.append("file", file);
-      const res = await client.post<AudioRecording>("/audio/upload", formData);
-      uploadedId = res.data.id;
-      await client.patch(`/audio/${uploadedId}/activate`);
-      discardRecording();
-      onRefresh();
-    } catch {
-      setRecordError(
-        uploadedId
-          ? "Activation failed — check version history to activate manually"
-          : "Upload failed — try again"
-      );
-    } finally {
-      setRecordSaving(false);
+    const ext = recordBlob.type.includes("webm") ? "webm" : "m4a";
+    const file = new File([recordBlob], `recording.${ext}`, { type: recordBlob.type });
+    const failure = await uploadAndActivate(file);
+    setRecordSaving(false);
+    if (failure) {
+      setRecordError(failure);
+      return;
     }
+    discardRecording();
+    onRefresh();
   }
 
   // ── Upload functions ──────────────────────────────────────────────────────
   async function handleFileUpload(file: File) {
     setUploadError(null);
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError("File too large — max 10 MB");
+    if (file.size > MAX_AUDIO_UPLOAD_BYTES) {
+      setUploadError(`File too large — max ${MAX_AUDIO_UPLOAD_MB} MB`);
       return;
     }
     setUploading(true);
     setUploadProgress(0);
-    let uploadedId: string | null = null;
-    const formData = new FormData();
-    formData.append("key", slotKey);
-    formData.append("campaign_id", campaignId);
-    formData.append("file", file);
-    try {
-      const res = await client.post<AudioRecording>("/audio/upload", formData, {
-        onUploadProgress: (e) => {
-          const total = e.total ?? file.size;
-          if (!total) return;
-          setUploadProgress(Math.min(100, Math.round((e.loaded / total) * 100)));
-        },
-      });
-      uploadedId = res.data.id;
-      await client.patch(`/audio/${uploadedId}/activate`);
-      onRefresh();
-    } catch {
-      setUploadError(
-        uploadedId
-          ? "Activation failed — check version history to activate manually"
-          : "Upload failed — try again"
-      );
-    } finally {
-      setUploading(false);
-      setUploadProgress(0);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+    const failure = await uploadAndActivate(file, setUploadProgress);
+    setUploading(false);
+    setUploadProgress(0);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (failure) {
+      setUploadError(failure);
+      return;
     }
+    onRefresh();
   }
 
   // ── TTS functions ─────────────────────────────────────────────────────────
@@ -461,7 +468,7 @@ export function AudioSlotCard({
               <span className="font-medium text-brand-black">click to browse</span>
             </p>
             <p className="text-xs text-brand-grey-dark mt-1">
-              MP3, WAV, WebM, MP4 — max 10 MB
+              MP3, WAV, WebM, MP4 — max {MAX_AUDIO_UPLOAD_MB} MB
             </p>
             <input
               ref={fileInputRef}

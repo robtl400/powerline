@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  ApiError,
   createCall,
   fetchCallCount,
   fetchCampaign,
@@ -161,6 +162,38 @@ describe("error handling", () => {
     await expect(
       fetchCampaign("http://localhost", "campaign-1")
     ).rejects.toThrow("Campaign is not accepting calls");
+  });
+
+  it("keeps the code and the message of a structured detail", async () => {
+    mockErrorResponse(422, "Unprocessable Entity", async () => ({
+      detail: {
+        message: "Invalid or expired representative selection",
+        code: "rep_token_invalid",
+      },
+    }));
+
+    const err = await requestToken("http://localhost", "campaign-1", "tok").catch(
+      (e: unknown) => e
+    );
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).message).toBe(
+      "Invalid or expired representative selection"
+    );
+    expect((err as ApiError).code).toBe("rep_token_invalid");
+    expect((err as ApiError).status).toBe(422);
+  });
+
+  it("leaves the code unset for a plain string detail", async () => {
+    mockErrorResponse(403, "Forbidden", async () => ({
+      detail: "Campaign is not accepting calls",
+    }));
+
+    const err = await fetchCampaign("http://localhost", "campaign-1").catch(
+      (e: unknown) => e
+    );
+
+    expect((err as ApiError).code).toBeUndefined();
   });
 
   it("falls back to the status text when the body is not JSON", async () => {

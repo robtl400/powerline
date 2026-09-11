@@ -57,3 +57,12 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class UserCreateResponse(UserResponse):
+    invite_sent: bool
+
+
+class UserPage(BaseModel):
+    total: int
+    items: list[UserResponse]

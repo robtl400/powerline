@@ -8,13 +8,15 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
-from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
 from app.api.v1.helpers import get_campaign_or_404, get_live_campaign_or_404, read_upload_limited
+from app.config import settings
+from app.dependencies import get_client_ip
 from app.models.audio import AudioRecording
 from app.models.call import Call
 from app.models.call_session import CallSession
@@ -30,6 +32,7 @@ from app.schemas.campaign import (
     CampaignChecklist,
     CampaignCreate,
     CampaignDetailResponse,
+    CampaignPage,
     CampaignPublicResponse,
     CampaignResponse,
     CampaignStatus,
@@ -37,7 +40,9 @@ from app.schemas.campaign import (
     TargetPublicInfo,
 )
 from app.schemas.target import ImportResult, ImportRowError, ReorderRequest, TargetCreate, TargetInCampaign, TargetUpdate
-from app.schemas.target import MAX_LENGTHS, normalize_phone
+from app.schemas.target import MAX_LENGTHS, to_us_e164
+from app.services.rate_limiter import check_rate_limit
+from app.tasks.lock import RELEASE_IF_OWNER
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +67,6 @@ def _campaign_to_response(campaign: Campaign, target_count: int) -> CampaignResp
         target_ordering=campaign.target_ordering,
         call_maximum=campaign.call_maximum,
         rate_limit=campaign.rate_limit,
-        allow_call_in=campaign.allow_call_in,
         allow_webrtc=campaign.allow_webrtc,
         allow_phone_callback=campaign.allow_phone_callback,
         lookup_validate=campaign.lookup_validate,
@@ -120,6 +124,16 @@ async def _get_target_count(campaign_id: uuid.UUID, db: AsyncSession) -> int:
     return result.scalar_one()
 
 
+async def _next_order(campaign_id: uuid.UUID, db: AsyncSession) -> int:
+    """The order value that appends a target to the end of a campaign's list."""
+    result = await db.execute(
+        select(func.coalesce(func.max(CampaignTarget.order), -1)).where(
+            CampaignTarget.campaign_id == campaign_id
+        )
+    )
+    return result.scalar_one() + 1
+
+
 async def _get_target_in_campaign_or_404(
     campaign_id: uuid.UUID, target_id: uuid.UUID, db: AsyncSession
 ) -> tuple[Target, CampaignTarget]:
@@ -146,7 +160,7 @@ async def _get_target_in_campaign_or_404(
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=list[CampaignResponse])
+@router.get("", response_model=CampaignPage)
 async def list_campaigns(
     _: CurrentUser,
     db: DB,
@@ -154,7 +168,19 @@ async def list_campaigns(
     q: str | None = Query(default=None, max_length=100),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=200, le=500),
-) -> list[CampaignResponse]:
+) -> CampaignPage:
+    """One page of campaigns, with `total` counting every campaign the filters match."""
+    filters = []
+    if status:
+        filters.append(Campaign.status == status)
+    if q and q.strip():
+        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        filters.append(Campaign.name.ilike(f"%{term}%", escape="\\"))
+
+    total = await db.scalar(
+        select(func.count()).select_from(Campaign).where(*filters)
+    )
+
     count_sq = (
         select(
             CampaignTarget.campaign_id,
@@ -164,21 +190,20 @@ async def list_campaigns(
         .subquery()
     )
 
-    stmt = select(Campaign, func.coalesce(count_sq.c.cnt, 0).label("target_count")).outerjoin(
-        count_sq, Campaign.id == count_sq.c.campaign_id
+    stmt = (
+        select(Campaign, func.coalesce(count_sq.c.cnt, 0).label("target_count"))
+        .outerjoin(count_sq, Campaign.id == count_sq.c.campaign_id)
+        .where(*filters)
+        .order_by(Campaign.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
-    if status:
-        stmt = stmt.where(Campaign.status == status)
-    if q and q.strip():
-        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        stmt = stmt.where(Campaign.name.ilike(f"%{term}%", escape="\\"))
-    stmt = stmt.order_by(Campaign.created_at.desc()).offset(skip).limit(limit)
 
     rows = await db.execute(stmt)
-    return [
-        _campaign_to_response(row.Campaign, row.target_count)
-        for row in rows.all()
-    ]
+    return CampaignPage(
+        total=total or 0,
+        items=[_campaign_to_response(row.Campaign, row.target_count) for row in rows.all()],
+    )
 
 
 @router.post("", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
@@ -197,24 +222,25 @@ async def create_campaign(
 @router.get("/{campaign_id}/count", response_model=CallCountResponse)
 async def get_campaign_call_count(
     campaign_id: uuid.UUID,
+    request: Request,
     db: DB,
 ) -> CallCountResponse:
-    """Public call-count stats for a campaign, cached 10 minutes.
+    """Public call-count stats for a live campaign, cached 10 minutes.
 
-    Used by the embed widget to show 'Join X callers.'
+    Used by the embed widget to show 'Join X callers.' Rate limited per client
+    IP, and only live campaigns resolve — a draft or paused campaign answers the
+    same 404 as a missing one.
     """
     redis = get_redis()
-    cache_key = f"campaign_count:{campaign_id}"
+    await check_rate_limit(redis, "count", get_client_ip(request), settings.REPS_RATE_LIMIT)
 
+    await get_live_campaign_or_404(campaign_id, db)
+
+    cache_key = f"campaign_count:{campaign_id}"
     cached = await redis.get(cache_key)
     if cached:
         data = json.loads(cached)
         return CallCountResponse(**data)
-
-    # Verify the campaign exists (any status — organisations may query before going live).
-    result = await db.execute(select(Campaign.id).where(Campaign.id == campaign_id))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
 
     now = datetime.now(timezone.utc)
     cutoff_24h = now - timedelta(hours=24)
@@ -234,7 +260,7 @@ async def get_campaign_call_count(
     ).one()
 
     payload = {"total": counts.total, "last_24h": counts.last_24h, "last_7d": counts.last_7d}
-    await redis.set(cache_key, json.dumps(payload), ex=600)
+    await redis.set(cache_key, json.dumps(payload), ex=_COUNT_CACHE_TTL_SECONDS)
     return CallCountResponse(**payload)
 
 
@@ -247,13 +273,7 @@ async def get_campaign_checklist(
     """Launch-readiness checklist for a campaign."""
     campaign = await get_campaign_or_404(campaign_id, db)
 
-    # Targets
-    tc_result = await db.execute(
-        select(func.count(CampaignTarget.target_id)).where(
-            CampaignTarget.campaign_id == campaign_id
-        )
-    )
-    targets_configured = (tc_result.scalar_one() or 0) > 0
+    targets_configured = await _get_target_count(campaign_id, db) > 0
 
     # Active audio recording for this campaign
     audio_result = await db.execute(
@@ -289,14 +309,17 @@ async def get_campaign_checklist(
 @router.get("/{campaign_id}/public", response_model=CampaignPublicResponse)
 async def get_campaign_public(
     campaign_id: uuid.UUID,
+    request: Request,
     db: DB,
     response: Response,
 ) -> CampaignPublicResponse:
     """Public campaign info for the embed widget.
 
     Returns campaign metadata and target display info (no phone numbers).
-    Only live campaigns are accessible.
+    Only live campaigns are accessible, and callers are rate limited per IP.
     """
+    await check_rate_limit(get_redis(), "public", get_client_ip(request), settings.REPS_RATE_LIMIT)
+
     campaign = await get_live_campaign_or_404(campaign_id, db)
 
     ct_result = await db.execute(
@@ -489,15 +512,20 @@ async def reorder_targets(
 _KNOWN_FIELDS = {"name", "title", "phone_number", "location", "external_id"}
 _REQUIRED_FIELDS = {"name", "title", "phone_number", "location"}
 _MAX_CSV_BYTES = 5 * 1024 * 1024  # 5 MB
+_COUNT_CACHE_TTL_SECONDS = 600
+_IMPORT_LOCK_TTL_SECONDS = 300
+_IMPORT_ERRORS_TTL_SECONDS = 3600
 
-# Releases the import lock only when it still holds this request's token, so a
-# slow import cannot delete the lock a later request has already taken over.
-_RELEASE_LOCK_LUA = """
-if redis.call('get', KEYS[1]) == ARGV[1] then
-    return redis.call('del', KEYS[1])
-end
-return 0
-"""
+# A cell starting with one of these is read as a formula by spreadsheet software,
+# so exported values are prefixed with a quote to keep them inert text.
+_FORMULA_LEAD_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_cell(value: object) -> str:
+    text = str(value)
+    if text[:1] in _FORMULA_LEAD_CHARS:
+        return f"'{text}"
+    return text
 
 
 class _ImportRow(NamedTuple):
@@ -560,9 +588,12 @@ def _parse_import_csv(content: bytes) -> tuple[list[_ImportRow], list[ImportRowE
 
         # Validate phone number
         try:
-            phone = normalize_phone(row["phone_number"])
+            phone = to_us_e164(row["phone_number"])
         except ValueError as exc:
-            errors.append(ImportRowError(row=row_num, error=f"invalid phone number: {row['phone_number']} — {exc}"))
+            errors.append(ImportRowError(
+                row=row_num,
+                error=f"invalid phone number: {_csv_cell(row['phone_number'])} — {exc}",
+            ))
             continue
 
         external_id = row.get("external_id") or None
@@ -635,13 +666,7 @@ async def _do_import(
         row.Target.external_id: row.Target for row in existing_result.all()
     }
 
-    # Current max order for appending new targets
-    max_order_result = await db.execute(
-        select(func.coalesce(func.max(CampaignTarget.order), -1)).where(
-            CampaignTarget.campaign_id == campaign_id
-        )
-    )
-    next_order = max_order_result.scalar_one() + 1
+    next_order = await _next_order(campaign_id, db)
 
     new_targets: list[Target] = []
     updated_count = 0
@@ -693,7 +718,7 @@ async def _do_import(
         await redis.set(  # type: ignore[union-attr]
             f"import_errors:{campaign_id}",
             json.dumps([{"row": e.row, "error": e.error} for e in errors]),
-            ex=3600,
+            ex=_IMPORT_ERRORS_TTL_SECONDS,
         )
     except Exception:
         logger.warning(
@@ -717,7 +742,7 @@ async def import_targets(
     redis = get_redis()
     lock_key = f"import_lock:{campaign_id}"
     token = secrets.token_hex(8)
-    locked = await redis.set(lock_key, token, nx=True, ex=300)
+    locked = await redis.set(lock_key, token, nx=True, ex=_IMPORT_LOCK_TTL_SECONDS)
     if not locked:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -727,7 +752,7 @@ async def import_targets(
     try:
         return await _do_import(campaign_id, file, db, redis)
     finally:
-        await redis.eval(_RELEASE_LOCK_LUA, 1, lock_key, token)
+        await redis.eval(RELEASE_IF_OWNER, 1, lock_key, token)
 
 
 @router.get("/{campaign_id}/targets/import-errors")
@@ -736,7 +761,11 @@ async def download_import_errors(
     _: AdminUser,
     db: DB,
 ) -> Response:
-    """Download the last import's error rows as a CSV file."""
+    """Download the last import's error rows as a CSV file.
+
+    Cells are exported as inert text: a value that a spreadsheet would evaluate
+    as a formula is quoted first.
+    """
     await get_campaign_or_404(campaign_id, db)
 
     redis = get_redis()
@@ -749,7 +778,7 @@ async def download_import_errors(
     writer = csv.writer(output)
     writer.writerow(["row", "error_reason"])
     for e in errors:
-        writer.writerow([e["row"], e["error"]])
+        writer.writerow([_csv_cell(e["row"]), _csv_cell(e["error"])])
 
     return Response(
         content=output.getvalue(),
@@ -767,12 +796,7 @@ async def add_target(
 ) -> TargetInCampaign:
     campaign = await get_campaign_or_404(campaign_id, db)
 
-    max_result = await db.execute(
-        select(func.coalesce(func.max(CampaignTarget.order), -1)).where(
-            CampaignTarget.campaign_id == campaign.id
-        )
-    )
-    next_order = max_result.scalar_one() + 1
+    next_order = await _next_order(campaign.id, db)
 
     target = Target(
         name=body.name,

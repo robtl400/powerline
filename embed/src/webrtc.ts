@@ -9,7 +9,7 @@
  * The widget drives state changes; this class emits state events upward.
  */
 import { Call, Device } from "@twilio/voice-sdk";
-import { requestToken } from "./api.js";
+import { errorDetail, requestToken } from "./api.js";
 import type {
   CampaignPublic,
   ConnectedData,
@@ -60,7 +60,7 @@ export class WebRTCClient {
     } catch (err) {
       this.onStateChange(
         "error",
-        err instanceof Error ? err.message : "Failed to get calling token."
+        errorDetail(err, "Failed to get calling token.")
       );
       return;
     }

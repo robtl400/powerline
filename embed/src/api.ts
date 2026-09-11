@@ -2,9 +2,46 @@ import type {
   CallCountResponse,
   CallCreateResponse,
   CampaignPublic,
+  ErrorDetail,
   RepsResponse,
   VoiceTokenResponse,
 } from "./types.js";
+
+/**
+ * A non-OK backend response. `code` is the machine-readable half of a
+ * structured `detail` object, which the widget branches on; `message` is the
+ * half shown to the visitor.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** Read a FastAPI `detail`, which is either a plain string or a message/code object. */
+function parseDetail(detail: unknown, fallback: string): ErrorDetail {
+  if (typeof detail === "string" && detail) return { message: detail };
+  if (typeof detail === "object" && detail !== null) {
+    const d = detail as { message?: unknown; code?: unknown };
+    return {
+      message: typeof d.message === "string" && d.message ? d.message : fallback,
+      code: typeof d.code === "string" ? d.code : undefined,
+    };
+  }
+  return { message: fallback };
+}
+
+/** Narrow a thrown value into the message/code pair the widget renders and branches on. */
+export function errorDetail(err: unknown, fallback: string): ErrorDetail {
+  if (err instanceof ApiError) return { message: err.message, code: err.code };
+  if (err instanceof Error && err.message) return { message: err.message };
+  return { message: fallback };
+}
 
 async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -12,14 +49,14 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: unknown;
     try {
-      const body = (await res.json()) as { detail?: string };
-      if (body.detail) detail = body.detail;
+      ({ detail } = (await res.json()) as { detail?: unknown });
     } catch {
       // ignore JSON parse errors
     }
-    throw new Error(detail);
+    const { message, code } = parseDetail(detail, res.statusText);
+    throw new ApiError(message, res.status, code);
   }
   return res.json() as Promise<T>;
 }
@@ -112,7 +149,8 @@ export async function fetchReps(
       }
     }
 
-    throw new Error(typeof detail === "string" && detail ? detail : res.statusText);
+    const { message, code } = parseDetail(detail, res.statusText);
+    throw new ApiError(message, res.status, code);
   }
 
   return res.json() as Promise<RepsResponse>;

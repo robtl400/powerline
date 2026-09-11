@@ -396,13 +396,26 @@ describe("PowerlineWidget rep lookup", () => {
       .querySelector<HTMLElement>('[data-pl-action="select-rep"]')!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    driverFor(widget)("error", "Invalid or expired representative selection");
+    driverFor(widget)("error", {
+      message: "Invalid or expired representative selection",
+      code: "rep_token_invalid",
+    });
 
     expect(container.querySelector("#pl-zip-input")).not.toBeNull();
     expect(
       container.querySelector<HTMLElement>("#pl-zip-error")!.textContent
     ).toBe("Invalid or expired representative selection");
     expect(container.innerHTML).not.toContain("Something went wrong");
+  });
+
+  it("shows an error screen for a coded failure it cannot recover from", () => {
+    driverFor(widget)("error", {
+      message: "Campaign is not accepting calls",
+      code: "campaign_closed",
+    });
+
+    expect(container.innerHTML).toContain("Campaign is not accepting calls");
+    expect(container.innerHTML).toContain("Something went wrong");
   });
 });
 

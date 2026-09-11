@@ -9,6 +9,7 @@ import {
 } from "@/lib/constants";
 import { BUTTON_PRIMARY, CARD_CLASS, INPUT_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
 import { EmptyTableRow } from "@/components/EmptyState";
+import type { Page } from "@/types/api";
 
 interface PhoneNumber {
   id: string;
@@ -42,11 +43,11 @@ export default function PhoneNumbers() {
   useEffect(() => {
     Promise.all([
       client.get<PhoneNumber[]>("/phone-numbers"),
-      client.get<Campaign[]>("/campaigns"),
+      client.get<Page<Campaign>>("/campaigns?limit=500"),
     ])
       .then(([numsRes, campsRes]) => {
         setPhoneNumbers(numsRes.data);
-        setCampaigns(campsRes.data);
+        setCampaigns(campsRes.data.items);
         setError(null);
       })
       .catch(() => setError("Failed to load data."))

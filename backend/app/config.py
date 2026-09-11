@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # Security — no default; startup fails when unset.
     SECRET_KEY: str
 
+    # Secret mixed into every phone-number digest. Empty = plain SHA-256.
+    PHONE_HASH_PEPPER: str = ""
+
     # Lifetime of a password-reset code, in seconds.
     RESET_CODE_TTL_SECONDS: int = 600
 
@@ -44,6 +47,12 @@ class Settings(BaseSettings):
 
     # Login / password-reset attempts per hour per identifier.
     AUTH_RATE_LIMIT: int = 10
+
+    # WebRTC access tokens per hour per client IP.
+    TOKEN_RATE_LIMIT: int = 5
+
+    # WebRTC access tokens per hour per campaign.
+    TOKEN_CAMPAIGN_RATE_LIMIT: int = 500
 
     # Twilio
     TWILIO_ACCOUNT_SID: str = ""
@@ -76,15 +85,6 @@ class Settings(BaseSettings):
     # CORS policy for the admin API — comma-separated origins allowed to call it.
     # Empty = same-origin only.
     ADMIN_CORS_ORIGINS: str = ""
-
-    # Path prefixes served as the public (embed-facing) API; everything else is
-    # treated as admin surface.
-    PUBLIC_API_PATH_PREFIXES: tuple[str, ...] = (
-        "/api/v1/campaigns/",
-        "/api/v1/calls/",
-        "/api/v1/tokens/",
-        "/static/",
-    )
 
     @property
     def is_development(self) -> bool:

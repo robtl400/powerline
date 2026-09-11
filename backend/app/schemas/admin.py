@@ -52,3 +52,8 @@ class BlocklistResponse(BaseModel):
     created_by_id: uuid.UUID | None
 
     model_config = {"from_attributes": True}
+
+
+class BlocklistPage(BaseModel):
+    total: int
+    items: list[BlocklistResponse]

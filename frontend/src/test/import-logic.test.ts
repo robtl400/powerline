@@ -4,35 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { parseCsvHeader, remapCsvHeaders } from "@/lib/csv";
-
-// ── Replicated constants from useCampaignData (keep in sync) ─────────────────
-
-const _FIELD_ALIASES: Record<string, string[]> = {
-  name: ["name", "full name", "fullname"],
-  title: ["title"],
-  phone_number: ["phone", "phone_number", "phone number", "phonenumber"],
-  location: ["location", "district"],
-  external_id: ["external_id", "external id", "id"],
-};
-
-/**
- * Auto-map CSV headers to canonical field names.
- * Extracted from handleImportFileSelect in useCampaignData.ts.
- */
-function autoMapHeaders(headers: string[]): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const header of headers) {
-    const lower = header.toLowerCase();
-    for (const [field, aliases] of Object.entries(_FIELD_ALIASES)) {
-      if (aliases.includes(lower)) {
-        map[field] = header;
-        break;
-      }
-    }
-  }
-  return map;
-}
+import { autoMapHeaders, parseCsvHeader, remapCsvHeaders } from "@/lib/csv";
 
 // ── autoMapHeaders ────────────────────────────────────────────────────────────
 

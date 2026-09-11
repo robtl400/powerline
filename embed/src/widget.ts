@@ -28,12 +28,28 @@ import type { WebRTCClient } from "./webrtc.js";
 import type {
   CampaignPublic,
   ConnectedData,
+  ErrorDetail,
   RepInfo,
   WidgetState,
 } from "./types.js";
 
-/** Backend detail returned when a rep_token has expired between lookup and call. */
-const REP_SELECTION_EXPIRED = "Invalid or expired representative selection";
+/** Backend error code returned when a rep_token has expired between lookup and call. */
+const REP_TOKEN_INVALID = "rep_token_invalid";
+
+/** Read the message/code pair out of an "error" payload, which may be a bare string. */
+function readErrorDetail(data: unknown): ErrorDetail | undefined {
+  if (typeof data === "string") return { message: data };
+  if (typeof data === "object" && data !== null && "message" in data) {
+    const d = data as { message?: unknown; code?: unknown };
+    if (typeof d.message === "string") {
+      return {
+        message: d.message,
+        code: typeof d.code === "string" ? d.code : undefined,
+      };
+    }
+  }
+  return undefined;
+}
 
 export interface WidgetOptions {
   campaignId: string;
@@ -93,13 +109,15 @@ export class PowerlineWidget {
     const prev = this.state;
     this.state = state;
 
-    if (state === "error" && data === REP_SELECTION_EXPIRED) {
+    const detail = state === "error" ? readErrorDetail(data) : undefined;
+
+    if (detail?.code === REP_TOKEN_INVALID) {
       this._destroyClients();
       this._resetRepSelection();
       this.state = "idle";
       this._render("idle");
       const errorEl = this.container.querySelector<HTMLElement>("#pl-zip-error");
-      if (errorEl) errorEl.textContent = REP_SELECTION_EXPIRED;
+      if (errorEl) errorEl.textContent = detail.message;
       return;
     }
 
@@ -154,7 +172,10 @@ export class PowerlineWidget {
       return;
     }
 
-    this._render(state, typeof data === "string" ? data : undefined);
+    this._render(
+      state,
+      detail?.message ?? (typeof data === "string" ? data : undefined)
+    );
   };
 
   private _onTimerTick = (elapsed: number): void => {
@@ -349,19 +370,13 @@ export class PowerlineWidget {
     const zip = input?.value.trim() ?? "";
 
     if (!/^\d{5}$/.test(zip)) {
-      if (input) {
-        input.setAttribute("aria-invalid", "true");
-        input.style.borderColor = "#53565B";
-      }
+      input?.setAttribute("aria-invalid", "true");
       const errorEl = this.container.querySelector<HTMLElement>("#pl-zip-error");
       if (errorEl) errorEl.textContent = "Please enter a valid 5-digit ZIP code.";
       return;
     }
 
-    if (input) {
-      input.removeAttribute("aria-invalid");
-      input.style.borderColor = "";
-    }
+    input?.removeAttribute("aria-invalid");
     const errorEl = this.container.querySelector<HTMLElement>("#pl-zip-error");
     if (errorEl) errorEl.textContent = "";
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import secrets
 import uuid
@@ -18,6 +19,8 @@ from httpx import AsyncClient
 from sqlalchemy import delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.helpers import phone_hash
+from app.config import settings
 from app.models.blocklist import BlocklistEntry
 from app.models.call import Call
 from app.models.call_session import CallSession
@@ -25,7 +28,7 @@ from app.models.campaign import Campaign
 from app.models.campaign_target import CampaignTarget
 from app.models.target import Target
 from app.services.call_state import load_call_state, save_call_state
-from app.services.civic_service import issue_rep_tokens
+from app.services.civic_service import issue_rep_tokens, resolve_rep_token
 from app.services.telephony.base import CallResult
 
 TEST_IP = "127.0.0.1"
@@ -58,6 +61,8 @@ MODULE_PHONES = [
     "+12025550210",
     "+12025550211",
     "+12025550212",
+    "+12025550213",
+    "+12025550214",
     *CEILING_PHONES,
 ]
 
@@ -83,7 +88,7 @@ async def clear_rate_buckets(redis):
         f"rate:reps:{TEST_IP}",
     ]
     keys += [
-        f"rate:{scope}:{hashlib.sha256(phone.encode()).hexdigest()}"
+        f"rate:{scope}:{phone_hash(phone)}"
         for scope in ("call", "call-webhook")
         for phone in MODULE_PHONES
     ]
@@ -257,7 +262,10 @@ async def test_unknown_rep_token_is_rejected(
         },
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "Invalid or expired representative selection"
+    assert resp.json()["detail"] == {
+        "message": "Invalid or expired representative selection",
+        "code": "rep_token_invalid",
+    }
 
     token_resp = await client.post(
         "/api/v1/tokens/voice",
@@ -362,7 +370,10 @@ async def test_undialable_rep_phone_is_dropped_and_never_dialed(
             },
         )
         assert resp.status_code == 422, resp.text
-        assert resp.json()["detail"] == "Invalid or expired representative selection"
+        assert resp.json()["detail"] == {
+            "message": "Invalid or expired representative selection",
+            "code": "rep_token_invalid",
+        }
     finally:
         await redis.delete(f"rep_token:{planted}")
 
@@ -400,7 +411,7 @@ async def test_phone_variants_share_one_hash_and_one_blocklist_entry(
     """Every spelling of a number normalizes to the same hash — and the same block."""
     campaign, _ = campaign_with_target
     variants = ["+12025550123", "12025550123", "(202) 555-0123"]
-    expected_hash = hashlib.sha256(b"+12025550123").hexdigest()
+    expected_hash = phone_hash("+12025550123")
 
     session_ids = []
     for variant in variants:
@@ -887,3 +898,92 @@ async def test_remove_target_keeps_a_row_a_live_call_still_needs(
         .where(CampaignTarget.target_id == target.id)
     )
     assert attached == 0
+
+
+# ---------------------------------------------------------------------------
+# Rep token storage and the phone-hash pepper
+# ---------------------------------------------------------------------------
+
+
+async def test_corrupt_rep_token_record_is_refused(
+    client: AsyncClient,
+    live_campaign: Campaign,
+    redis,
+) -> None:
+    """A stored record that is not JSON resolves to nothing, and the call is a 422."""
+    token = secrets.token_urlsafe(24)
+    await redis.set(f"rep_token:{token}", "{not json at all", ex=60)
+
+    try:
+        assert await resolve_rep_token(token, str(live_campaign.id)) is None
+
+        resp = await client.post(
+            "/api/v1/calls/create",
+            json={
+                "campaign_id": str(live_campaign.id),
+                "phone_number": "+12025550214",
+                "rep_token": token,
+            },
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "rep_token_invalid"
+    finally:
+        await redis.delete(f"rep_token:{token}")
+
+
+async def test_pepper_keys_the_stored_digest_and_the_blocklist(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign_with_target: tuple[Campaign, Target],
+    admin_headers: dict[str, str],
+    redis,
+    monkeypatch,
+) -> None:
+    """With a pepper set, sessions and blocklist entries share the same HMAC digest."""
+    campaign, _ = campaign_with_target
+    phone = "+12025550213"
+    pepper = "pepper-for-the-security-suite"
+    monkeypatch.setattr(settings, "PHONE_HASH_PEPPER", pepper)
+
+    expected = hmac.new(pepper.encode(), phone.encode(), hashlib.sha256).hexdigest()
+    assert expected != hashlib.sha256(phone.encode()).hexdigest()
+
+    peppered_bucket = f"rate:call:{expected}"
+    await redis.delete(peppered_bucket)
+
+    try:
+        resp = await client.post(
+            "/api/v1/calls/create",
+            json={"campaign_id": str(campaign.id), "phone_number": phone},
+        )
+        assert resp.status_code == 200, resp.text
+
+        stored = await db.scalar(
+            select(CallSession.caller_phone_hash).where(
+                CallSession.id == uuid.UUID(resp.json()["session_id"])
+            )
+        )
+        assert stored == expected
+
+        block = await client.post(
+            "/api/v1/admin/blocklist",
+            json={"phone_number": phone, "reason": "pepper test"},
+            headers=admin_headers,
+        )
+        assert block.status_code == 201, block.text
+        assert block.json()["phone_hash"] == expected
+        entry_id = block.json()["id"]
+
+        try:
+            blocked = await client.post(
+                "/api/v1/calls/create",
+                json={"campaign_id": str(campaign.id), "phone_number": phone},
+            )
+            assert blocked.status_code == 403, blocked.text
+        finally:
+            await db.execute(
+                delete(BlocklistEntry).where(BlocklistEntry.id == uuid.UUID(entry_id))
+            )
+            await db.commit()
+    finally:
+        await redis.delete(peppered_bucket)

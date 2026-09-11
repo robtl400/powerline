@@ -1,4 +1,3 @@
-import asyncio
 import secrets
 import uuid
 
@@ -11,17 +10,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import DB, AdminUser, CurrentUser
 from app.models.user import User
 from app.redis_client import get_redis
-from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.user import (
+    UserCreate,
+    UserCreateResponse,
+    UserPage,
+    UserResponse,
+    UserUpdate,
+)
 from app.services.auth import hash_password_async, revoke_user_sessions
-from app.services.sms import send_sms
+from app.services.sms import send_sms_async
 
 log = structlog.get_logger()
 router = APIRouter(prefix="/users", tags=["users"])
-
-
-async def _send_sms_async(to: str, body: str) -> str:
-    """Run the blocking Twilio client off the event loop."""
-    return await asyncio.get_running_loop().run_in_executor(None, send_sms, to, body)
 
 
 async def _other_active_admins(db: AsyncSession, user_id: uuid.UUID) -> int:
@@ -39,25 +39,29 @@ async def get_me(current_user: CurrentUser) -> User:
     return current_user
 
 
-@router.get("", response_model=list[UserResponse])
+@router.get("", response_model=UserPage)
 async def list_users(
     db: DB,
     _: AdminUser,
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=500),
-) -> list[User]:
+) -> UserPage:
+    total = await db.scalar(select(func.count()).select_from(User))
     result = await db.execute(
         select(User).order_by(User.created_at).offset(skip).limit(limit)
     )
-    return list(result.scalars().all())
+    return UserPage(
+        total=int(total or 0),
+        items=[UserResponse.model_validate(user) for user in result.scalars().all()],
+    )
 
 
-@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: UserCreate,
     db: DB,
     _: AdminUser,
-) -> User:
+) -> UserCreateResponse:
     duplicate = HTTPException(
         status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
     )
@@ -92,12 +96,17 @@ async def create_user(
             "Sign in with the password your administrator gave you."
         )
 
+    invite_sent = True
     try:
-        await _send_sms_async(user.phone, message)
+        await send_sms_async(user.phone, message)
     except Exception:
-        log.exception("invite_sms_failed", user_id=str(user.id))
+        invite_sent = False
+        log.warning("invite_sms_failed", user_id=str(user.id), exc_info=True)
 
-    return user
+    return UserCreateResponse(
+        **UserResponse.model_validate(user).model_dump(),
+        invite_sent=invite_sent,
+    )
 
 
 @router.patch("/{user_id}", response_model=UserResponse)

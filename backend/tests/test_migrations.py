@@ -27,7 +27,10 @@ EXPECTED_INDEXES = {
     },
     "campaigns": {"ux_campaigns_name_active"},
     "targets": {"ix_targets_rep_lookup"},
+    "users": {"ix_users_email", "ix_users_email_lower"},
 }
+
+EXPRESSION_INDEXES = {"ix_users_email_lower": ["lower(users.email)"]}
 
 PARTIAL_INDEX_PREDICATES = {
     "ux_calls_session_dial_sid": "twilio_call_sid <> ''",
@@ -42,6 +45,7 @@ UNIQUE_INDEXES = {
     "ux_campaigns_name_active",
     "ux_audio_recordings_active",
     "ix_users_email",
+    "ix_users_email_lower",
     "ix_phone_numbers_number",
 }
 
@@ -81,6 +85,18 @@ def test_index_is_unique(index_name: str) -> None:
     ]
     assert matches, f"no table declares index {index_name}"
     assert all(index.unique for index in matches)
+
+
+@pytest.mark.parametrize(("index_name", "expressions"), EXPRESSION_INDEXES.items())
+def test_expression_index_targets_the_right_expression(
+    index_name: str, expressions: list[str]
+) -> None:
+    """Two addresses differing only by case must collide on the same index key."""
+    table_name = next(
+        table for table, names in EXPECTED_INDEXES.items() if index_name in names
+    )
+    index = _index(table_name, index_name)
+    assert [str(expression) for expression in index.expressions] == expressions
 
 
 def test_email_and_number_uniqueness_is_index_only() -> None:

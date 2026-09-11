@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { WebRTCClient } from "./webrtc.js";
-import { requestToken } from "./api.js";
+import { ApiError, requestToken } from "./api.js";
 import type { CampaignPublic } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -52,7 +52,8 @@ vi.mock("@twilio/voice-sdk", () => ({
 // Mock ./api.js
 // ---------------------------------------------------------------------------
 
-vi.mock("./api.js", () => ({
+vi.mock("./api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api.js")>()),
   requestToken: vi.fn().mockResolvedValue({
     token: "test-token",
     session_id: "test-session-id",
@@ -360,8 +361,30 @@ describe("WebRTCClient", () => {
 
       await client.start();
 
-      expect(onStateChange).toHaveBeenCalledWith("error", "Campaign is not live");
+      expect(onStateChange).toHaveBeenCalledWith("error", {
+        message: "Campaign is not live",
+      });
       expect(MockDevice).not.toHaveBeenCalled();
+    });
+
+    it("carries the backend error code out of a rejected token request", async () => {
+      mockRequestToken.mockRejectedValueOnce(
+        new ApiError("Pick a representative again", 422, "rep_token_invalid")
+      );
+
+      const client = new WebRTCClient(
+        "http://localhost",
+        fakeCampaign,
+        onStateChange,
+        onTimerTick
+      );
+
+      await client.start();
+
+      expect(onStateChange).toHaveBeenCalledWith("error", {
+        message: "Pick a representative again",
+        code: "rep_token_invalid",
+      });
     });
 
     it("reports a connect failure as an error state", async () => {

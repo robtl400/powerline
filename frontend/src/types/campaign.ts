@@ -32,7 +32,6 @@ export interface CampaignDetail {
   target_ordering: string;
   call_maximum: number | null;
   rate_limit: number | null;
-  allow_call_in: boolean;
   allow_webrtc: boolean;
   allow_phone_callback: boolean;
   lookup_validate: boolean;
@@ -50,7 +49,6 @@ export interface CampaignForm {
   target_ordering: string;
   call_maximum: string;
   rate_limit: string;
-  allow_call_in: boolean;
   allow_webrtc: boolean;
   allow_phone_callback: boolean;
   lookup_validate: boolean;
@@ -123,7 +121,6 @@ export const emptyForm = (): CampaignForm => ({
   target_ordering: "in_order",
   call_maximum: "",
   rate_limit: "",
-  allow_call_in: false,
   allow_webrtc: true,
   allow_phone_callback: true,
   lookup_validate: true,

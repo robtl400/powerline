@@ -26,6 +26,9 @@ export function validatePhone(e164: string): boolean {
   return /^\+1\d{10}$/.test(e164);
 }
 
+/** Shown wherever a US phone number fails validatePhone. */
+export const PHONE_VALIDATION_MESSAGE = "Enter a 10-digit US phone number";
+
 interface PhoneInputProps {
   value: string; // E.164 or empty
   onChange: (e164: string) => void;
@@ -88,7 +91,7 @@ export function PhoneInput({ value, onChange, required, placeholder = "(555) 555
       </div>
       {isInvalid && (
         <p className="mt-1 text-[11px] text-brand-grey-dark">
-          Enter a 10-digit US phone number
+          {PHONE_VALIDATION_MESSAGE}
         </p>
       )}
     </div>

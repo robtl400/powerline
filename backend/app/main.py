@@ -1,4 +1,6 @@
 import os
+import posixpath
+import re
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -25,16 +27,36 @@ _PLACEHOLDER_SECRET_KEYS = {
     "change-me-in-production-use-openssl-rand-hex-32",
 }
 
-# Endpoints the embed widget calls from third-party sites. Everything else —
-# including the admin routes that share the /api/v1/campaigns/ prefix — is
-# admin surface, so campaign paths are matched by exact suffix rather than by
-# the coarse prefixes in settings.PUBLIC_API_PATH_PREFIXES.
+# The three constants below enumerate the entire public surface: the endpoints
+# the embed widget calls from third-party sites, plus the embed bundle itself.
+# Everything else — including the admin routes that share the
+# /api/v1/campaigns/ prefix — is admin surface, so campaign paths are matched
+# by exact suffix rather than by a coarse prefix.
 _PUBLIC_EXACT_PATHS = ("/api/v1/calls/create", "/api/v1/tokens/voice")
 _PUBLIC_PREFIXES = ("/static/",)
 _PUBLIC_CAMPAIGN_SUFFIXES = ("/public", "/count", "/reps")
 
 
-def is_public_path(path: str) -> bool:
+def _normalised_path(path: str) -> str | None:
+    """Canonicalise a request path, or return None if it walks upward.
+
+    A path carrying a `..` segment is never public: resolving it could land on
+    a public suffix while the router serves an admin route, so it is refused
+    outright rather than reduced.
+    """
+    if ".." in path.split("/"):
+        return None
+    collapsed = re.sub("/{2,}", "/", path)
+    normalised = posixpath.normpath(collapsed)
+    if collapsed.endswith("/") and not normalised.endswith("/"):
+        normalised += "/"
+    return normalised
+
+
+def is_public_path(raw_path: str) -> bool:
+    path = _normalised_path(raw_path)
+    if path is None:
+        return False
     if path in _PUBLIC_EXACT_PATHS or path.startswith(_PUBLIC_PREFIXES):
         return True
     return path.startswith("/api/v1/campaigns/") and path.endswith(

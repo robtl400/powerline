@@ -4,6 +4,7 @@ import uuid
 import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser, Provider
@@ -44,13 +45,16 @@ async def sync_phone_numbers(
         log.exception("twilio_list_numbers_failed")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch numbers from Twilio")
 
+    sids = [info.sid for info in twilio_numbers]
+    known: dict[str, PhoneNumber] = {}
+    if sids:
+        rows = await db.execute(select(PhoneNumber).where(PhoneNumber.twilio_sid.in_(sids)))
+        known = {pn.twilio_sid: pn for pn in rows.scalars().all()}
+
     results: list[PhoneNumber] = []
 
     for info in twilio_numbers:
-        existing = await db.execute(
-            select(PhoneNumber).where(PhoneNumber.twilio_sid == info.sid)
-        )
-        pn = existing.scalar_one_or_none()
+        pn = known.get(info.sid)
 
         if pn:
             pn.number = info.number
@@ -66,12 +70,11 @@ async def sync_phone_numbers(
                 trust_status="unknown",
             )
             db.add(pn)
+            known[info.sid] = pn
 
         results.append(pn)
 
     await db.commit()
-    for pn in results:
-        await db.refresh(pn)
 
     log.info("phone_numbers_synced", count=len(results))
     return results
@@ -99,7 +102,8 @@ async def assign_phone_to_campaign(
 ) -> PhoneNumber:
     """Assign a phone number to a campaign. A number can serve multiple campaigns.
 
-    Idempotent — if the assignment already exists, returns the phone number unchanged.
+    Idempotent — an assignment that already exists, including one written by a
+    concurrent request, answers with the phone number unchanged.
     """
     pn = await _get_phone_or_404(phone_id, db)
 
@@ -109,17 +113,14 @@ async def assign_phone_to_campaign(
     if not campaign_result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campaign not found")
 
-    existing = await db.execute(
-        select(CampaignPhoneNumber).where(
-            CampaignPhoneNumber.campaign_id == body.campaign_id,
-            CampaignPhoneNumber.phone_number_id == phone_id,
-        )
-    )
-    if not existing.scalar_one_or_none():
-        db.add(CampaignPhoneNumber(
-            campaign_id=body.campaign_id,
-            phone_number_id=phone_id,
-        ))
+    db.add(CampaignPhoneNumber(
+        campaign_id=body.campaign_id,
+        phone_number_id=phone_id,
+    ))
+    try:
         await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        pn = await _get_phone_or_404(phone_id, db)
 
     return pn

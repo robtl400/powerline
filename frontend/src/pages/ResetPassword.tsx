@@ -3,13 +3,15 @@ import axios from "axios";
 import { Link } from "react-router-dom";
 import client from "@/api/client";
 import { getErrorDetail } from "@/lib/api-error";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/lib/constants";
 import { BUTTON_PRIMARY, CARD_CLASS, FOCUS_RING, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 
 const AUTH_CARD_CLASS = `w-full max-w-sm space-y-6 ${CARD_CLASS} p-8`;
 
 const BUTTON_CLASS = `${BUTTON_PRIMARY} w-full`;
 
-const PASSWORD_POLICY = "12–128 characters, including at least one letter and one digit.";
+const PASSWORD_POLICY =
+  `${PASSWORD_MIN_LENGTH}–${PASSWORD_MAX_LENGTH} characters, including at least one letter and one digit.`;
 
 function messageFor(error: unknown): string {
   if (axios.isAxiosError(error) && error.response?.status === 429) {
@@ -80,7 +82,7 @@ export default function ResetPassword() {
             </p>
             <Link
               to="/login"
-              className={`flex min-h-[44px] items-center justify-center rounded-control bg-brand-orange px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 ${FOCUS_RING}`}
+              className={`${BUTTON_CLASS} ${FOCUS_RING}`}
             >
               Sign in
             </Link>

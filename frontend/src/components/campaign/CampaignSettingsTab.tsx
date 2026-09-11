@@ -147,7 +147,7 @@ export function CampaignSettingsTab({
                 disabled={readOnly}
                 value={form.rate_limit}
                 onChange={(e) => setForm((f) => ({ ...f, rate_limit: e.target.value }))}
-                placeholder="Blank = unlimited"
+                placeholder="Blank = default (5/hour)"
                 min={1}
               />,
               "Max calls per phone/IP per hour"
@@ -164,7 +164,6 @@ export function CampaignSettingsTab({
         <div className="space-y-3">
           {checkbox("Allow WebRTC (browser calls)", "allow_webrtc", "Supporters call directly from the browser")}
           {checkbox("Allow Phone Callback", "allow_phone_callback", "Powerline calls the supporter's phone, then connects to target")}
-          {checkbox("Allow Dial-In", "allow_call_in", "Supporter dials a number to be connected")}
           {checkbox("Validate Phone Numbers (Twilio Lookup)", "lookup_validate")}
           {checkbox("Require Mobile Number", "lookup_require_mobile", "Reject landlines and VoIP")}
         </div>

@@ -146,6 +146,30 @@ All notable changes to this project will be documented in this file.
 - **Embed loads the Voice SDK on demand** — the widget ships as a 29 KB bundle and fetches `powerline-embed-webrtc.iife.js` (the Twilio SDK) only when a browser call starts, falling back to the phone flow if the load fails.
 - **`test_auth.py` clears its rate-limit keys** so repeated runs within an hour no longer fail.
 
+### Security (second review, informational)
+- **Peppered phone hashes** — `PHONE_HASH_PEPPER` switches every caller, blocklist and webhook digest to HMAC-SHA256; with the pepper unset the digest stays plain SHA-256 so existing entries keep matching. The raw caller number is no longer stored on the session (`call_sessions.from_number` is dropped by migration 009).
+- **Login lockout is per email and IP** — the `login-email` limit keys on `email|ip`, so knowing an admin's address no longer locks them out from elsewhere.
+- **`/count` and `/public` are rate limited** — both public campaign endpoints take a per-IP limit at `REPS_RATE_LIMIT`, and `/count` answers 404 for non-live campaigns like `/public`.
+- **Admin and imported targets are US-only** — `TargetCreate`, `TargetUpdate` and the CSV importer normalise through the same US E.164 rule as the public call path; `referral_code` is bounded to 64 characters.
+- **Import error report is formula-safe** — cells beginning with `= + - @`, tab or CR are quote-prefixed before the CSV is written.
+- **Content Security Policy** — production adds `base-uri 'none'`, `form-action 'self'`, `object-src 'none'`, `frame-ancestors 'none'` and allows the Google Fonts stylesheet; the dev Caddyfile carries the same headers with the Vite-only relaxations marked as such.
+- **Public-path CORS matching normalises the path** — `..` segments and duplicate slashes can no longer make an admin route look public.
+- **`X-Forwarded-For` entries that are not addresses are skipped** when walking the trusted-proxy chain.
+- **Every Twilio webhook route is asserted to carry signature validation** by a route-walk test.
+
+### Changed (second review)
+- **Paged list envelopes** — `GET /campaigns`, `GET /users` and `GET /admin/blocklist` return `{total, items}`; the admin lists show "Showing N of M" and load further pages on demand.
+- **Invite delivery is reported** — `POST /users` returns `invite_sent`, and the Users page warns when the SMS could not be sent.
+- **Rep-token errors carry a code** — the 422 detail is `{message, code: "rep_token_invalid"}` and the embed widget recovers on the code rather than the message text; API errors in the widget carry structured detail.
+- **`allow_call_in` is gone** from the campaign model, API and settings form (migration 009); nothing implemented it.
+- **Audio uploads require a campaign** — `campaign_id` is a required form field, so no recording can be created that the call flow never plays.
+- **Settings** — `TOKEN_RATE_LIMIT`, `TOKEN_CAMPAIGN_RATE_LIMIT` and `RESET_CODE_TTL_SECONDS` are read from configuration; `PUBLIC_API_PATH_PREFIXES` is removed.
+- **Rep-target cleanup keeps targets referenced by call history**, matching `remove_target`; the Voice Insights lock outlives the beat interval and reuses one Twilio client per run.
+- **Case-insensitive email index** — migration 009 adds a unique index on `lower(email)` after checking for case-variant duplicates.
+- **Phone-number sync** loads existing rows in one query and assignment is idempotent under concurrent requests.
+- **Shared helpers** — `send_sms_async`, `fingerprint`, `rate_key`, `_next_order`, the lock-release Lua script, named Redis TTLs, and the frontend's `autoMapHeaders`, neutral chip, upload-size and password-policy constants each live in one place; `class-variance-authority` is dropped from the admin dependencies.
+- **Tests** — `get_client_ip` proxy chain, `LevelRouter` fan-out, admin CORS policy against an explicit origin list, MP3 frame-sync detection, the audio version-collision 409, corrupt `rep_token` payloads, and the peppered-hash blocklist match.
+
 ### Fixed (live design review, high impact)
 - **Campaign tabs reachable at 375px** — the five-tab strip scrolls horizontally with proximity snapping, a hidden scrollbar and a right-edge fade that appears only while the strip overflows; the tabs are a real `role="tablist"` with `aria-selected`, roving `tabIndex`, arrow/Home/End navigation and 44px touch targets.
 - **Password reset reachable from the UI** — a "Forgot password?" link under Sign in opens a public `/reset-password` page: email, then 8-digit code plus a new password, with the 400 detail, the 422 policy messages and the rate-limit message rendered in `brand-grey-dark` and a Sign in link on success.

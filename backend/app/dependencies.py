@@ -43,6 +43,14 @@ def _trusted_proxy_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Netw
     return networks
 
 
+def _is_ip(candidate: str) -> bool:
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    return True
+
+
 def _is_trusted(candidate: str, networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network]) -> bool:
     if not networks:
         return False
@@ -58,7 +66,9 @@ def get_client_ip(request: Request) -> str:
 
     The peer address is authoritative unless it belongs to a network listed in
     settings.TRUSTED_PROXIES. In that case the X-Forwarded-For chain is walked
-    from the right and the first entry that is not itself a trusted proxy wins.
+    from the right and the first entry that parses as an address and is not
+    itself a trusted proxy wins; entries that are not addresses are skipped,
+    and a chain of nothing but trusted proxies falls back to the peer.
     """
     peer = request.client.host if request.client else ""
     networks = _trusted_proxy_networks()
@@ -72,7 +82,7 @@ def get_client_ip(request: Request) -> str:
 
     for entry in reversed(forwarded.split(",")):
         entry = entry.strip()
-        if not entry or _is_trusted(entry, networks):
+        if not _is_ip(entry) or _is_trusted(entry, networks):
             continue
         return entry
 

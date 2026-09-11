@@ -36,7 +36,7 @@ async def clean_login_limits(redis) -> AsyncGenerator[None, None]:
 @pytest.fixture
 def users_sms(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     mock = MagicMock(return_value="SM_test")
-    monkeypatch.setattr("app.api.v1.users.send_sms", mock)
+    monkeypatch.setattr("app.services.sms.send_sms", mock)
     return mock
 
 
@@ -68,8 +68,20 @@ async def test_list_users_returns_the_caller(
     resp = await client.get("/api/v1/users", headers=admin_headers)
     assert resp.status_code == 200
     body = resp.json()
-    assert str(admin_user.id) in [u["id"] for u in body]
-    assert all("hashed_password" not in u for u in body)
+    assert body["total"] >= 1
+    assert str(admin_user.id) in [u["id"] for u in body["items"]]
+    assert all("hashed_password" not in u for u in body["items"])
+
+
+async def test_list_users_total_counts_past_the_page(
+    client: AsyncClient, admin_user: User, staff_user: User, admin_headers: dict
+) -> None:
+    """total reports every user, not just the ones on this page."""
+    resp = await client.get("/api/v1/users?limit=1", headers=admin_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["items"]) == 1
+    assert body["total"] >= 2
 
 
 async def test_list_users_is_admin_only(client: AsyncClient, staff_headers: dict) -> None:
@@ -98,6 +110,7 @@ async def test_create_user_sms_a_working_temporary_password(
     assert resp.status_code == 201, resp.text
     assert resp.json()["role"] == "staff"
     assert resp.json()["is_active"] is True
+    assert resp.json()["invite_sent"] is True
 
     assert users_sms.call_count == 1
     to, body = users_sms.call_args.args
@@ -200,6 +213,31 @@ async def test_create_user_is_admin_only(
     )
     assert resp.status_code == 403
     assert users_sms.call_count == 0
+
+
+async def test_create_user_reports_an_invite_that_could_not_be_sent(
+    client: AsyncClient,
+    admin_headers: dict,
+    db: AsyncSession,
+    new_email: Callable[[], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dead SMS leg still creates the account, and says the invite never left."""
+    failing = MagicMock(side_effect=RuntimeError("twilio unavailable"))
+    monkeypatch.setattr("app.services.sms.send_sms", failing)
+
+    email = new_email()
+    resp = await client.post(
+        "/api/v1/users",
+        headers=admin_headers,
+        json={"email": email, "name": "No Invite", "phone": "+12025553108"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["invite_sent"] is False
+    assert failing.call_count == 1
+
+    stored = await db.scalar(select(User).where(User.email == email))
+    assert stored is not None
 
 
 # ---------------------------------------------------------------------------

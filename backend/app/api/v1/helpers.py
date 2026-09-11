@@ -1,6 +1,8 @@
 """Shared route helpers used by multiple routers."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import random
 import uuid
 from zoneinfo import ZoneInfo
@@ -23,6 +25,21 @@ log = structlog.get_logger()
 UPLOAD_CHUNK_BYTES = 64 * 1024
 
 INVALID_REP_SELECTION = "Invalid or expired representative selection"
+REP_TOKEN_INVALID_CODE = "rep_token_invalid"
+
+
+def phone_hash(e164: str) -> str:
+    """Return the stored digest of a canonical E.164 number.
+
+    With PHONE_HASH_PEPPER set the digest is an HMAC-SHA256 under that secret,
+    so a stolen blocklist or session table cannot be walked back to phone
+    numbers by hashing the ten-digit space. With the pepper empty it is a plain
+    SHA-256 digest.
+    """
+    pepper = settings.PHONE_HASH_PEPPER
+    if pepper:
+        return hmac.new(pepper.encode(), e164.encode(), hashlib.sha256).hexdigest()
+    return hashlib.sha256(e164.encode()).hexdigest()
 
 
 def local_timezone() -> ZoneInfo:
@@ -100,7 +117,7 @@ async def resolve_rep_or_422(rep_token: str | None, campaign_id: uuid.UUID) -> d
     if not rep:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=INVALID_REP_SELECTION,
+            detail={"message": INVALID_REP_SELECTION, "code": REP_TOKEN_INVALID_CODE},
         )
     return rep
 
@@ -138,7 +155,7 @@ async def resolve_target_ids(
         log.warning("rep_target_phone_undialable", campaign_id=str(campaign.id))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=INVALID_REP_SELECTION,
+            detail={"message": INVALID_REP_SELECTION, "code": REP_TOKEN_INVALID_CODE},
         )
 
     target = Target(
@@ -194,7 +211,6 @@ async def start_call_session(
     rep_token: str | None,
     client_ip: str,
     caller_phone_hash: str | None = None,
-    from_number: str | None = None,
     referral_code: str | None = None,
 ) -> uuid.UUID:
     """Resolve the call's targets, claim a ceiling slot, and open a CallSession.
@@ -232,7 +248,6 @@ async def start_call_session(
             campaign_id=campaign.id,
             connection_type=connection_type,
             caller_phone_hash=caller_phone_hash,
-            from_number=from_number,
             referral_code=referral_code,
             status="initiated",
         )

@@ -1,5 +1,3 @@
-import asyncio
-import hashlib
 import hmac
 import json
 import secrets
@@ -36,13 +34,13 @@ from app.services.auth import (
     rotate_refresh_token,
     verify_password_async,
 )
+from app.services.digest import fingerprint
 from app.services.rate_limiter import check_rate_limit
-from app.services.sms import send_sms
+from app.services.sms import send_sms_async
 
 log = structlog.get_logger()
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-RESET_CODE_TTL = 600  # 10 minutes
 RESET_MAX_ATTEMPTS = 5
 
 # Counts one wrong code and destroys the code once the attempts run out, in a
@@ -67,11 +65,6 @@ return {attempts, 0}
 _DUMMY_HASH = hash_password("dummy-password")
 
 
-def _email_fingerprint(email: str) -> str:
-    """Truncated hash of an email, safe to put in logs."""
-    return hashlib.sha256(email.encode()).hexdigest()[:12]
-
-
 def _reset_key(email: str) -> str:
     return f"reset:{email}"
 
@@ -86,11 +79,6 @@ async def _user_by_email(db: AsyncSession, email: str) -> User | None:
     return result.scalars().first()
 
 
-async def _send_sms_async(to: str, body: str) -> str:
-    """Run the blocking Twilio client off the event loop."""
-    return await asyncio.get_running_loop().run_in_executor(None, send_sms, to, body)
-
-
 @router.post("/login", response_model=TokenResponse)
 async def login(
     body: LoginRequest,
@@ -98,9 +86,14 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     email = body.email.lower()
+    client_ip = get_client_ip(request)
     redis = get_redis()
-    await check_rate_limit(redis, "login-ip", get_client_ip(request), settings.AUTH_RATE_LIMIT * 3)
-    await check_rate_limit(redis, "login-email", email, settings.AUTH_RATE_LIMIT)
+    await check_rate_limit(redis, "login-ip", client_ip, settings.AUTH_RATE_LIMIT * 3)
+    # Keyed on the pair so a remote attacker cannot exhaust an account's bucket
+    # and lock its owner out from elsewhere.
+    await check_rate_limit(
+        redis, "login-email", f"{email}|{client_ip}", settings.AUTH_RATE_LIMIT
+    )
 
     user = await _user_by_email(db, email)
 
@@ -209,12 +202,12 @@ async def reset_request(
 
     code = f"{secrets.randbelow(10**8):08d}"
     await redis.delete(_reset_attempts_key(email))
-    await redis.setex(key, RESET_CODE_TTL, json.dumps({"code": code}))
+    await redis.setex(key, settings.RESET_CODE_TTL_SECONDS, json.dumps({"code": code}))
 
     try:
-        await _send_sms_async(user.phone, f"Your Powerline reset code is: {code}")
+        await send_sms_async(user.phone, f"Your Powerline reset code is: {code}")
     except Exception:
-        log.exception("sms_send_failed", email_fingerprint=_email_fingerprint(email))
+        log.exception("sms_send_failed", email_fingerprint=fingerprint(email))
         # Still return 204 — log the failure but don't expose it
 
 
@@ -252,10 +245,15 @@ async def reset_confirm(
 
     if not hmac.compare_digest(code.encode(), body.code.encode()):
         _, destroyed = await redis.eval(
-            _RESET_ATTEMPT_LUA, 2, key, attempts_key, RESET_CODE_TTL, RESET_MAX_ATTEMPTS
+            _RESET_ATTEMPT_LUA,
+            2,
+            key,
+            attempts_key,
+            settings.RESET_CODE_TTL_SECONDS,
+            RESET_MAX_ATTEMPTS,
         )
         if destroyed:
-            log.warning("reset_code_locked_out", email_fingerprint=_email_fingerprint(email))
+            log.warning("reset_code_locked_out", email_fingerprint=fingerprint(email))
         raise invalid
 
     user = await _user_by_email(db, email)

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audio import AudioRecording
@@ -221,11 +222,47 @@ async def test_upload_invalid_key(
     assert resp.status_code == 422
 
 
-async def test_upload_no_campaign(
+async def test_upload_without_a_campaign_is_rejected(
     client: AsyncClient,
     admin_headers: dict,
 ) -> None:
-    """Upload without a campaign_id (global audio) should succeed."""
+    """A recording is only ever resolved for a campaign, so the field is required."""
+    with patch(
+        "app.api.v1.audio.upload_audio_to_cloudinary",
+        new_callable=AsyncMock,
+        return_value=_FAKE_URL,
+    ) as upload:
+        resp = await client.post(
+            "/api/v1/audio/upload",
+            data={"key": "msg_intro"},
+            files=_audio_file("audio/mpeg"),
+            headers=admin_headers,
+        )
+    assert resp.status_code == 422
+    assert "campaign_id" in resp.text
+    upload.assert_not_awaited()
+
+
+@pytest.mark.parametrize("head,accepted", [
+    (b"\xff\xfb\x90\x64\x00\x00\x00\x00", True),
+    (b"\xff\xf3\x90\x64\x00\x00\x00\x00", True),
+    (b"\xff\xf2\x90\x64\x00\x00\x00\x00", True),
+    (b"\xff", False),
+    (b"", False),
+    (b"\xff\x00", False),
+])
+def test_looks_like_audio_reads_the_mp3_frame_sync(head: bytes, accepted: bool) -> None:
+    """A frameless MP3 is accepted on its sync word; a truncated header is not."""
+    from app.api.v1.audio import _looks_like_audio
+
+    assert _looks_like_audio(head) is accepted
+
+
+async def test_upload_accepts_a_frame_sync_mp3(
+    client: AsyncClient,
+    campaign: Campaign,
+    admin_headers: dict,
+) -> None:
     with patch(
         "app.api.v1.audio.upload_audio_to_cloudinary",
         new_callable=AsyncMock,
@@ -233,12 +270,35 @@ async def test_upload_no_campaign(
     ):
         resp = await client.post(
             "/api/v1/audio/upload",
-            data={"key": "msg_intro"},
+            data={"key": "msg_intro", "campaign_id": str(campaign.id)},
+            files={"file": ("test.mp3", io.BytesIO(b"\xff\xfb\x90\x64" + b"\x00" * 64), "audio/mpeg")},
+            headers=admin_headers,
+        )
+    assert resp.status_code == 201, resp.text
+
+
+async def test_upload_reports_409_when_every_version_insert_collides(
+    client: AsyncClient,
+    campaign: Campaign,
+    admin_headers: dict,
+) -> None:
+    """Losing the version race on every attempt is a conflict, not a 500."""
+    collision = IntegrityError("INSERT", {}, Exception("duplicate key"))
+
+    with patch(
+        "app.api.v1.audio.upload_audio_to_cloudinary",
+        new_callable=AsyncMock,
+        return_value=_FAKE_URL,
+    ), patch.object(AsyncSession, "commit", AsyncMock(side_effect=collision)):
+        resp = await client.post(
+            "/api/v1/audio/upload",
+            data={"key": "msg_intro", "campaign_id": str(campaign.id)},
             files=_audio_file("audio/mpeg"),
             headers=admin_headers,
         )
-    assert resp.status_code == 201
-    assert resp.json()["campaign_id"] is None
+
+    assert resp.status_code == 409, resp.text
+    assert "same time" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

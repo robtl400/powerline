@@ -40,6 +40,15 @@ const LIVE = {
   created_at: "2026-01-02T00:00:00Z",
 };
 
+const MORE = {
+  id: "camp-more",
+  name: "Later Drive",
+  status: "live",
+  campaign_type: "call",
+  target_count: 4,
+  created_at: "2026-01-03T00:00:00Z",
+};
+
 async function renderCampaigns() {
   render(
     <MemoryRouter>
@@ -51,7 +60,7 @@ async function renderCampaigns() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.client.get.mockResolvedValue({ data: [DRAFT, LIVE] });
+  mocks.client.get.mockResolvedValue({ data: { total: 2, items: [DRAFT, LIVE] } });
 });
 
 describe("Campaigns — row actions", () => {
@@ -92,5 +101,49 @@ describe("Campaigns — search", () => {
     fireEvent.keyDown(input, { key: "Escape" });
 
     expect(input.value).toBe("");
+  });
+});
+
+describe("Campaigns — paging", () => {
+  it("hides the Load more control once every row is shown", async () => {
+    await renderCampaigns();
+
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  it("reports the shown count and appends the next page", async () => {
+    mocks.client.get.mockResolvedValueOnce({ data: { total: 3, items: [DRAFT, LIVE] } });
+    mocks.client.get.mockResolvedValueOnce({ data: { total: 3, items: [MORE] } });
+
+    await renderCampaigns();
+    expect(screen.getByText("Showing 2 of 3")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+
+    await waitFor(() =>
+      expect(mocks.client.get).toHaveBeenLastCalledWith("/campaigns?skip=2")
+    );
+    expect(await screen.findByText("Later Drive")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  it("starts the next search back at the first page", async () => {
+    mocks.client.get.mockResolvedValueOnce({ data: { total: 3, items: [DRAFT, LIVE] } });
+    mocks.client.get.mockResolvedValueOnce({ data: { total: 3, items: [MORE] } });
+    mocks.client.get.mockResolvedValueOnce({ data: { total: 1, items: [LIVE] } });
+    await renderCampaigns();
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() =>
+      expect(mocks.client.get).toHaveBeenLastCalledWith("/campaigns?skip=2")
+    );
+
+    fireEvent.change(screen.getByLabelText("Search campaigns"), {
+      target: { value: "live" },
+    });
+
+    await waitFor(() =>
+      expect(mocks.client.get).toHaveBeenLastCalledWith("/campaigns?q=live")
+    );
   });
 });

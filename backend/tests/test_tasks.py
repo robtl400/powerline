@@ -6,8 +6,16 @@ here is the logic that decides whether a run happens at all and which rows it
 would touch.
 """
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.call import Call
+from app.models.call_session import CallSession
+from app.models.campaign import Campaign
+from app.models.target import Target
 from app.tasks.cleanup import REP_LOOKUP_EXTERNAL_ID, stale_rep_targets_query
 from app.tasks.insights import candidate_calls_query
 from app.tasks.lock import acquire, release, task_lock
@@ -101,4 +109,64 @@ def test_cleanup_query_spares_referenced_and_recent_targets() -> None:
     assert "targets.created_at < " in sql
     assert "NOT (EXISTS" in sql
     assert "campaign_targets" in sql
+    assert "calls" in sql
     assert REP_LOOKUP_EXTERNAL_ID == "rep_lookup"
+
+
+def _rep_target(name: str, age_days: int) -> Target:
+    return Target(
+        name=name,
+        title="Representative",
+        phone_number="+12025556100",
+        location="WA-07",
+        external_id=REP_LOOKUP_EXTERNAL_ID,
+        created_at=datetime.now(timezone.utc) - timedelta(days=age_days),
+    )
+
+
+async def test_cleanup_keeps_a_rep_target_a_call_still_points_at(
+    db: AsyncSession, campaign: Campaign
+) -> None:
+    """Deleting it would drop the call from per-target analytics, which inner-join Target."""
+    called = _rep_target("Rep. Logged", 60)
+    orphan = _rep_target("Rep. Unused", 60)
+    db.add_all([called, orphan])
+    await db.flush()
+
+    session = CallSession(
+        campaign_id=campaign.id,
+        connection_type="webrtc",
+        twilio_call_sid=f"CAclean{uuid.uuid4().hex[:20]}",
+        status="completed",
+    )
+    db.add(session)
+    await db.flush()
+
+    db.add(
+        Call(
+            session_id=session.id,
+            campaign_id=campaign.id,
+            target_id=called.id,
+            twilio_call_sid=f"CAleg{uuid.uuid4().hex[:20]}",
+            status="completed",
+            duration=30,
+        )
+    )
+    await db.flush()
+
+    called_id, orphan_id, session_id = called.id, orphan.id, session.id
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        await db.execute(stale_rep_targets_query(cutoff))
+
+        survivors = (
+            await db.execute(
+                select(Target.id).where(Target.id.in_([called_id, orphan_id]))
+            )
+        ).scalars().all()
+        assert set(survivors) == {called_id}
+    finally:
+        await db.execute(delete(Call).where(Call.session_id == session_id))
+        await db.execute(delete(CallSession).where(CallSession.id == session_id))
+        await db.execute(delete(Target).where(Target.id.in_([called_id, orphan_id])))
+        await db.commit()

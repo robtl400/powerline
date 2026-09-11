@@ -31,6 +31,11 @@ log = structlog.get_logger()
 
 _UNKNOWN_IDENTIFIER = "unknown"
 
+
+def rate_key(scope: str, identifier: str) -> str:
+    """Return the Redis key holding one scope's window for one identifier."""
+    return f"rate:{scope}:{identifier}"
+
 # Trims the window, then admits or rejects in the same atomic step. Returns
 # {rejected, count}: on rejection the attempt is not recorded, so the count
 # stays at the limit.
@@ -73,7 +78,7 @@ async def check_rate_limit(
 
     now = time.time()
     window_start = now - window_seconds
-    key = f"rate:{scope}:{identifier}"
+    key = rate_key(scope, identifier)
 
     rejected, count = await redis.eval(
         _ADMIT_LUA,

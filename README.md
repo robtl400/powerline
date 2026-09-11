@@ -209,6 +209,7 @@ Set at minimum:
 | `ENVIRONMENT` | `production` |
 | `DOMAIN` | the hostname Caddy serves |
 | `SECRET_KEY` | `openssl rand -hex 32` |
+| `PHONE_HASH_PEPPER` | `openssl rand -hex 32` — set it before the first call |
 | `POSTGRES_PASSWORD` | a generated password |
 | `DATABASE_URL` | `postgresql+asyncpg://postgres:PASSWORD@postgres:5432/powerline` |
 | `REDIS_PASSWORD` | a generated password |
@@ -283,12 +284,15 @@ frontend change needs no Caddy restart. A release carrying new migrations needs 
 | `POSTGRES_PASSWORD` | Yes (prod) | Password for the bundled Postgres container |
 | `ENVIRONMENT` | Yes | `production` (default) or `development`; `development` relaxes webhook signature checks only when `TWILIO_AUTH_TOKEN` is unset |
 | `SECRET_KEY` | Yes | `openssl rand -hex 32` |
+| `PHONE_HASH_PEPPER` | Recommended | `openssl rand -hex 32`, mixed into every phone-number digest. Numbers are stored only as digests, so a pepper is what stops a stolen database being walked back to phone numbers by hashing the ten-digit space. Set it before the first production call: changing it later invalidates every digest already stored, so existing blocklist entries stop blocking and existing session hashes stop matching their numbers. Empty means plain SHA-256 |
 | `TRUSTED_PROXIES` | Yes (prod) | Comma-separated IPs/CIDRs of your reverse proxies. `X-Forwarded-For` is ignored unless the peer is listed, so every request would be rate limited under the proxy's IP; production startup fails unless at least one entry parses |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Optional | Access-token lifetime (default 30) |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | Optional | Refresh-token lifetime (default 7) |
 | `DEFAULT_RATE_LIMIT` | Optional | Calls per hour per phone/IP when a campaign has no `rate_limit` (default 5) |
 | `REPS_RATE_LIMIT` | Optional | Rep lookups per hour per client IP (default 20); the per-campaign ceiling is 25x this |
 | `AUTH_RATE_LIMIT` | Optional | Login / password-reset attempts per hour per identifier (default 10) |
+| `TOKEN_RATE_LIMIT` | Optional | WebRTC access tokens per hour per client IP (default 5) |
+| `TOKEN_CAMPAIGN_RATE_LIMIT` | Optional | WebRTC access tokens per hour per campaign (default 500) |
 | `DOCS_ENABLED` | Optional | Forces `/docs`, `/redoc`, `/openapi.json` on or off; unset means on in development, off in production |
 | `PUBLIC_BASE_URL` | Yes | Must be reachable by Twilio |
 | `TWILIO_ACCOUNT_SID` | Yes | |

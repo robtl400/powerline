@@ -39,8 +39,15 @@
 	handle /openapi.json {
 		reverse_proxy backend:8000
 	}
+	# Same policy as Caddyfile.prod, minus HSTS (this listener is plain HTTP)
+	# and with two relaxations the Vite dev server needs and production must
+	# never have: 'unsafe-inline'/'unsafe-eval' scripts for the injected React
+	# Refresh preamble, and ws: for the HMR socket.
 	handle {
-		header X-Frame-Options DENY
+		header {
+			X-Frame-Options DENY
+			Content-Security-Policy "default-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src 'self'"
+		}
 		reverse_proxy frontend:3000
 	}
 }

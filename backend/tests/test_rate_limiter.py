@@ -14,9 +14,13 @@ import pytest
 from fastapi import HTTPException
 
 from app.config import settings
-from app.services.rate_limiter import check_rate_limit
+from app.services.rate_limiter import check_rate_limit, rate_key
 
 SCOPE = "test-rate-limiter"
+
+
+def test_rate_key_namespaces_scope_and_identifier():
+    assert rate_key("auth", "user@test.example") == "rate:auth:user@test.example"
 
 
 @pytest.fixture

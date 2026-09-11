@@ -24,11 +24,14 @@ _LOCK_TTL = 3300
 
 
 def stale_rep_targets_query(cutoff: datetime) -> Delete:
-    """Delete aged rep-lookup targets that no campaign still lists.
+    """Delete aged rep-lookup targets that no campaign lists and no call logged.
 
-    Call.target_id is ON DELETE SET NULL, so call history outlives the target
-    row it pointed at.
+    Same rule as removing a target by hand: a target a Call still points at is
+    kept so per-target analytics, which inner-join Target, keep resolving that
+    call to a named official.
     """
+    from app.models.call_session import CallSession  # noqa: F401 — registers mapper
+    from app.models.call import Call
     from app.models.campaign_target import CampaignTarget
     from app.models.target import Target
 
@@ -36,6 +39,7 @@ def stale_rep_targets_query(cutoff: datetime) -> Delete:
         Target.external_id == REP_LOOKUP_EXTERNAL_ID,
         Target.created_at < cutoff,
         ~exists().where(CampaignTarget.target_id == Target.id),
+        ~exists().where(Call.target_id == Target.id),
     )
 
 

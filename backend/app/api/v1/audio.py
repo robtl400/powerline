@@ -110,10 +110,13 @@ async def upload_audio(
     db: DB,
     key: str = Form(...),
     file: UploadFile = File(...),
-    campaign_id: uuid.UUID | None = Form(default=None),
+    campaign_id: uuid.UUID = Form(...),
     description: str | None = Form(default=None),
 ) -> AudioRecording:
     """Upload an MP3 or WAV file to S3 and create an AudioRecording row.
+
+    A recording belongs to a campaign: the call flow only ever resolves audio for
+    a campaign, so an upload without one would never be played.
 
     The new recording is NOT automatically activated — call PATCH /{id}/activate
     to make it the active version for its slot.

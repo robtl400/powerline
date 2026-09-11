@@ -7,6 +7,33 @@
  */
 
 /**
+ * Header spellings accepted for each canonical target field.
+ * Keep in sync with _KNOWN_FIELDS / _REQUIRED_FIELDS in backend/app/api/v1/campaigns.py
+ */
+export const FIELD_ALIASES: Record<string, string[]> = {
+  name: ["name", "full name", "fullname"],
+  title: ["title"],
+  phone_number: ["phone", "phone_number", "phone number", "phonenumber"],
+  location: ["location", "district"],
+  external_id: ["external_id", "external id", "id"],
+};
+
+/** Map CSV headers onto canonical field names, keyed by field. */
+export function autoMapHeaders(headers: string[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const header of headers) {
+    const lower = header.toLowerCase();
+    for (const [field, aliases] of Object.entries(FIELD_ALIASES)) {
+      if (aliases.includes(lower)) {
+        map[field] = header;
+        break;
+      }
+    }
+  }
+  return map;
+}
+
+/**
  * Parse the first CSV record of `text`.
  * Returns the header fields plus the index at which the header record ends
  * (the first line terminator that is not inside a quoted field, or the end of

@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import client from "@/api/client";
 import { formatDate } from "@/lib/formatters";
+import type { Page } from "@/types/api";
 
 interface DailyCount {
   date: string;
@@ -59,11 +60,11 @@ export default function Dashboard() {
   useEffect(() => {
     Promise.all([
       client.get<DashboardData>("/admin/dashboard"),
-      client.get<Campaign[]>("/campaigns?status=live"),
+      client.get<Page<Campaign>>("/campaigns?status=live"),
     ])
       .then(([dashRes, campRes]) => {
         setData(dashRes.data);
-        setCampaigns(campRes.data);
+        setCampaigns(campRes.data.items);
         setError(null);
       })
       .catch(() => setError("Failed to load dashboard data."))

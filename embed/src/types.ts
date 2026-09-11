@@ -71,6 +71,13 @@ export type WidgetState =
   | "lookingUpReps"
   | "repSelection";
 
+/** Payload carried alongside an "error" state change. */
+export interface ErrorDetail {
+  message: string;
+  /** Machine-readable backend code, when the response carried one. */
+  code?: string;
+}
+
 export interface ConnectedData {
   target: TargetPublicInfo;
   targetIndex: number;

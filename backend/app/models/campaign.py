@@ -56,7 +56,6 @@ class Campaign(Base):
     rate_limit: Mapped[int | None] = mapped_column(
         Integer, nullable=True, default=5, server_default="5"
     )
-    allow_call_in: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     allow_webrtc: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     allow_phone_callback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     lookup_validate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

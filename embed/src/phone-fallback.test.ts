@@ -5,10 +5,11 @@
  * representative lookup has to survive the switch from WebRTC to phone callback.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createCall } from "./api.js";
+import { ApiError, createCall } from "./api.js";
 import { submitPhoneFallback } from "./phone-fallback.js";
 
-vi.mock("./api.js", () => ({
+vi.mock("./api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api.js")>()),
   createCall: vi.fn(async () => ({ session_id: "s-1", status: "queued" })),
 }));
 
@@ -83,10 +84,27 @@ describe("submitPhoneFallback", () => {
       onStateChange,
     });
 
-    expect(onStateChange).toHaveBeenLastCalledWith(
-      "error",
-      "Daily call limit reached"
+    expect(onStateChange).toHaveBeenLastCalledWith("error", {
+      message: "Daily call limit reached",
+    });
+  });
+
+  it("carries the backend error code alongside the message", async () => {
+    mockCreateCall.mockRejectedValueOnce(
+      new ApiError("Pick a representative again", 422, "rep_token_invalid")
     );
+
+    await submitPhoneFallback({
+      baseUrl: "http://localhost",
+      campaignId: "campaign-1",
+      phoneNumber: "+15555550123",
+      onStateChange,
+    });
+
+    expect(onStateChange).toHaveBeenLastCalledWith("error", {
+      message: "Pick a representative again",
+      code: "rep_token_invalid",
+    });
   });
 
   it("falls back to a generic message for a non-Error rejection", async () => {
@@ -99,10 +117,9 @@ describe("submitPhoneFallback", () => {
       onStateChange,
     });
 
-    expect(onStateChange).toHaveBeenLastCalledWith(
-      "error",
-      "Could not place the call. Please try again."
-    );
+    expect(onStateChange).toHaveBeenLastCalledWith("error", {
+      message: "Could not place the call. Please try again.",
+    });
   });
 
   it("forwards the selected representative token", async () => {

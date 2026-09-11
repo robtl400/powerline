@@ -6,10 +6,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useIsNarrow } from "@/hooks/useMediaQuery";
 import { getErrorDetail } from "@/lib/api-error";
 import { USER_STATUS_COLORS } from "@/lib/constants";
-import { BUTTON_PRIMARY, CARD_CLASS, FOCUS_RING, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import {
+  BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
+  CARD_CLASS,
+  FOCUS_RING,
+  INPUT_CLASS,
+  PAGE_HEADING,
+} from "@/lib/styles";
 import { EmptyState, EmptyTableRow } from "@/components/EmptyState";
 import { Modal } from "@/components/Modal";
 import { PhoneInput } from "@/components/PhoneInput";
+import type { Page } from "@/types/api";
 
 interface User {
   id: string;
@@ -21,6 +29,11 @@ interface User {
   created_at: string;
 }
 
+/** POST /users also reports whether the invite SMS actually went out. */
+interface CreatedUser extends User {
+  invite_sent: boolean;
+}
+
 interface InviteForm {
   name: string;
   email: string;
@@ -30,13 +43,18 @@ interface InviteForm {
 
 const EMPTY_FORM: InviteForm = { name: "", email: "", phone: "", role: "staff" };
 
+const INVITE_NOT_SENT =
+  "Account created, but the invite SMS could not be sent. Share the reset flow with the user.";
+
 export default function Users() {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === "admin";
   const isNarrow = useIsNarrow();
 
   const [users, setUsers] = useState<User[]>([]);
+  const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -49,22 +67,43 @@ export default function Users() {
 
   useEffect(() => {
     client
-      .get<User[]>("/users")
-      .then((res) => setUsers(res.data))
+      .get<Page<User>>("/users")
+      .then((res) => {
+        setUsers(res.data.items);
+        setTotal(res.data.total);
+      })
       .catch(() => setError("Failed to load users."))
       .finally(() => setIsLoading(false));
   }, []);
+
+  function loadMore() {
+    setLoadingMore(true);
+    client
+      .get<Page<User>>(`/users?skip=${users.length}`)
+      .then((res) => {
+        setUsers((prev) => [...prev, ...res.data.items]);
+        setTotal(res.data.total);
+      })
+      .catch(() => setError("Failed to load more users."))
+      .finally(() => setLoadingMore(false));
+  }
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
     setInviting(true);
     setInviteError(null);
     try {
-      const res = await client.post<User>("/users", inviteForm);
-      setUsers((prev) => [...prev, res.data]);
+      const res = await client.post<CreatedUser>("/users", inviteForm);
+      const { invite_sent: inviteSent, ...created } = res.data;
+      setUsers((prev) => [...prev, created]);
+      setTotal((n) => n + 1);
       setInviteOpen(false);
       setInviteForm(EMPTY_FORM);
-      toast(`Invite sent to ${inviteForm.email}`);
+      if (inviteSent) {
+        toast(`Invite sent to ${inviteForm.email}`);
+      } else {
+        toast.warning(INVITE_NOT_SENT);
+      }
     } catch (err) {
       setInviteError(getErrorDetail(err, "Failed to invite user."));
     } finally {
@@ -230,7 +269,7 @@ export default function Users() {
       {error && <p className="text-sm text-brand-grey-dark">{error}</p>}
 
       {/* Mobile: one card per user — the table controls are unreachable below sm */}
-      {!isLoading && !error && isNarrow && (
+      {!isLoading && (users.length > 0 || !error) && isNarrow && (
         <div className="space-y-3">
           {users.length === 0 ? (
             <div className={CARD_CLASS}>
@@ -261,7 +300,7 @@ export default function Users() {
         </div>
       )}
 
-      {!isLoading && !error && !isNarrow && (
+      {!isLoading && (users.length > 0 || !error) && !isNarrow && (
         <div className={`${CARD_CLASS} overflow-x-auto`}>
           <table className="w-full text-sm">
             <thead>
@@ -295,6 +334,17 @@ export default function Users() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!isLoading && users.length < total && (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-brand-grey-dark">
+            Showing {users.length} of {total}
+          </p>
+          <button onClick={loadMore} disabled={loadingMore} className={BUTTON_SECONDARY}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
         </div>
       )}
     </div>

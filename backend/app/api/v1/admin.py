@@ -5,7 +5,6 @@ removing blocklist entries is admin-only.
 """
 from __future__ import annotations
 
-import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -14,11 +13,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DB, AdminUser, CurrentUser
-from app.api.v1.helpers import local_timezone
+from app.api.v1.helpers import local_timezone, phone_hash
 from app.models.blocklist import BlocklistEntry
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
-from app.schemas.admin import BlocklistCreate, BlocklistResponse
+from app.schemas.admin import BlocklistCreate, BlocklistPage, BlocklistResponse
 from app.schemas.analytics import DailyCount, DashboardResponse
 from app.schemas.target import normalize_phone
 
@@ -106,21 +105,29 @@ async def get_dashboard(
 # GET /admin/blocklist
 # ---------------------------------------------------------------------------
 
-@router.get("/blocklist", response_model=list[BlocklistResponse])
+@router.get("/blocklist", response_model=BlocklistPage)
 async def list_blocklist(
     _: CurrentUser,
     db: DB,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, le=500),
-) -> list[BlocklistEntry]:
-    """Return blocklist entries ordered by creation date descending."""
+) -> BlocklistPage:
+    """Return one page of blocklist entries, newest first, with the full count.
+
+    The count is of every entry, not of the page, so a client paging through
+    the list knows how far it runs.
+    """
+    total: int = await db.scalar(select(func.count()).select_from(BlocklistEntry)) or 0
     result = await db.execute(
         select(BlocklistEntry)
         .order_by(BlocklistEntry.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
-    return list(result.scalars().all())
+    return BlocklistPage(
+        total=total,
+        items=[BlocklistResponse.model_validate(entry) for entry in result.scalars().all()],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +146,7 @@ async def create_blocklist_entry(
     call paths hash callers, so the stored digest matches at block time; the
     raw number is never persisted.
     """
-    phone_hash = body.phone_hash
+    stored_hash = body.phone_hash
     if body.phone_number:
         try:
             e164 = normalize_phone(body.phone_number)
@@ -147,10 +154,10 @@ async def create_blocklist_entry(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
             )
-        phone_hash = hashlib.sha256(e164.encode()).hexdigest()
+        stored_hash = phone_hash(e164)
 
     entry = BlocklistEntry(
-        phone_hash=phone_hash,
+        phone_hash=stored_hash,
         ip_address=body.ip_address,
         reason=body.reason,
         created_by_id=current_user.id,

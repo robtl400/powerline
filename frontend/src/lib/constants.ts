@@ -1,35 +1,42 @@
 // Shared color-class mappings for status badges.
 // Any new status/type values should be added here so all pages stay in sync.
 
+/** Neutral chip surface — the resting state every badge map falls back to. */
+export const NEUTRAL_CHIP = "bg-page-bg text-brand-grey-dark border border-brand-border";
+
+const ORANGE_CHIP = "bg-[rgba(242,84,45,0.10)] text-[#F2542D] border border-[rgba(242,84,45,0.25)]";
+
+const GUM_CHIP = "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]";
+
 // Tailwind class-based mappings kept for simpler badge use
 export const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
-  draft:    "bg-[#F9FAFB] text-[#53565B] border border-[#E4E6EC]",
-  live:     "bg-[rgba(242,84,45,0.10)] text-[#F2542D] border border-[rgba(242,84,45,0.25)]",
-  paused:   "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
-  archived: "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
-  completed:"bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
-  failed:   "bg-[#F3F4F6] text-[#53565B] border border-[#D1D3D9]",
+  draft:    NEUTRAL_CHIP,
+  live:     ORANGE_CHIP,
+  paused:   NEUTRAL_CHIP,
+  archived: NEUTRAL_CHIP,
+  completed:GUM_CHIP,
+  failed:   NEUTRAL_CHIP,
 };
 
 export const CALL_SESSION_STATUS_COLORS: Record<string, string> = {
-  completed:   "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
-  initiated:   "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
-  in_progress: "bg-[rgba(242,84,45,0.10)] text-[#F2542D] border border-[rgba(242,84,45,0.25)]",
-  failed:      "bg-[#F3F4F6] text-[#53565B] border border-[#D1D3D9]",
+  completed:   GUM_CHIP,
+  initiated:   NEUTRAL_CHIP,
+  in_progress: ORANGE_CHIP,
+  failed:      NEUTRAL_CHIP,
 };
 
 export const CONNECTION_TYPE_COLORS: Record<string, string> = {
-  webrtc:         "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
-  outbound_phone: "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
-  inbound_phone:  "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
+  webrtc:         NEUTRAL_CHIP,
+  outbound_phone: NEUTRAL_CHIP,
+  inbound_phone:  NEUTRAL_CHIP,
 };
 
 // Twilio trust_status values as they arrive from the API
 export const TRUST_STATUS_COLORS: Record<string, string> = {
-  "twilio-approved": "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
-  "pending-review":  "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
-  "in-review":       "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
-  unknown:           "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
+  "twilio-approved": GUM_CHIP,
+  "pending-review":  NEUTRAL_CHIP,
+  "in-review":       NEUTRAL_CHIP,
+  unknown:           NEUTRAL_CHIP,
 };
 
 export const TRUST_STATUS_LABELS: Record<string, string> = {
@@ -40,14 +47,14 @@ export const TRUST_STATUS_LABELS: Record<string, string> = {
 };
 
 export const USER_STATUS_COLORS: Record<string, string> = {
-  active:   "bg-[rgba(176,83,87,0.10)] text-[#B05357] border border-[rgba(176,83,87,0.20)]",
-  inactive: "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]",
+  active:   GUM_CHIP,
+  inactive: NEUTRAL_CHIP,
 };
 
 // Phone-number capability tags are descriptive, not actionable — neutral grey.
-export const CAPABILITY_BADGE_COLOR = "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]";
+export const CAPABILITY_BADGE_COLOR = NEUTRAL_CHIP;
 
-export const FALLBACK_BADGE_COLOR = "bg-[#F4F5F7] text-[#53565B] border border-[#E4E6EC]";
+export const FALLBACK_BADGE_COLOR = NEUTRAL_CHIP;
 
 // Campaign status machine — mirrors backend VALID_TRANSITIONS
 export const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -63,6 +70,13 @@ export const STATUS_LABELS: Record<string, string> = {
   live: "Live",
   archived: "Archived",
 };
+
+/** Largest audio file the upload endpoint accepts, in bytes. */
+export const MAX_AUDIO_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+/** Password length bounds enforced by the backend on reset and invite. */
+export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MAX_LENGTH = 128;
 
 export const AUDIO_SLOTS = [
   { key: "msg_intro", label: "Intro Greeting", hint: "Played when the call connects." },

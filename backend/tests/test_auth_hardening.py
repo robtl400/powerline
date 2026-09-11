@@ -74,14 +74,14 @@ async def reset_user(db: AsyncSession, redis) -> AsyncGenerator[User, None]:
 @pytest.fixture
 def auth_sms(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     mock = MagicMock(return_value="SM_test")
-    monkeypatch.setattr("app.api.v1.auth.send_sms", mock)
+    monkeypatch.setattr("app.services.sms.send_sms", mock)
     return mock
 
 
 @pytest.fixture
 def users_sms(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     mock = MagicMock(return_value="SM_test")
-    monkeypatch.setattr("app.api.v1.users.send_sms", mock)
+    monkeypatch.setattr("app.services.sms.send_sms", mock)
     return mock
 
 
@@ -244,7 +244,9 @@ async def test_reset_confirm_rejects_weak_password(
     assert resp.status_code == 422
 
 
-async def test_login_rate_limited_per_email(client: AsyncClient, reset_user: User) -> None:
+async def test_login_rate_limited_per_email(
+    client: AsyncClient, reset_user: User, redis
+) -> None:
     for _ in range(settings.AUTH_RATE_LIMIT):
         resp = await client.post(
             "/api/v1/auth/login",
@@ -257,6 +259,35 @@ async def test_login_rate_limited_per_email(client: AsyncClient, reset_user: Use
         json={"email": reset_user.email, "password": OLD_PASSWORD},
     )
     assert resp.status_code == 429
+
+    keys = [key async for key in redis.scan_iter(match="rate:login-email:*")]
+    assert f"rate:login-email:{reset_user.email.lower()}|127.0.0.1" in keys
+
+
+async def test_login_lockout_does_not_follow_the_email_to_another_ip(
+    client: AsyncClient, reset_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exhausting one IP's bucket must not lock the account out everywhere."""
+    for _ in range(settings.AUTH_RATE_LIMIT):
+        resp = await client.post(
+            "/api/v1/auth/login",
+            json={"email": reset_user.email, "password": "wrongpassword"},
+        )
+        assert resp.status_code == 401
+
+    blocked = await client.post(
+        "/api/v1/auth/login",
+        json={"email": reset_user.email, "password": OLD_PASSWORD},
+    )
+    assert blocked.status_code == 429
+
+    monkeypatch.setattr(settings, "TRUSTED_PROXIES", "127.0.0.1/32")
+    elsewhere = await client.post(
+        "/api/v1/auth/login",
+        headers={"X-Forwarded-For": "203.0.113.9"},
+        json={"email": reset_user.email, "password": OLD_PASSWORD},
+    )
+    assert elsewhere.status_code == 200
 
 
 async def test_refresh_rejects_deactivated_user(

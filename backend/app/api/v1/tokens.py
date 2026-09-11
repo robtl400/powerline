@@ -25,9 +25,6 @@ log = structlog.get_logger()
 
 router = APIRouter(tags=["tokens"])
 
-_TOKEN_RATE_LIMIT = 5  # max AccessTokens per IP per hour
-_TOKEN_CAMPAIGN_LIMIT = 500  # max AccessTokens per campaign per hour
-
 
 @router.post("/tokens/voice", response_model=VoiceTokenResponse)
 async def create_voice_token(
@@ -67,8 +64,10 @@ async def create_voice_token(
 
     # 3. Rate limit by client IP and by campaign
     redis = get_redis()
-    await check_rate_limit(redis, "token", ip, _TOKEN_RATE_LIMIT)
-    await check_rate_limit(redis, "token-campaign", str(campaign.id), _TOKEN_CAMPAIGN_LIMIT)
+    await check_rate_limit(redis, "token", ip, settings.TOKEN_RATE_LIMIT)
+    await check_rate_limit(
+        redis, "token-campaign", str(campaign.id), settings.TOKEN_CAMPAIGN_RATE_LIMIT
+    )
 
     # 4. Claim a slot under the campaign ceiling, open the session, store its state
     session_id = await start_call_session(

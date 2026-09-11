@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from functools import partial
+from typing import Any
 
 from sqlalchemy import Select, select, update
 from sqlalchemy.orm import Session
@@ -22,10 +24,11 @@ log = logging.getLogger(__name__)
 # How far back to look for un-scored completed calls.
 _LOOKBACK_HOURS = 24
 
-# Beat fires every 15 minutes; the lock outlives a normal run but expires well
-# before the next-but-one tick, so a crashed worker cannot wedge the schedule.
+# Beat fires every 15 minutes. The TTL covers a run that overruns several ticks
+# — a slow Twilio API must not let a second worker start the same fetch — and
+# still expires on its own, so a crashed worker cannot wedge the schedule.
 _LOCK_KEY = "lock:voice_insights"
-_LOCK_TTL = 840
+_LOCK_TTL = 1500
 
 # Twilio rate-limits the Insights API, so keep the fan-out modest.
 _MAX_WORKERS = 4
@@ -50,15 +53,12 @@ def candidate_calls_query(cutoff: datetime) -> Select:
     )
 
 
-def _fetch_summary(call_sid: str) -> dict | None:
+def _fetch_summary(client: Any, call_sid: str) -> dict | None:
     """Call Twilio Voice Insights API for a single call SID.
 
     Returns a dict with quality_score and quality_details, or None on failure.
     """
     try:
-        from twilio.rest import Client as TwilioClient
-
-        client = TwilioClient(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
         summary = client.insights.v1.calls(call_sid).summary.fetch()
 
         quality_details: dict = {
@@ -97,8 +97,13 @@ def _run() -> dict:
         log.info("voice_insights_task_start", extra={"candidate_calls": len(rows)})
 
         if rows:
+            from twilio.rest import Client as TwilioClient
+
+            client = TwilioClient(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
             with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
-                summaries = list(pool.map(_fetch_summary, [sid for _, sid in rows]))
+                summaries = list(
+                    pool.map(partial(_fetch_summary, client), [sid for _, sid in rows])
+                )
         else:
             summaries = []
 

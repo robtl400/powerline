@@ -3,9 +3,18 @@ import { Link, useNavigate } from "react-router-dom";
 import { Megaphone } from "lucide-react";
 import client from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { BUTTON_PRIMARY, CARD_CLASS, FOCUS_RING, INPUT_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
+import {
+  BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
+  CARD_CLASS,
+  FOCUS_RING,
+  INPUT_CLASS,
+  LINK_BUTTON,
+  PAGE_HEADING,
+} from "@/lib/styles";
 import { CAMPAIGN_STATUS_COLORS, FALLBACK_BADGE_COLOR } from "@/lib/constants";
 import { EmptyState } from "@/components/EmptyState";
+import type { Page } from "@/types/api";
 
 interface Campaign {
   id: string;
@@ -18,15 +27,26 @@ interface Campaign {
 
 const STATUSES = ["all", "draft", "live", "paused", "archived"];
 
+function listUrl(statusFilter: string, q: string, skip: number): string {
+  const params = new URLSearchParams();
+  if (statusFilter !== "all") params.set("status", statusFilter);
+  if (q) params.set("q", q);
+  if (skip > 0) params.set("skip", String(skip));
+  const query = params.toString();
+  return `/campaigns${query ? `?${query}` : ""}`;
+}
+
 export default function Campaigns() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,19 +56,29 @@ export default function Campaigns() {
 
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    if (debouncedSearch) params.set("q", debouncedSearch);
-    const query = params.toString();
     client
-      .get<Campaign[]>(`/campaigns${query ? `?${query}` : ""}`)
+      .get<Page<Campaign>>(listUrl(statusFilter, debouncedSearch, 0))
       .then((res) => {
-        setCampaigns(res.data);
+        setCampaigns(res.data.items);
+        setTotal(res.data.total);
         setError(null);
       })
       .catch(() => setError("Failed to load campaigns."))
       .finally(() => setLoading(false));
   }, [statusFilter, debouncedSearch]);
+
+  function loadMore() {
+    setLoadingMore(true);
+    client
+      .get<Page<Campaign>>(listUrl(statusFilter, debouncedSearch, campaigns.length))
+      .then((res) => {
+        setCampaigns((prev) => [...prev, ...res.data.items]);
+        setTotal(res.data.total);
+        setError(null);
+      })
+      .catch(() => setError("Failed to load more campaigns."))
+      .finally(() => setLoadingMore(false));
+  }
 
   return (
     <div>
@@ -123,7 +153,7 @@ export default function Campaigns() {
         </div>
       )}
 
-      {!loading && !error && campaigns.length > 0 && (
+      {!loading && campaigns.length > 0 && (
         <div className={`${CARD_CLASS} overflow-x-auto`}>
           <table className="w-full text-sm">
             <thead className="bg-page-bg text-brand-grey-dark">
@@ -185,6 +215,17 @@ export default function Campaigns() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!loading && campaigns.length < total && (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <p className="text-sm text-brand-grey-dark">
+            Showing {campaigns.length} of {total}
+          </p>
+          <button onClick={loadMore} disabled={loadingMore} className={BUTTON_SECONDARY}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
         </div>
       )}
     </div>

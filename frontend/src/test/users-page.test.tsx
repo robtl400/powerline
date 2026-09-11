@@ -23,12 +23,14 @@ const mocks = vi.hoisted(() => ({
     delete: vi.fn(),
   },
   auth: { user: null as unknown },
+  toast: Object.assign(vi.fn(), { warning: vi.fn() }),
 }));
 
 const mockClient = mocks.client;
+const mockToast = mocks.toast;
 
 vi.mock("@/api/client", () => ({ default: mocks.client }));
-vi.mock("sonner", () => ({ toast: vi.fn() }));
+vi.mock("sonner", () => ({ toast: mocks.toast }));
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ user: mocks.auth.user, isLoading: false, login: vi.fn(), logout: vi.fn() }),
 }));
@@ -81,7 +83,7 @@ async function renderUsers() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockClient.get.mockResolvedValue({ data: USER_ROWS });
+  mockClient.get.mockResolvedValue({ data: { total: USER_ROWS.length, items: USER_ROWS } });
 });
 
 describe("Users — admin", () => {
@@ -142,6 +144,88 @@ describe("Users — admin", () => {
     expect(
       await screen.findByText("Cannot deactivate or demote the last active admin")
     ).toBeInTheDocument();
+  });
+});
+
+describe("Users — invite result", () => {
+  const NEW_USER = {
+    id: "new-1",
+    email: "new@example.com",
+    name: "Nia New",
+    phone: "+12025550003",
+    role: "staff",
+    is_active: true,
+    created_at: "2026-01-03T00:00:00Z",
+  };
+
+  beforeEach(() => {
+    setCurrentUser(ADMIN);
+  });
+
+  async function submitInvite() {
+    await renderUsers();
+    fireEvent.click(screen.getByRole("button", { name: "Invite User" }));
+    fireEvent.change(screen.getByPlaceholderText("Full name"), {
+      target: { value: "Nia New" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("user@example.com"), {
+      target: { value: "new@example.com" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("(555) 555-5555"), {
+      target: { value: "2025550003" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send Invite" }));
+  }
+
+  it("confirms the invite when the SMS went out", async () => {
+    mockClient.post.mockResolvedValue({ data: { ...NEW_USER, invite_sent: true } });
+    await submitInvite();
+
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith("Invite sent to new@example.com")
+    );
+    expect(mockToast.warning).not.toHaveBeenCalled();
+  });
+
+  it("warns when the account was created but the invite SMS failed", async () => {
+    mockClient.post.mockResolvedValue({ data: { ...NEW_USER, invite_sent: false } });
+    await submitInvite();
+
+    await waitFor(() =>
+      expect(mockToast.warning).toHaveBeenCalledWith(
+        "Account created, but the invite SMS could not be sent. Share the reset flow with the user."
+      )
+    );
+    expect(await screen.findByText("Nia New")).toBeInTheDocument();
+  });
+});
+
+describe("Users — paging", () => {
+  beforeEach(() => {
+    setCurrentUser(ADMIN);
+  });
+
+  it("appends the next page from the Load more control", async () => {
+    const THIRD = {
+      id: "staff-2",
+      email: "kit@example.com",
+      name: "Kit Staff",
+      phone: "+12025550004",
+      role: "staff",
+      is_active: true,
+      created_at: "2026-01-04T00:00:00Z",
+    };
+    mockClient.get.mockResolvedValueOnce({ data: { total: 3, items: USER_ROWS } });
+    mockClient.get.mockResolvedValueOnce({ data: { total: 3, items: [THIRD] } });
+
+    await renderUsers();
+    expect(screen.getByText("Showing 2 of 3")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+
+    await waitFor(() => expect(mockClient.get).toHaveBeenLastCalledWith("/users?skip=2"));
+    expect(await screen.findByText("Kit Staff")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
   });
 });
 

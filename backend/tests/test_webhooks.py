@@ -5,14 +5,17 @@ attributes in the generated TwiML, and the abandoned-session status mapping.
 """
 from __future__ import annotations
 
-import hashlib
 import uuid
 
 import pytest
+from fastapi.routing import APIRoute
 from httpx import AsyncClient
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.helpers import phone_hash
+from app.dependencies import validate_twilio_request
+from app.main import app
 from app.models.blocklist import BlocklistEntry
 from app.models.call import Call
 from app.models.call_session import CallSession
@@ -41,7 +44,7 @@ async def clear_rate_buckets(redis):
     """Drop every rate-limit bucket this module touches, before and after."""
     keys = [f"rate:call-ip:{TEST_IP}", f"rate:call-webhook-ip:{TEST_IP}"]
     keys += [
-        f"rate:{scope}:{hashlib.sha256(phone.encode()).hexdigest()}"
+        f"rate:{scope}:{phone_hash(phone)}"
         for scope in ("call", "call-webhook")
         for phone in MODULE_PHONES
     ]
@@ -76,8 +79,7 @@ async def flow(db: AsyncSession, campaign: Campaign):
         id=uuid.uuid4(),
         campaign_id=campaign.id,
         connection_type="outbound_phone",
-        caller_phone_hash=hashlib.sha256(MODULE_PHONES[0].encode()).hexdigest(),
-        from_number=MODULE_PHONES[0],
+        caller_phone_hash=phone_hash(MODULE_PHONES[0]),
         twilio_call_sid=call_sid,
         status="in_progress",
     )
@@ -617,7 +619,7 @@ async def test_voice_app_hangs_up_on_a_blocklisted_caller_without_a_stored_hash(
     await save_call_state(session.id, state)
 
     entry = BlocklistEntry(
-        phone_hash=hashlib.sha256(caller.encode()).hexdigest(), reason="webhook test"
+        phone_hash=phone_hash(caller), reason="webhook test"
     )
     db.add(entry)
     await db.commit()
@@ -634,3 +636,36 @@ async def test_voice_app_hangs_up_on_a_blocklisted_caller_without_a_stored_hash(
     finally:
         await db.execute(delete(BlocklistEntry).where(BlocklistEntry.id == entry_id))
         await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Route wiring
+# ---------------------------------------------------------------------------
+
+
+def _mounted_routes(router, prefix: str = ""):
+    """Yield (full path, route) for every API route reachable through `router`."""
+    for route in getattr(router, "routes", []):
+        context = getattr(route, "include_context", None)
+        if context is not None:
+            yield from _mounted_routes(context.included_router, prefix + context.prefix)
+        elif isinstance(route, APIRoute):
+            yield prefix + route.path, route
+
+
+def test_every_twilio_webhook_route_validates_the_signature() -> None:
+    """No route under /webhooks/twilio may be reachable without the signature check."""
+    routes = [
+        (path, route)
+        for path, route in _mounted_routes(app)
+        if path.startswith("/webhooks/twilio")
+    ]
+    assert routes, "No Twilio webhook routes found"
+
+    unprotected = [
+        f"{sorted(route.methods)} {path}"
+        for path, route in routes
+        if validate_twilio_request
+        not in [dep.call for dep in route.dependant.dependencies]
+    ]
+    assert not unprotected, f"Twilio webhook routes without a signature check: {unprotected}"

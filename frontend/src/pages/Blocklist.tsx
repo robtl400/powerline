@@ -3,10 +3,18 @@ import { ShieldOff } from "lucide-react";
 import client from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { getErrorDetail } from "@/lib/api-error";
-import { BUTTON_PRIMARY, CARD_CLASS, INPUT_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
+import {
+  BUTTON_PRIMARY,
+  BUTTON_SECONDARY,
+  CARD_CLASS,
+  INPUT_CLASS,
+  LINK_BUTTON,
+  PAGE_HEADING,
+} from "@/lib/styles";
 import { EmptyState } from "@/components/EmptyState";
 import { Modal } from "@/components/Modal";
-import { PhoneInput, validatePhone } from "@/components/PhoneInput";
+import { PHONE_VALIDATION_MESSAGE, PhoneInput, validatePhone } from "@/components/PhoneInput";
+import type { Page } from "@/types/api";
 
 interface BlocklistEntry {
   id: string;
@@ -33,7 +41,9 @@ export default function Blocklist() {
   const isAdmin = user?.role === "admin";
 
   const [entries, setEntries] = useState<BlocklistEntry[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Add form state
@@ -49,11 +59,26 @@ export default function Blocklist() {
 
   useEffect(() => {
     client
-      .get<BlocklistEntry[]>("/admin/blocklist")
-      .then((res) => setEntries(res.data))
+      .get<Page<BlocklistEntry>>("/admin/blocklist")
+      .then((res) => {
+        setEntries(res.data.items);
+        setTotal(res.data.total);
+      })
       .catch(() => setError("Failed to load blocklist."))
       .finally(() => setLoading(false));
   }, []);
+
+  function loadMore() {
+    setLoadingMore(true);
+    client
+      .get<Page<BlocklistEntry>>(`/admin/blocklist?skip=${entries.length}`)
+      .then((res) => {
+        setEntries((prev) => [...prev, ...res.data.items]);
+        setTotal(res.data.total);
+      })
+      .catch(() => setError("Failed to load more blocklist entries."))
+      .finally(() => setLoadingMore(false));
+  }
 
   async function handleAdd() {
     const hasPhone = phoneNumber.replace(/\D/g, "").length > 1;
@@ -65,7 +90,7 @@ export default function Blocklist() {
       return;
     }
     if (hasPhone && !validatePhone(phoneNumber)) {
-      setFormError("Enter a 10-digit US phone number");
+      setFormError(PHONE_VALIDATION_MESSAGE);
       return;
     }
 
@@ -78,6 +103,7 @@ export default function Blocklist() {
         reason: reason.trim() || null,
       });
       setEntries((prev) => [res.data, ...prev]);
+      setTotal((n) => n + 1);
       setPhoneNumber("");
       setPhoneHash("");
       setShowHashField(false);
@@ -98,6 +124,7 @@ export default function Blocklist() {
     try {
       await client.delete(`/admin/blocklist/${entry.id}`);
       setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+      setTotal((n) => Math.max(0, n - 1));
     } catch {
       setError("Failed to delete entry.");
     }
@@ -262,6 +289,17 @@ export default function Blocklist() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {entries.length < total && (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <p className="text-sm text-brand-grey-dark">
+            Showing {entries.length} of {total}
+          </p>
+          <button onClick={loadMore} disabled={loadingMore} className={BUTTON_SECONDARY}>
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
         </div>
       )}
 

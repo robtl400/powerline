@@ -1,4 +1,4 @@
-import { createCall } from "./api.js";
+import { createCall, errorDetail } from "./api.js";
 import type { WidgetState } from "./types.js";
 
 type StateCallback = (state: WidgetState, data?: unknown) => void;
@@ -31,10 +31,9 @@ export async function submitPhoneFallback({
     await createCall(baseUrl, campaignId, cleaned, repToken);
     onStateChange("phone_pending");
   } catch (err) {
-    const msg =
-      err instanceof Error
-        ? err.message
-        : "Could not place the call. Please try again.";
-    onStateChange("error", msg);
+    onStateChange(
+      "error",
+      errorDetail(err, "Could not place the call. Please try again.")
+    );
   }
 }

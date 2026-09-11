@@ -26,7 +26,6 @@ class CampaignCreate(BaseModel):
     target_ordering: TargetOrdering = "in_order"
     call_maximum: int | None = None
     rate_limit: int | None = None
-    allow_call_in: bool = False
     allow_webrtc: bool = True
     allow_phone_callback: bool = True
     lookup_validate: bool = True
@@ -43,7 +42,6 @@ class CampaignUpdate(BaseModel):
     target_ordering: TargetOrdering | None = None
     call_maximum: int | None = None
     rate_limit: int | None = None
-    allow_call_in: bool | None = None
     allow_webrtc: bool | None = None
     allow_phone_callback: bool | None = None
     lookup_validate: bool | None = None
@@ -65,7 +63,6 @@ class CampaignResponse(BaseModel):
     target_ordering: str
     call_maximum: int | None
     rate_limit: int | None
-    allow_call_in: bool
     allow_webrtc: bool
     allow_phone_callback: bool
     lookup_validate: bool
@@ -81,6 +78,13 @@ class CampaignResponse(BaseModel):
 class CampaignDetailResponse(CampaignResponse):
     targets: list[TargetInCampaign] = []
     targets_total: int = 0
+
+
+class CampaignPage(BaseModel):
+    """One page of campaigns; `total` counts every campaign matching the filters."""
+
+    total: int
+    items: list[CampaignResponse] = []
 
 
 class TargetPublicInfo(BaseModel):

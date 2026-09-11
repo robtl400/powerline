@@ -61,7 +61,6 @@ function baseCampaign(): CampaignDetail {
     target_ordering: "in_order",
     call_maximum: 3,
     rate_limit: null,
-    allow_call_in: false,
     allow_webrtc: true,
     allow_phone_callback: true,
     lookup_validate: true,

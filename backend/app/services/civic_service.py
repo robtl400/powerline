@@ -8,7 +8,7 @@ import secrets
 import structlog
 
 from app.redis_client import get_redis
-from app.schemas.calls import _to_us_e164
+from app.schemas.target import to_us_e164
 from app.services.civic.google_civic import MissingApiKeyError
 from app.services.civic.router import LevelRouter
 
@@ -37,7 +37,7 @@ def normalize_rep_phone(value: str | None) -> str | None:
     if not candidate:
         return None
     try:
-        return _to_us_e164(candidate)
+        return to_us_e164(candidate)
     except ValueError:
         return None
 

@@ -23,6 +23,10 @@ router = APIRouter(prefix="/campaigns", tags=["reps"])
 
 _ZIP_RE = re.compile(r"^\d{5}$")
 
+# A campaign serves many callers, so its hourly ceiling is a multiple of the
+# per-IP limit.
+REPS_CAMPAIGN_MULTIPLIER = 25
+
 _NO_REPS_DEFAULT = (
     "We couldn't find a representative for your zip code. "
     "You may enter a phone number manually."
@@ -70,7 +74,7 @@ async def get_reps(
         get_redis(),
         "reps-campaign",
         str(campaign_id),
-        settings.REPS_RATE_LIMIT * 25,
+        settings.REPS_RATE_LIMIT * REPS_CAMPAIGN_MULTIPLIER,
     )
 
     embed_config: dict = campaign.embed_config or {}

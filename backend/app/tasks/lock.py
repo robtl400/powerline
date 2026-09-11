@@ -12,12 +12,13 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-_RELEASE_IF_OWNER = """
+RELEASE_IF_OWNER = """
 if redis.call('get', KEYS[1]) == ARGV[1] then
     return redis.call('del', KEYS[1])
 end
 return 0
 """
+
 
 
 def acquire(client: Any, key: str, ttl: int) -> str | None:
@@ -30,7 +31,7 @@ def acquire(client: Any, key: str, ttl: int) -> str | None:
 
 def release(client: Any, key: str, token: str) -> bool:
     """Release the lock only when this token still owns it."""
-    return bool(client.eval(_RELEASE_IF_OWNER, 1, key, token))
+    return bool(client.eval(RELEASE_IF_OWNER, 1, key, token))
 
 
 @contextmanager

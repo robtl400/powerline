@@ -35,7 +35,6 @@ class CallSession(Base):
         Enum("webrtc", "outbound_phone", "inbound_phone", name="connection_type"),
         nullable=False,
     )
-    from_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Populated on first voice-app webhook hit; empty string until then.
     twilio_call_sid: Mapped[str] = mapped_column(String(40), nullable=False, default="", index=True)
     status: Mapped[str] = mapped_column(

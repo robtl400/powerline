@@ -1,7 +1,6 @@
 """Tests for the admin dashboard and blocklist endpoints."""
 from __future__ import annotations
 
-import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -10,12 +9,12 @@ from httpx import AsyncClient
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.helpers import phone_hash
 from app.config import settings
 from app.models.call_session import CallSession
 from app.models.campaign import Campaign
 
 BLOCK_PHONE = "+12025550611"
-BLOCK_PHONE_E164_HASH = hashlib.sha256(BLOCK_PHONE.encode()).hexdigest()
 
 
 async def _delete(client: AsyncClient, entry_id: str, admin_headers: dict) -> None:
@@ -39,7 +38,7 @@ async def test_create_by_phone_number_stores_matching_hash(
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["phone_hash"] == BLOCK_PHONE_E164_HASH
+    assert body["phone_hash"] == phone_hash(BLOCK_PHONE)
     assert body["ip_address"] is None
     assert body["reason"] == "abuse"
 
@@ -101,12 +100,39 @@ async def test_blocklist_list_and_delete_round_trip(
 
     listed = await client.get("/api/v1/admin/blocklist", headers=admin_headers)
     assert listed.status_code == 200
-    assert entry_id in [e["id"] for e in listed.json()]
+    page = listed.json()
+    assert entry_id in [e["id"] for e in page["items"]]
+    assert page["total"] >= len(page["items"])
 
     await _delete(client, entry_id, admin_headers)
 
     listed_again = await client.get("/api/v1/admin/blocklist", headers=admin_headers)
-    assert entry_id not in [e["id"] for e in listed_again.json()]
+    assert entry_id not in [e["id"] for e in listed_again.json()["items"]]
+
+
+async def test_blocklist_total_counts_past_the_page(
+    client: AsyncClient, admin_headers: dict
+) -> None:
+    """`limit` bounds the items; `total` still counts every entry."""
+    created = []
+    for i in range(2):
+        resp = await client.post(
+            "/api/v1/admin/blocklist",
+            json={"ip_address": f"203.0.113.{20 + i}", "reason": "paging"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        created.append(resp.json()["id"])
+
+    try:
+        page = await client.get("/api/v1/admin/blocklist?limit=1", headers=admin_headers)
+        assert page.status_code == 200
+        body = page.json()
+        assert len(body["items"]) == 1
+        assert body["total"] >= 2
+    finally:
+        for entry_id in created:
+            await _delete(client, entry_id, admin_headers)
 
 
 async def test_delete_unknown_entry_is_404(

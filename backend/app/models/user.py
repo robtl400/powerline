@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, String
+from sqlalchemy import Boolean, DateTime, Enum, Index, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,3 +27,6 @@ class User(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+
+
+Index("ix_users_email_lower", func.lower(User.__table__.c.email), unique=True)

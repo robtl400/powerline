@@ -39,7 +39,9 @@ async def test_list_campaigns(
 ) -> None:
     resp = await client.get("/api/v1/campaigns", headers=admin_headers)
     assert resp.status_code == 200
-    ids = [c["id"] for c in resp.json()]
+    body = resp.json()
+    assert body["total"] >= 1
+    ids = [c["id"] for c in body["items"]]
     assert str(campaign.id) in ids
 
 
@@ -252,14 +254,16 @@ async def test_list_campaigns_search_filters_by_name(
         term = campaign.name.split(" ")[-1]
         resp = await client.get(f"/api/v1/campaigns?q={term}", headers=admin_headers)
         assert resp.status_code == 200
-        ids = [c["id"] for c in resp.json()]
+        body = resp.json()
+        ids = [c["id"] for c in body["items"]]
         assert str(campaign.id) in ids
         assert str(other.id) not in ids
+        assert body["total"] == len(ids)
 
         # Wildcards in the term are literal, not LIKE metacharacters.
         wild = await client.get("/api/v1/campaigns?q=%25", headers=admin_headers)
         assert wild.status_code == 200
-        assert str(campaign.id) not in [c["id"] for c in wild.json()]
+        assert str(campaign.id) not in [c["id"] for c in wild.json()["items"]]
     finally:
         await db.execute(delete(Campaign).where(Campaign.id == other.id))
         await db.commit()
@@ -268,11 +272,22 @@ async def test_list_campaigns_search_filters_by_name(
 async def test_list_campaigns_pagination(
     client: AsyncClient, campaign: Campaign, admin_headers: dict
 ) -> None:
-    """skip/limit are honoured and the response stays a bare list."""
-    page = await client.get("/api/v1/campaigns?skip=0&limit=1", headers=admin_headers)
+    """skip/limit bound the page while total counts everything the filters match."""
+    term = campaign.name.split(" ")[-1]
+
+    page = await client.get(
+        f"/api/v1/campaigns?q={term}&skip=0&limit=1", headers=admin_headers
+    )
     assert page.status_code == 200
-    assert isinstance(page.json(), list)
-    assert len(page.json()) <= 1
+    body = page.json()
+    assert body["total"] == 1
+    assert [c["id"] for c in body["items"]] == [str(campaign.id)]
+
+    past_the_end = await client.get(
+        f"/api/v1/campaigns?q={term}&skip=1&limit=1", headers=admin_headers
+    )
+    assert past_the_end.json()["items"] == []
+    assert past_the_end.json()["total"] == 1
 
     assert (
         await client.get("/api/v1/campaigns?limit=501", headers=admin_headers)
@@ -418,7 +433,6 @@ async def test_update_campaign_writes_every_editable_field(
         "target_ordering": "shuffle",
         "call_maximum": 250,
         "rate_limit": 9,
-        "allow_call_in": True,
         "allow_webrtc": False,
         "allow_phone_callback": False,
         "lookup_validate": False,
@@ -593,18 +607,67 @@ async def test_checklist_ignores_whitespace_only_talking_points(
 
 
 # ---------------------------------------------------------------------------
-# GET /{id}/count — public, cached for ten minutes
+# GET /{id}/count — public, live-only, rate limited, cached for ten minutes
 # ---------------------------------------------------------------------------
 
+_COUNT_RATE_KEY = "rate:count:127.0.0.1"
 
-async def test_count_unknown_campaign_is_404(client: AsyncClient) -> None:
+
+@pytest.fixture
+async def clear_count_rate_limit(redis):
+    """Drop the shared per-IP count bucket around every test that uses it."""
+    await redis.delete(_COUNT_RATE_KEY)
+    yield
+    await redis.delete(_COUNT_RATE_KEY)
+
+
+async def test_count_unknown_campaign_is_404(
+    client: AsyncClient, clear_count_rate_limit: None
+) -> None:
     resp = await client.get(f"/api/v1/campaigns/{uuid.uuid4()}/count")
     assert resp.status_code == 404
 
 
-async def test_count_reports_completed_sessions_then_serves_the_cache(
-    client: AsyncClient, db: AsyncSession, campaign: Campaign, redis
+async def test_count_hides_a_campaign_that_is_not_live(
+    client: AsyncClient, campaign: Campaign, clear_count_rate_limit: None
 ) -> None:
+    """A draft campaign answers the same 404 as one that does not exist."""
+    resp = await client.get(f"/api/v1/campaigns/{campaign.id}/count")
+    assert resp.status_code == 404
+
+
+async def test_count_is_rate_limited_per_client_ip(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    redis,
+    clear_count_rate_limit: None,
+) -> None:
+    from app.config import settings
+
+    campaign.status = "live"
+    await db.commit()
+
+    for _ in range(settings.REPS_RATE_LIMIT):
+        allowed = await client.get(f"/api/v1/campaigns/{campaign.id}/count")
+        assert allowed.status_code == 200, allowed.text
+
+    blocked = await client.get(f"/api/v1/campaigns/{campaign.id}/count")
+    assert blocked.status_code == 429
+
+    await redis.delete(f"campaign_count:{campaign.id}")
+
+
+async def test_count_reports_completed_sessions_then_serves_the_cache(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    redis,
+    clear_count_rate_limit: None,
+) -> None:
+    campaign.status = "live"
+    await db.commit()
+
     cache_key = f"campaign_count:{campaign.id}"
     await redis.delete(cache_key)
 

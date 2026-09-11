@@ -7,7 +7,6 @@ Twilio outbound call is mocked so tests never hit the real Twilio API,
 regardless of whether TWILIO_ACCOUNT_SID / PUBLIC_BASE_URL are set in .env.
 Redis must be reachable (provided by docker compose).
 """
-import hashlib
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.helpers import phone_hash
 from app.config import settings
 from app.models.call import Call
 from app.models.call_session import CallSession
@@ -60,7 +60,7 @@ async def clear_rate_buckets(redis):
     leak between tests and between suite runs.
     """
     keys = ["rate:call-ip:127.0.0.1"] + [
-        f"rate:call:{hashlib.sha256(phone.encode()).hexdigest()}" for phone in MODULE_PHONES
+        f"rate:call:{phone_hash(phone)}" for phone in MODULE_PHONES
     ]
     await redis.delete(*keys)
     yield
@@ -181,6 +181,24 @@ async def test_voice_app_returns_gather_twiml(
     session = result.scalar_one()
     assert session.status == "in_progress"
     assert session.twilio_call_sid == "CAsmoke0001"
+
+
+async def test_create_call_rejects_oversized_referral_code(
+    client: AsyncClient,
+    campaign_with_target: tuple[Campaign, Target],
+) -> None:
+    """A referral code longer than the column is refused, not truncated on insert."""
+    campaign, _ = campaign_with_target
+
+    response = await client.post(
+        "/api/v1/calls/create",
+        json={
+            "campaign_id": str(campaign.id),
+            "phone_number": "+12025550182",
+            "referral_code": "r" * 500,
+        },
+    )
+    assert response.status_code == 422, response.text
 
 
 async def test_create_call_rejects_nonlive_campaign(

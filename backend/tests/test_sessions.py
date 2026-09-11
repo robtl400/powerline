@@ -234,7 +234,7 @@ async def test_password_reset_kills_outstanding_access_tokens(
     redis,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("app.api.v1.auth.send_sms", MagicMock(return_value="SM_test"))
+    monkeypatch.setattr("app.services.sms.send_sms", MagicMock(return_value="SM_test"))
 
     tokens = await _login(client, session_user)
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
@@ -265,15 +265,17 @@ async def test_users_list_honours_skip_and_limit(
 ) -> None:
     full = await client.get("/api/v1/users?limit=500", headers=admin_headers)
     assert full.status_code == 200
-    assert len(full.json()) >= 2
+    assert len(full.json()["items"]) >= 2
+    assert full.json()["total"] >= 2
 
     first = await client.get("/api/v1/users?limit=1", headers=admin_headers)
     assert first.status_code == 200
-    assert len(first.json()) == 1
+    assert len(first.json()["items"]) == 1
+    assert first.json()["total"] == full.json()["total"]
 
     second = await client.get("/api/v1/users?skip=1&limit=1", headers=admin_headers)
     assert second.status_code == 200
-    assert second.json()[0]["id"] != first.json()[0]["id"]
+    assert second.json()["items"][0]["id"] != first.json()["items"][0]["id"]
 
     assert (
         await client.get("/api/v1/users?limit=501", headers=admin_headers)

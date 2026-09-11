@@ -204,6 +204,26 @@ async def test_rate_limit_returns_503_with_retry_after(
 
 
 @pytest.mark.asyncio
+async def test_campaign_ceiling_is_a_multiple_of_the_per_ip_limit(
+    client: AsyncClient,
+    live_campaign: Campaign,
+    mock_lookup: AsyncMock,
+) -> None:
+    """Both buckets are checked: the caller's IP, and the campaign's wider ceiling."""
+    from app.api.v1.reps import REPS_CAMPAIGN_MULTIPLIER
+    from app.config import settings
+
+    mock_lookup.return_value = _SAMPLE_REPS
+    with patch("app.api.v1.reps.check_rate_limit", new_callable=AsyncMock) as limiter:
+        resp = await client.get(f"/api/v1/campaigns/{live_campaign.id}/reps?zip=90210")
+
+    assert resp.status_code == 200, resp.text
+    limits = {call.args[1]: call.args[3] for call in limiter.await_args_list}
+    assert limits["reps"] == settings.REPS_RATE_LIMIT
+    assert limits["reps-campaign"] == settings.REPS_RATE_LIMIT * REPS_CAMPAIGN_MULTIPLIER
+
+
+@pytest.mark.asyncio
 async def test_missing_api_key_returns_503_with_fallback(
     client: AsyncClient,
     live_campaign: Campaign,
