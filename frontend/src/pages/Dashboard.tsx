@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { LineChart as LineChartIcon, Megaphone } from "lucide-react";
 import { CARD_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
 import { EmptyState, EmptyTableRow } from "@/components/EmptyState";
+import { CampaignCardList, campaignHref } from "@/components/CampaignCards";
 import {
   Line,
   LineChart,
@@ -37,6 +38,8 @@ interface Campaign {
   status: string;
   campaign_type: string;
   target_count: number;
+  session_count: number;
+  completed_session_count: number;
   created_at: string;
 }
 
@@ -81,7 +84,7 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="rounded-md bg-page-bg text-brand-grey-dark px-4 py-3 text-sm border border-brand-border">
+      <div className="rounded-card bg-page-bg text-brand-grey-dark px-4 py-3 text-sm border border-brand-border">
         {error}
       </div>
     );
@@ -96,6 +99,29 @@ export default function Dashboard() {
       date: formatDate(d.date),
       calls: d.count,
     })) ?? [];
+
+  const liveHeading = (
+    <>
+      <h2 className="text-sm font-medium">Live Campaigns</h2>
+      <button
+        onClick={() => navigate("/campaigns")}
+        className={`${LINK_BUTTON} px-2 text-brand-black`}
+      >
+        View all
+      </button>
+    </>
+  );
+
+  const noLiveCampaigns = {
+    icon: Megaphone,
+    title: "No live campaigns",
+    description: "Set a campaign live and it shows up here.",
+    action: (
+      <Link to="/campaigns" className={`${LINK_BUTTON} px-2 text-brand-orange`}>
+        View all campaigns
+      </Link>
+    ),
+  };
 
   return (
     <div className="space-y-8">
@@ -165,18 +191,14 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Live campaigns table */}
-      <div className={`${CARD_CLASS} overflow-hidden`}>
-        <div className="border-b px-5 py-1 flex items-center justify-between">
-          <h2 className="text-sm font-medium">Live Campaigns</h2>
-          <button
-            onClick={() => navigate("/campaigns")}
-            className={`${LINK_BUTTON} px-2 text-brand-black`}
-          >
-            View all
-          </button>
-        </div>
-        <table className="w-full text-sm">
+      {/* Live campaigns — cards below sm, table from sm up */}
+      <div>
+        <div className="mb-3 flex items-center justify-between sm:hidden">{liveHeading}</div>
+        <CampaignCardList campaigns={campaigns} empty={<EmptyState {...noLiveCampaigns} />} />
+
+        <div className={`${CARD_CLASS} hidden overflow-x-auto sm:block`}>
+          <div className="border-b px-5 py-1 flex items-center justify-between">{liveHeading}</div>
+          <table className="w-full text-sm">
             <thead>
               <tr className="bg-page-bg text-left text-xs text-brand-grey-dark">
                 <th className="px-5 py-2 font-semibold">Campaign</th>
@@ -187,20 +209,7 @@ export default function Dashboard() {
             </thead>
             <tbody>
               {campaigns.length === 0 ? (
-                <EmptyTableRow
-                  colSpan={4}
-                  icon={Megaphone}
-                  title="No live campaigns"
-                  description="Set a campaign live and it shows up here."
-                  action={
-                    <Link
-                      to="/campaigns"
-                      className={`${LINK_BUTTON} px-2 text-brand-orange`}
-                    >
-                      View all campaigns
-                    </Link>
-                  }
-                />
+                <EmptyTableRow colSpan={4} {...noLiveCampaigns} />
               ) : (
                 campaigns.map((c) => (
                   <tr
@@ -214,7 +223,7 @@ export default function Dashboard() {
                     </td>
                     <td className="px-5 py-3 text-right">
                       <button
-                        onClick={() => navigate(`/campaigns/${c.id}/edit`)}
+                        onClick={() => navigate(campaignHref(c.id))}
                         className={`${LINK_BUTTON} px-2 text-brand-orange`}
                       >
                         Manage
@@ -225,6 +234,7 @@ export default function Dashboard() {
               )}
             </tbody>
           </table>
+        </div>
       </div>
     </div>
   );

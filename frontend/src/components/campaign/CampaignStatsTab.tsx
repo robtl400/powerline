@@ -7,7 +7,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CARD_CLASS } from "@/lib/styles";
+import { BUTTON_SECONDARY, CARD_CLASS, FOCUS_RING } from "@/lib/styles";
 import type { CampaignStats, DailyCount, QualityData } from "@/types/campaign";
 
 export function CampaignStatsTab({
@@ -43,7 +43,7 @@ export function CampaignStatsTab({
         <h2 className="text-base font-semibold">Campaign Analytics</h2>
         <button
           onClick={onViewCallLog}
-          className="text-xs px-3 py-1.5 border border-brand-border rounded hover:bg-page-bg transition-colors"
+          className={BUTTON_SECONDARY}
         >
           View Call Log →
         </button>
@@ -53,7 +53,7 @@ export function CampaignStatsTab({
         <p className="text-sm text-brand-grey-dark">Loading…</p>
       )}
       {statsError && (
-        <div className="rounded-md border border-brand-border bg-page-bg text-brand-grey-dark px-4 py-3 text-sm">
+        <div className="rounded-field border border-brand-border bg-page-bg text-brand-grey-dark px-4 py-3 text-sm">
           {statsError}
         </div>
       )}
@@ -93,7 +93,7 @@ export function CampaignStatsTab({
               <h3 className="text-sm font-medium flex-1">Call Volume</h3>
               <input
                 type="date"
-                className="text-xs border border-brand-border rounded px-2 py-1 bg-white"
+                className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white ${FOCUS_RING}`}
                 value={statsStartDate}
                 max={statsEndDate}
                 onChange={(e) => setStatsStartDate(e.target.value)}
@@ -101,14 +101,14 @@ export function CampaignStatsTab({
               <span className="text-xs text-brand-grey-dark">to</span>
               <input
                 type="date"
-                className="text-xs border border-brand-border rounded px-2 py-1 bg-white"
+                className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white ${FOCUS_RING}`}
                 value={statsEndDate}
                 min={statsStartDate}
                 max={new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setStatsEndDate(e.target.value)}
               />
               <select
-                className="text-xs border border-brand-border rounded px-2 py-1 bg-white"
+                className={`min-h-[44px] text-sm border border-brand-border rounded-field px-2 py-1.5 bg-white ${FOCUS_RING}`}
                 value={statsGranularity}
                 onChange={(e) => setStatsGranularity(e.target.value as "day" | "week")}
               >
@@ -212,7 +212,7 @@ export function CampaignStatsTab({
                   <p className="text-xs text-brand-grey-dark mb-2">Failures</p>
                   <div className="flex flex-wrap gap-3">
                     {Object.entries(qualityData.failure_breakdown).map(([k, v]) => (
-                      <span key={k} className="text-xs px-2 py-1 bg-page-bg rounded">
+                      <span key={k} className="text-xs px-2 py-1 bg-page-bg rounded-field">
                         {k.replace("_", " ")}: {v}
                       </span>
                     ))}

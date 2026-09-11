@@ -39,7 +39,7 @@ export default function CampaignEdit() {
         <div className="flex items-center gap-3">
           <h1 className={PAGE_HEADING}>{data.form.name || "Edit Campaign"}</h1>
           <span
-            className={`px-1.5 py-0.5 rounded text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[data.status] ?? ""}`}
+            className={`px-1.5 py-0.5 rounded-field text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[data.status] ?? ""}`}
           >
             {data.status}
           </span>
@@ -47,7 +47,7 @@ export default function CampaignEdit() {
       </div>
 
       {data.error && (
-        <div className="mb-4 px-4 py-3 rounded-md border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
+        <div className="mb-4 px-4 py-3 rounded-field border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
           {data.error}
         </div>
       )}

@@ -1,9 +1,9 @@
 /**
  * Inject widget CSS into the document head. Idempotent — safe to call multiple times.
  *
- * Typography: system font stack — the widget must not load third-party fonts
- * on host sites (DESIGN.md calls for DM Sans, but that's a Google Fonts
- * request we can't make from an embed running on someone else's page).
+ * Typography: the host page's system font stack, so the widget never issues a
+ * third-party font request from an embedding site. DM Sans leads the stack and
+ * is used only when the host page already loads it.
  */
 export function injectStyles(): void {
   const STYLE_ID = "pl-widget-styles";
@@ -13,7 +13,7 @@ export function injectStyles(): void {
   style.id = STYLE_ID;
   style.textContent = `
     .pl-widget {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 15px;
       line-height: 1.5;
       color: #111111;
@@ -59,6 +59,7 @@ export function injectStyles(): void {
       justify-content: center;
       gap: 8px;
       padding: 10px 20px;
+      min-height: 44px;
       border-radius: 7px;
       font-size: 15px;
       font-weight: 600;
@@ -68,6 +69,12 @@ export function injectStyles(): void {
       text-decoration: none;
     }
     .pl-btn:hover { opacity: 0.88; }
+    .pl-btn:focus-visible,
+    .pl-rep-btn:focus-visible,
+    .pl-share-btn:focus-visible {
+      outline: 2px solid #111111;
+      outline-offset: 2px;
+    }
     .pl-btn:active { transform: scale(0.97); }
     .pl-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
@@ -85,16 +92,14 @@ export function injectStyles(): void {
       background: #ffffff;
       border: 1px solid #F2542D;
       color: #F2542D;
-      min-height: 44px;
     }
     .pl-btn-danger:hover { background: rgba(242,84,45,0.08); opacity: 1; }
-    .pl-btn-danger:focus-visible { outline: 2px solid #111111; outline-offset: 2px; }
     .pl-btn-ghost {
       background: transparent;
       color: #53565B;
       font-weight: 400;
       font-size: 13px;
-      padding: 6px 0;
+      padding: 10px 0;
     }
 
     /* ── Progress pill ────────────────────────────────────────────────── */
@@ -154,8 +159,8 @@ export function injectStyles(): void {
     /* ── Talking points ───────────────────────────────────────────────── */
     .pl-talking-points {
       background: #F4F5F7;
-      border-left: 3px solid #F2542D;
-      border-radius: 0 8px 8px 0;
+      border: 1px solid #E4E6EC;
+      border-radius: 8px;
       padding: 12px 14px;
       font-size: 13px;
       color: #53565B;
@@ -169,6 +174,7 @@ export function injectStyles(): void {
     .pl-input {
       width: 100%;
       padding: 10px 12px;
+      min-height: 44px;
       border: 1px solid #E4E6EC;
       border-radius: 8px;
       font-size: 15px;
@@ -177,6 +183,7 @@ export function injectStyles(): void {
       transition: border-color 0.15s;
     }
     .pl-input:focus { border-color: #F2542D; }
+    .pl-input:focus-visible { outline: 2px solid #111111; outline-offset: 2px; }
     .pl-input[aria-invalid="true"] { border-color: #53565B; }
 
     /* ── Field label / help text ─────────────────────────────────────── */
@@ -239,6 +246,7 @@ export function injectStyles(): void {
       flex-direction: column;
       justify-content: center;
     }
+    .pl-rep-btn:hover { background: #F4F5F7; opacity: 1; }
     .pl-rep-name {
       display: flex;
       align-items: center;
@@ -271,6 +279,7 @@ export function injectStyles(): void {
       align-items: center;
       gap: 6px;
       padding: 8px 16px;
+      min-height: 44px;
       border-radius: 7px;
       font-size: 13px;
       font-weight: 600;

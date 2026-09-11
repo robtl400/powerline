@@ -46,6 +46,12 @@ export const TRUST_STATUS_LABELS: Record<string, string> = {
   unknown:           "Unknown",
 };
 
+/** Chip surfaces for the AudioSlotCard version badges. */
+export const AUDIO_VERSION_BADGE = {
+  active: GUM_CHIP,
+  inactive: NEUTRAL_CHIP,
+} as const;
+
 export const USER_STATUS_COLORS: Record<string, string> = {
   active:   GUM_CHIP,
   inactive: NEUTRAL_CHIP,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import client from "@/api/client";
-import { INPUT_CLASS } from "@/lib/styles";
+import { BUTTON_SECONDARY, INPUT_CLASS } from "@/lib/styles";
 
 export function CampaignEmbedTab({
   campaignId,
@@ -64,7 +64,7 @@ export function PowerlineWidget() {
 
   const previewSrcDoc = `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<style>body{margin:0;display:flex;justify-content:center;align-items:flex-start;padding:24px;background:#f9fafb;min-height:100vh}</style>
+<style>body{margin:0;display:flex;justify-content:center;align-items:flex-start;padding:24px;background:#F4F5F7;min-height:100vh}</style>
 </head><body>
 <div id="powerline-widget"></div>
 <script src="${scriptSrc}" data-campaign="${campaignId}" data-api-url="${embedApiUrl}"></script>
@@ -99,12 +99,12 @@ export function PowerlineWidget() {
           <p className="text-sm font-semibold">Script Tag (recommended)</p>
           <button
             onClick={() => onCopy("script", scriptSnippet)}
-            className="px-3 py-1 text-xs border border-brand-border rounded hover:bg-page-bg transition-colors"
+            className={BUTTON_SECONDARY}
           >
             {copiedSnippet === "script" ? "Copied!" : "Copy"}
           </button>
         </div>
-        <pre className="bg-page-bg rounded-md p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-brand-border">
+        <pre className="bg-page-bg rounded-card p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-brand-border">
           {scriptSnippet}
         </pre>
         <p className="text-xs text-brand-grey-dark mt-1">
@@ -118,12 +118,12 @@ export function PowerlineWidget() {
           <p className="text-sm font-semibold">React Component</p>
           <button
             onClick={() => onCopy("react", reactSnippet)}
-            className="px-3 py-1 text-xs border border-brand-border rounded hover:bg-page-bg transition-colors"
+            className={BUTTON_SECONDARY}
           >
             {copiedSnippet === "react" ? "Copied!" : "Copy"}
           </button>
         </div>
-        <pre className="bg-page-bg rounded-md p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-brand-border">
+        <pre className="bg-page-bg rounded-card p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap border border-brand-border">
           {reactSnippet}
         </pre>
       </div>
@@ -134,7 +134,7 @@ export function PowerlineWidget() {
         <p className="text-xs text-brand-grey-dark mb-3">
           Renders the actual widget. Requires the campaign to be <strong>live</strong> and the backend URL above to be reachable.
         </p>
-        <div className="rounded-md border border-brand-border overflow-hidden bg-page-bg" style={{ height: 480 }}>
+        <div className="h-[480px] rounded-card border border-brand-border overflow-hidden bg-page-bg">
           <iframe
             srcDoc={previewSrcDoc}
             title="Widget preview"

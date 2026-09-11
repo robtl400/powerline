@@ -8,7 +8,7 @@ import {
   FALLBACK_BADGE_COLOR,
 } from "@/lib/constants";
 import { formatDateTime } from "@/lib/formatters";
-import { CARD_CLASS, FOCUS_RING, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
+import { BUTTON_SECONDARY, CARD_CLASS, FOCUS_RING, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
 import { EmptyTableRow } from "@/components/EmptyState";
 
 interface CallSessionRow {
@@ -32,7 +32,7 @@ interface CampaignBasic {
 
 function Badge({ label, colorClass }: { label: string; colorClass: string }) {
   return (
-    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${colorClass}`}>
+    <span className={`inline-block px-1.5 py-0.5 rounded-field text-xs font-medium ${colorClass}`}>
       {label.replace("_", " ")}
     </span>
   );
@@ -216,14 +216,14 @@ export default function CallLog() {
           </button>
           <button
             onClick={clearFilters}
-            className={`inline-flex min-h-[44px] items-center px-3 py-1.5 border border-brand-border rounded-control text-sm hover:bg-page-bg transition-colors ${FOCUS_RING}`}
+            className={BUTTON_SECONDARY}
           >
             Clear
           </button>
           <button
             onClick={handleCsvExport}
             disabled={csvLoading}
-            className={`inline-flex min-h-[44px] items-center px-3 py-1.5 border border-brand-border rounded-control text-sm hover:bg-page-bg transition-colors disabled:opacity-50 ${FOCUS_RING}`}
+            className={BUTTON_SECONDARY}
           >
             {csvLoading ? "Exporting…" : "Export CSV"}
           </button>
@@ -231,7 +231,7 @@ export default function CallLog() {
       </div>
 
       {error && (
-        <div className="rounded-md bg-page-bg text-brand-grey-dark px-4 py-3 text-sm border border-brand-border">
+        <div className="rounded-field bg-page-bg text-brand-grey-dark px-4 py-3 text-sm border border-brand-border">
           {error}
         </div>
       )}
@@ -315,7 +315,7 @@ export default function CallLog() {
           <button
             onClick={() => setSkip(Math.max(0, skip - PAGE_SIZE))}
             disabled={skip === 0}
-            className={`inline-flex min-h-[44px] items-center px-3 py-1.5 border border-brand-border rounded-control hover:bg-page-bg disabled:opacity-40 transition-colors ${FOCUS_RING}`}
+            className={BUTTON_SECONDARY}
           >
             ← Previous
           </button>
@@ -325,7 +325,7 @@ export default function CallLog() {
           <button
             onClick={() => setSkip(skip + PAGE_SIZE)}
             disabled={skip + PAGE_SIZE >= page.total}
-            className={`inline-flex min-h-[44px] items-center px-3 py-1.5 border border-brand-border rounded-control hover:bg-page-bg disabled:opacity-40 transition-colors ${FOCUS_RING}`}
+            className={BUTTON_SECONDARY}
           >
             Next →
           </button>

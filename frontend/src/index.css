@@ -57,4 +57,9 @@
   [contenteditable] {
     caret-color: #f2542d;
   }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: #f2542d;
+  }
 }

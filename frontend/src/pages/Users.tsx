@@ -148,7 +148,7 @@ export default function Users() {
   function statusChip(u: User) {
     return (
       <span
-        className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
+        className={`inline-block rounded-field px-1.5 py-0.5 text-xs font-medium ${
           USER_STATUS_COLORS[u.is_active ? "active" : "inactive"]
         }`}
       >
@@ -168,7 +168,7 @@ export default function Users() {
               ? "You cannot deactivate your own account"
               : undefined
           }
-          className={`inline-flex min-h-[44px] items-center rounded-control border border-brand-border bg-white px-3 py-1.5 text-sm text-brand-grey-dark hover:bg-page-bg disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${FOCUS_RING}`}
+          className={`${BUTTON_SECONDARY} disabled:cursor-not-allowed`}
         >
           {u.is_active ? "Deactivate" : "Activate"}
         </button>
@@ -255,7 +255,7 @@ export default function Users() {
             <button
               type="button"
               onClick={() => setInviteOpen(false)}
-              className="px-4 py-2 border border-brand-border rounded-control text-sm"
+              className={BUTTON_SECONDARY}
             >
               Cancel
             </button>

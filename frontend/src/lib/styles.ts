@@ -24,9 +24,12 @@ export const LINK_BUTTON =
 /** Standard Tailwind class string for the solid brand-orange call-to-action button. */
 export const BUTTON_PRIMARY =
   "inline-flex items-center justify-center min-h-[44px] px-4 rounded-control text-sm font-medium " +
-  "bg-brand-orange text-white hover:opacity-90 transition-opacity disabled:opacity-50";
+  "bg-brand-orange text-white hover:opacity-90 transition-opacity disabled:opacity-50 " +
+  FOCUS_RING;
 
 /** Standard Tailwind class string for the outlined secondary button that pairs with BUTTON_PRIMARY. */
 export const BUTTON_SECONDARY =
   "inline-flex items-center justify-center min-h-[44px] px-4 rounded-control text-sm font-medium " +
-  "border border-brand-border text-brand-black hover:bg-page-bg transition-colors disabled:opacity-50";
+  "border border-brand-border bg-white text-brand-grey-dark hover:bg-page-bg transition-colors " +
+  "disabled:opacity-50 " +
+  FOCUS_RING;

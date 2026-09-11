@@ -49,6 +49,8 @@ in this file is locked. When in doubt, this file wins over inline code.
 
 Font: **DM Sans** (Google Fonts — already loaded)
 
+The embed widget uses the host page's system font stack so it never issues third-party font requests from embedding sites, and inherits DM Sans only when the host already loads it.
+
 | Role           | Size  | Weight | Notes |
 |----------------|-------|--------|-------|
 | Wordmark       | 16px  | 900    | Uppercase, letter-spacing -0.04em, color: `brand-black` |
@@ -64,7 +66,7 @@ Font: **DM Sans** (Google Fonts — already loaded)
 ## Spacing & Shape
 
 - **Focus ring:** every interactive element carries `FOCUS_RING` from `styles.ts` — `focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black focus-visible:ring-offset-2`
-- **Minimum touch target:** `44px` on every interactive element — tabs, drawer controls, filter selects and inputs, row buttons and standalone text links. Text-style actions use `LINK_BUTTON`, which carries the hit area without changing the text size
+- **Minimum touch target:** `44px` on every interactive element — tabs, drawer controls, filter selects and inputs, row buttons and standalone text links. Text-style actions use `LINK_BUTTON`, which carries the hit area at the 14px action size
 - **Border radius:** use the tokens, never a bracket literal — `rounded-field` (`8px`) for inputs and small elements, `rounded-control` (`7px`) for buttons and nav items, `rounded-card` (`10px`) for cards and modals
 - **Card shadow:** `shadow-card` — `0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)`
 - **Transitions:** name the property — `transition-colors`, `transition-opacity`, `transition-[height]`. Never `transition-all`
@@ -147,7 +149,7 @@ Use the **exact same SVG** as desktop — `preserveAspectRatio="none"` handles s
 ### Mobile Campaign Cards (Dashboard/Campaigns)
 - One card per campaign, stacked vertically
 - Layout: `[name] [status chip]` / progress bar / `[call count] [completion %]`
-- Tap navigates to `/campaigns/:id`
+- Tap navigates to `/campaigns/:id/edit`, the same target as the table's name link
 - Progress bar: orange fill for live, `#D1D3D9` for paused/draft
 - Empty state: show `0` calls, `0%` completion — do not hide
 

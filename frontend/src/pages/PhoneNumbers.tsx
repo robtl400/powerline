@@ -7,7 +7,7 @@ import {
   TRUST_STATUS_LABELS,
   FALLBACK_BADGE_COLOR,
 } from "@/lib/constants";
-import { BUTTON_PRIMARY, CARD_CLASS, INPUT_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
+import { BUTTON_PRIMARY, BUTTON_SECONDARY, CARD_CLASS, INPUT_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
 import { EmptyTableRow } from "@/components/EmptyState";
 import type { Page } from "@/types/api";
 
@@ -145,7 +145,7 @@ export default function PhoneNumbers() {
                         .map(([cap]) => (
                           <span
                             key={cap}
-                            className={`inline-block rounded px-1.5 py-0.5 text-xs uppercase ${CAPABILITY_BADGE_COLOR}`}
+                            className={`inline-block rounded-field px-1.5 py-0.5 text-xs uppercase ${CAPABILITY_BADGE_COLOR}`}
                           >
                             {cap}
                           </span>
@@ -154,7 +154,7 @@ export default function PhoneNumbers() {
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium capitalize ${TRUST_STATUS_COLORS[pn.trust_status] ?? FALLBACK_BADGE_COLOR}`}
+                      className={`inline-block rounded-field px-1.5 py-0.5 text-xs font-medium capitalize ${TRUST_STATUS_COLORS[pn.trust_status] ?? FALLBACK_BADGE_COLOR}`}
                     >
                       {TRUST_STATUS_LABELS[pn.trust_status] || pn.trust_status || "Unknown"}
                     </span>
@@ -180,7 +180,7 @@ export default function PhoneNumbers() {
 
       {/* Inline assign panel — consistent with CampaignEdit target add/edit pattern */}
       {assignTarget && (
-        <div className="max-w-md rounded-md border border-brand-border bg-page-bg p-4 space-y-3">
+        <div className="max-w-md rounded-card border border-brand-border bg-page-bg p-4 space-y-3">
           <p className="text-sm font-medium">
             Assign{" "}
             <span className="font-mono">{assignTarget.number}</span> to campaign
@@ -210,7 +210,7 @@ export default function PhoneNumbers() {
             </button>
             <button
               onClick={() => setAssignTarget(null)}
-              className="rounded-md border border-brand-border px-4 py-1.5 text-sm"
+              className={BUTTON_SECONDARY}
             >
               Cancel
             </button>

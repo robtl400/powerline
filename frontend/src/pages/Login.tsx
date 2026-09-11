@@ -76,7 +76,7 @@ export default function Login() {
           <div className="flex justify-center">
             <Link
               to="/reset-password"
-              className={`flex min-h-[44px] items-center rounded px-2 text-sm text-brand-grey-dark hover:underline ${FOCUS_RING}`}
+              className={`flex min-h-[44px] items-center rounded-control px-2 text-sm text-brand-grey-dark hover:underline ${FOCUS_RING}`}
             >
               Forgot password?
             </Link>

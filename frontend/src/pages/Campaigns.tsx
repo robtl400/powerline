@@ -14,6 +14,7 @@ import {
 } from "@/lib/styles";
 import { CAMPAIGN_STATUS_COLORS, FALLBACK_BADGE_COLOR } from "@/lib/constants";
 import { EmptyState } from "@/components/EmptyState";
+import { CampaignCardList, campaignHref } from "@/components/CampaignCards";
 import type { Page } from "@/types/api";
 
 interface Campaign {
@@ -22,6 +23,8 @@ interface Campaign {
   status: string;
   campaign_type: string;
   target_count: number;
+  session_count: number;
+  completed_session_count: number;
   created_at: string;
 }
 
@@ -153,8 +156,10 @@ export default function Campaigns() {
         </div>
       )}
 
+      {!loading && campaigns.length > 0 && <CampaignCardList campaigns={campaigns} />}
+
       {!loading && campaigns.length > 0 && (
-        <div className={`${CARD_CLASS} overflow-x-auto`}>
+        <div className={`${CARD_CLASS} hidden overflow-x-auto sm:block`}>
           <table className="w-full text-sm">
             <thead className="bg-page-bg text-brand-grey-dark">
               <tr>
@@ -174,7 +179,7 @@ export default function Campaigns() {
                 >
                   <td className="px-4 py-3 font-medium">
                     <Link
-                      to={`/campaigns/${c.id}/edit`}
+                      to={campaignHref(c.id)}
                       className={`-my-3 inline-flex min-h-[44px] items-center py-3 rounded-control text-brand-black hover:underline ${FOCUS_RING}`}
                     >
                       {c.name}
@@ -183,7 +188,7 @@ export default function Campaigns() {
                   <td className="px-4 py-3 capitalize text-brand-grey-dark">{c.campaign_type}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[c.status] ?? FALLBACK_BADGE_COLOR}`}
+                      className={`inline-block px-1.5 py-0.5 rounded-field text-xs font-medium capitalize ${CAMPAIGN_STATUS_COLORS[c.status] ?? FALLBACK_BADGE_COLOR}`}
                     >
                       {c.status}
                     </span>

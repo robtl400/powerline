@@ -54,7 +54,12 @@ router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 # ---------------------------------------------------------------------------
 
 
-def _campaign_to_response(campaign: Campaign, target_count: int) -> CampaignResponse:
+def _campaign_to_response(
+    campaign: Campaign,
+    target_count: int,
+    session_count: int,
+    completed_session_count: int,
+) -> CampaignResponse:
     return CampaignResponse(
         id=campaign.id,
         created_at=campaign.created_at,
@@ -75,6 +80,8 @@ def _campaign_to_response(campaign: Campaign, target_count: int) -> CampaignResp
         talking_points=campaign.talking_points,
         created_by_id=campaign.created_by_id,
         target_count=target_count,
+        session_count=session_count,
+        completed_session_count=completed_session_count,
     )
 
 
@@ -122,6 +129,28 @@ async def _get_target_count(campaign_id: uuid.UUID, db: AsyncSession) -> int:
         )
     )
     return result.scalar_one()
+
+
+class _SessionCounts(NamedTuple):
+    """Call sessions a campaign has, and how many of them reached `completed`."""
+
+    total: int
+    completed: int
+
+
+_COMPLETED_SESSIONS = func.count(case((CallSession.status == "completed", 1)))
+
+
+async def _get_session_counts(campaign_id: uuid.UUID, db: AsyncSession) -> _SessionCounts:
+    row = (
+        await db.execute(
+            select(
+                func.count(CallSession.id).label("total"),
+                _COMPLETED_SESSIONS.label("completed"),
+            ).where(CallSession.campaign_id == campaign_id)
+        )
+    ).one()
+    return _SessionCounts(total=row.total, completed=row.completed)
 
 
 async def _next_order(campaign_id: uuid.UUID, db: AsyncSession) -> int:
@@ -190,9 +219,25 @@ async def list_campaigns(
         .subquery()
     )
 
+    session_sq = (
+        select(
+            CallSession.campaign_id,
+            func.count(CallSession.id).label("sessions"),
+            _COMPLETED_SESSIONS.label("completed"),
+        )
+        .group_by(CallSession.campaign_id)
+        .subquery()
+    )
+
     stmt = (
-        select(Campaign, func.coalesce(count_sq.c.cnt, 0).label("target_count"))
+        select(
+            Campaign,
+            func.coalesce(count_sq.c.cnt, 0).label("target_count"),
+            func.coalesce(session_sq.c.sessions, 0).label("session_count"),
+            func.coalesce(session_sq.c.completed, 0).label("completed_session_count"),
+        )
         .outerjoin(count_sq, Campaign.id == count_sq.c.campaign_id)
+        .outerjoin(session_sq, Campaign.id == session_sq.c.campaign_id)
         .where(*filters)
         .order_by(Campaign.created_at.desc())
         .offset(skip)
@@ -202,7 +247,15 @@ async def list_campaigns(
     rows = await db.execute(stmt)
     return CampaignPage(
         total=total or 0,
-        items=[_campaign_to_response(row.Campaign, row.target_count) for row in rows.all()],
+        items=[
+            _campaign_to_response(
+                row.Campaign,
+                row.target_count,
+                row.session_count,
+                row.completed_session_count,
+            )
+            for row in rows.all()
+        ],
     )
 
 
@@ -216,7 +269,7 @@ async def create_campaign(
     db.add(campaign)
     await _commit_unique_name(db)
     await db.refresh(campaign)
-    return _campaign_to_response(campaign, 0)
+    return _campaign_to_response(campaign, 0, 0, 0)
 
 
 @router.get("/{campaign_id}/count", response_model=CallCountResponse)
@@ -387,7 +440,9 @@ async def get_campaign(
         )
         targets_in_campaign = [_target_to_response(target, order) for target, order in rows.all()]
 
-    base = _campaign_to_response(campaign, targets_total)
+    sessions = await _get_session_counts(campaign_id, db)
+
+    base = _campaign_to_response(campaign, targets_total, sessions.total, sessions.completed)
     return CampaignDetailResponse(
         **base.model_dump(),
         targets=targets_in_campaign,
@@ -437,7 +492,8 @@ async def update_campaign(
     await db.refresh(campaign)
 
     count = await _get_target_count(campaign_id, db)
-    return _campaign_to_response(campaign, count)
+    sessions = await _get_session_counts(campaign_id, db)
+    return _campaign_to_response(campaign, count, sessions.total, sessions.completed)
 
 
 @router.post("/{campaign_id}/archive", response_model=CampaignResponse)
@@ -461,7 +517,8 @@ async def archive_campaign(
     await db.refresh(campaign)
 
     count = await _get_target_count(campaign_id, db)
-    return _campaign_to_response(campaign, count)
+    sessions = await _get_session_counts(campaign_id, db)
+    return _campaign_to_response(campaign, count, sessions.total, sessions.completed)
 
 
 # ---------------------------------------------------------------------------

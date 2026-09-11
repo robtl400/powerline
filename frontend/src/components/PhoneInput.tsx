@@ -67,12 +67,12 @@ export function PhoneInput({ value, onChange, required, placeholder = "(555) 555
   return (
     <div className={className}>
       <div
-        className={`flex rounded-lg border bg-white text-sm focus-within:ring-2 focus-within:ring-brand-black focus-within:ring-offset-0 ${
+        className={`flex min-h-[44px] rounded-field border bg-white text-sm focus-within:ring-2 focus-within:ring-brand-black focus-within:ring-offset-0 ${
           isInvalid ? "border-brand-grey-dark" : "border-brand-border"
         }`}
       >
         {/* Prefix box */}
-        <div className="flex items-center gap-1 px-3 bg-page-bg border-r border-brand-border rounded-l-lg text-brand-grey-dark select-none whitespace-nowrap">
+        <div className="flex items-center gap-1 px-3 bg-page-bg border-r border-brand-border rounded-l-field text-brand-grey-dark select-none whitespace-nowrap">
           🇺🇸 +1
         </div>
         <input
@@ -86,7 +86,7 @@ export function PhoneInput({ value, onChange, required, placeholder = "(555) 555
           onPaste={handlePaste}
           onBlur={() => setTouched(true)}
           placeholder={placeholder}
-          className="flex-1 px-3 py-2 bg-transparent focus:outline-none rounded-r-lg"
+          className="flex-1 px-3 py-2 bg-transparent focus:outline-none rounded-r-field"
         />
       </div>
       {isInvalid && (

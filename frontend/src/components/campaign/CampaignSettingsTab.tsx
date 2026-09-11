@@ -1,6 +1,6 @@
 import { AlertTriangle, Check, Phone } from "lucide-react";
 import { STATUS_LABELS } from "@/lib/constants";
-import { BUTTON_PRIMARY, INPUT_CLASS } from "@/lib/styles";
+import { BUTTON_PRIMARY, BUTTON_SECONDARY, FOCUS_RING, INPUT_CLASS, LINK_BUTTON } from "@/lib/styles";
 import type { CampaignChecklist, CampaignForm } from "@/types/campaign";
 
 type TabType = "settings" | "targets" | "audio" | "embed" | "stats";
@@ -57,7 +57,7 @@ export function CampaignSettingsTab({
       <label className="flex items-start gap-3 cursor-pointer">
         <input
           type="checkbox"
-          className="mt-0.5"
+          className="mt-0.5 h-4 w-4 rounded-field border-brand-border accent-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black cursor-pointer"
           disabled={readOnly}
           checked={form[key] as boolean}
           onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.checked }))}
@@ -220,7 +220,7 @@ export function CampaignSettingsTab({
                     {!ok && tab && (
                       <button
                         onClick={() => onTabChange(tab)}
-                        className="ml-1 text-xs text-brand-orange hover:underline"
+                        className={`${LINK_BUTTON} ml-1 text-brand-orange`}
                       >
                         Fix it
                       </button>
@@ -267,7 +267,7 @@ export function CampaignSettingsTab({
             <div className="relative">
               <button
                 onClick={openStatusMenu}
-                className="px-4 py-2 border border-brand-border rounded-md text-sm font-medium hover:bg-page-bg transition-colors"
+                className={BUTTON_SECONDARY}
               >
                 Change Status
               </button>
@@ -278,7 +278,7 @@ export function CampaignSettingsTab({
 
       {/* Status change confirmation */}
       {!readOnly && statusMenuOpen && (
-        <div className="rounded-md border border-brand-border bg-page-bg p-4 space-y-3">
+        <div className="rounded-card border border-brand-border bg-page-bg p-4 space-y-3">
           <p className="text-sm font-medium">
             Current status: <span className="font-semibold capitalize">{status}</span>. Choose new
             status:
@@ -288,7 +288,7 @@ export function CampaignSettingsTab({
               <button
                 key={s}
                 onClick={() => setPendingStatus(s)}
-                className={`inline-flex min-h-[44px] items-center justify-center px-3 py-1.5 rounded text-sm font-medium border-2 transition-colors capitalize ${
+                className={`inline-flex min-h-[44px] items-center justify-center px-3 py-1.5 rounded-control text-sm font-medium border-2 transition-colors capitalize ${FOCUS_RING} ${
                   pendingStatus === s
                     ? "border-brand-orange bg-brand-orange/10"
                     : "border-brand-border hover:border-brand-orange/50"
@@ -308,7 +308,7 @@ export function CampaignSettingsTab({
               </button>
               <button
                 onClick={() => setStatusMenuOpen(false)}
-                className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
+                className={BUTTON_SECONDARY}
               >
                 Cancel
               </button>
@@ -317,7 +317,7 @@ export function CampaignSettingsTab({
           {!pendingStatus && (
             <button
               onClick={() => setStatusMenuOpen(false)}
-              className="text-sm text-brand-grey-dark hover:text-brand-black"
+              className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
             >
               Cancel
             </button>

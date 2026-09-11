@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import client from "@/api/client";
 import { getErrorDetail } from "@/lib/api-error";
-import { BUTTON_PRIMARY, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { BUTTON_PRIMARY, INPUT_CLASS, LINK_BUTTON, PAGE_HEADING } from "@/lib/styles";
 import { useCampaignData } from "@/hooks/useCampaignData";
 import { CampaignAudioTab } from "./CampaignAudioTab";
 import { CampaignTargetsTab } from "./CampaignTargetsTab";
@@ -99,7 +99,7 @@ function WizardBody({
           <div className="flex gap-3 mt-8 pt-6 border-t border-brand-border">
             <button
               onClick={() => onStepChange(3)}
-              className="px-4 py-2 text-sm text-brand-grey-dark hover:text-brand-black transition-colors"
+              className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
             >
               Skip
             </button>
@@ -185,7 +185,7 @@ function WizardBody({
                   </button>
                   <button
                     onClick={() => navigate(`/campaigns/${campaignId}/edit`)}
-                    className="px-4 py-2 text-sm text-brand-grey-dark hover:text-brand-black transition-colors"
+                    className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
                   >
                     Finish (stay draft)
                   </button>
@@ -259,10 +259,10 @@ export default function CampaignWizard() {
   return (
     <div className="max-w-3xl">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="mb-6 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-3">
         <button
           onClick={() => navigate("/campaigns")}
-          className="text-brand-grey-dark hover:text-brand-black text-sm"
+          className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
         >
           ← Campaigns
         </button>

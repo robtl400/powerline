@@ -71,6 +71,8 @@ class CampaignResponse(BaseModel):
     talking_points: str | None
     created_by_id: uuid.UUID | None
     target_count: int = 0
+    session_count: int = 0
+    completed_session_count: int = 0
 
     model_config = {"from_attributes": True}
 

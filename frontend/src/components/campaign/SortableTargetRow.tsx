@@ -1,7 +1,7 @@
 import { GripVertical } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { LINK_BUTTON } from "@/lib/styles";
+import { FOCUS_RING, LINK_BUTTON } from "@/lib/styles";
 import type { Target } from "@/types/campaign";
 
 export function SortableTargetRow({
@@ -35,7 +35,7 @@ export function SortableTargetRow({
         <button
           {...attributes}
           {...listeners}
-          className="cursor-grab active:cursor-grabbing text-brand-grey-dark hover:text-brand-black p-1"
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-control cursor-grab active:cursor-grabbing text-brand-grey-dark hover:text-brand-black ${FOCUS_RING}`}
           title="Drag to reorder"
           aria-label="Drag to reorder"
         >

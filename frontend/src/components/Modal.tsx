@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { useDialogBehaviour } from "@/hooks/useDialogBehaviour";
-import { CARD_CLASS } from "@/lib/styles";
+import { CARD_CLASS, FOCUS_RING } from "@/lib/styles";
 
 export function Modal({
   open,
@@ -37,7 +37,7 @@ export function Modal({
         aria-labelledby={titleId}
         className={`relative w-full max-w-[min(480px,90vw)] ${CARD_CLASS} p-6 ${className}`}
       >
-        <h2 id={titleId} className="mb-4 pr-6 text-base font-semibold">
+        <h2 id={titleId} className="mb-4 pr-10 text-base font-semibold">
           {title}
         </h2>
         {children}
@@ -45,7 +45,7 @@ export function Modal({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-5 top-5 text-lg leading-none text-brand-grey-dark hover:text-brand-black"
+          className={`absolute right-2 top-2 inline-flex h-11 w-11 items-center justify-center rounded-control text-lg leading-none text-brand-grey-dark hover:text-brand-black ${FOCUS_RING}`}
         >
           ×
         </button>

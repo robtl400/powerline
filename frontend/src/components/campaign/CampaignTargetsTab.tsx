@@ -9,7 +9,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { UserPlus } from "lucide-react";
-import { BUTTON_PRIMARY, CARD_CLASS, INPUT_CLASS } from "@/lib/styles";
+import { BUTTON_PRIMARY, BUTTON_SECONDARY, CARD_CLASS, FOCUS_RING, INPUT_CLASS, LINK_BUTTON } from "@/lib/styles";
 import type { ImportResult, Target, TargetForm } from "@/types/campaign";
 import { SortableTargetRow } from "./SortableTargetRow";
 import { EmptyState } from "@/components/EmptyState";
@@ -134,8 +134,8 @@ export function CampaignTargetsTab({
   return (
     <section>
       {onTargetLevelsChange && (
-        <div className="mb-6 p-4 border border-brand-border rounded-lg">
-          <h3 className="text-sm font-medium mb-1">Who to call</h3>
+        <div className="mb-6 p-4 border border-brand-border rounded-card">
+          <h2 className="text-base font-semibold mb-4 pb-2 border-b border-brand-border">Who to call</h2>
           <p className="text-xs text-brand-grey-dark mb-3">
             Select which levels of government to route supporter calls to via ZIP code lookup.
             When enabled, representative calls run in addition to any manually-configured
@@ -145,7 +145,7 @@ export function CampaignTargetsTab({
             <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-brand-border text-brand-orange accent-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black cursor-pointer"
+                className="h-4 w-4 rounded-field border-brand-border text-brand-orange accent-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black cursor-pointer"
                 checked={targetLevels.includes("federal")}
                 onChange={() => toggleLevel("federal")}
               />
@@ -154,7 +154,7 @@ export function CampaignTargetsTab({
             <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-brand-border text-brand-orange accent-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black cursor-pointer"
+                className="h-4 w-4 rounded-field border-brand-border text-brand-orange accent-brand-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-black cursor-pointer"
                 checked={targetLevels.includes("state")}
                 onChange={() => toggleLevel("state")}
               />
@@ -163,7 +163,7 @@ export function CampaignTargetsTab({
             <label className="flex items-center gap-2 text-sm text-brand-grey-dark cursor-not-allowed select-none">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-brand-border cursor-not-allowed"
+                className="h-4 w-4 rounded-field border-brand-border cursor-not-allowed"
                 disabled
               />
               Local{" "}
@@ -176,13 +176,13 @@ export function CampaignTargetsTab({
       )}
 
       {targetError && (
-        <div className="mb-3 px-3 py-2 rounded border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
+        <div className="mb-3 px-3 py-2 rounded-field border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
           {targetError}
         </div>
       )}
 
       {truncated && (
-        <p className="mb-3 px-3 py-2 rounded border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
+        <p className="mb-3 px-3 py-2 rounded-field border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
           Showing the first {targets.length} of {targetsTotal} targets. The remaining{" "}
           {targetsTotal - targets.length} are not listed here; re-import the CSV to change them.
         </p>
@@ -198,7 +198,7 @@ export function CampaignTargetsTab({
             items={targets.map((t) => t.id)}
             strategy={verticalListSortingStrategy}
           >
-            <div className="rounded-md border border-brand-border overflow-hidden mb-4">
+            <div className="rounded-card border border-brand-border overflow-hidden mb-4">
               <table className="w-full text-sm">
                 <thead className="bg-page-bg">
                   <tr>
@@ -244,7 +244,7 @@ export function CampaignTargetsTab({
                   </button>
                   <button
                     onClick={() => setImportOpen(true)}
-                    className="px-4 py-2 border border-brand-border rounded-control text-sm text-brand-grey-dark hover:bg-page-bg transition-colors"
+                    className={BUTTON_SECONDARY}
                   >
                     Import CSV
                   </button>
@@ -257,7 +257,7 @@ export function CampaignTargetsTab({
 
       {/* Edit target inline */}
       {!readOnly && editingTarget && (
-        <div className="rounded-md border border-brand-border p-4 mb-4 bg-page-bg space-y-3">
+        <div className="rounded-card border border-brand-border p-4 mb-4 bg-page-bg space-y-3">
           <p className="text-sm font-medium">Edit target</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <input
@@ -299,7 +299,7 @@ export function CampaignTargetsTab({
             </button>
             <button
               onClick={() => setEditingTarget(null)}
-              className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
+              className={BUTTON_SECONDARY}
             >
               Cancel
             </button>
@@ -309,7 +309,7 @@ export function CampaignTargetsTab({
 
       {/* Add target form */}
       {!readOnly && (addingTarget ? (
-        <div className="rounded-md border border-brand-border p-4 bg-page-bg space-y-3">
+        <div className="rounded-card border border-brand-border p-4 bg-page-bg space-y-3">
           <p className="text-sm font-medium">Add target</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <input
@@ -361,7 +361,7 @@ export function CampaignTargetsTab({
                 setTargetForm(() => ({ name: "", title: "", phone_number: "", location: "", external_id: "" }));
                 setTargetError(null);
               }}
-              className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
+              className={BUTTON_SECONDARY}
             >
               Cancel
             </button>
@@ -371,14 +371,14 @@ export function CampaignTargetsTab({
         <div className="flex gap-2">
           <button
             onClick={() => setAddingTarget(true)}
-            className="px-4 py-2 border border-dashed border-brand-border rounded-md text-sm text-brand-grey-dark hover:text-brand-black hover:border-brand-orange/50 transition-colors"
+            className={`inline-flex min-h-[44px] items-center px-4 rounded-control border border-dashed border-brand-border text-sm text-brand-grey-dark hover:text-brand-black hover:border-brand-orange/50 transition-colors ${FOCUS_RING}`}
           >
             + Add Target
           </button>
           {!importOpen && (
             <button
               onClick={() => setImportOpen(true)}
-              className="px-4 py-2 border border-dashed border-brand-border rounded-md text-sm text-brand-grey-dark hover:text-brand-black hover:border-brand-orange/50 transition-colors"
+              className={`inline-flex min-h-[44px] items-center px-4 rounded-control border border-dashed border-brand-border text-sm text-brand-grey-dark hover:text-brand-black hover:border-brand-orange/50 transition-colors ${FOCUS_RING}`}
             >
               Import CSV
             </button>
@@ -388,7 +388,7 @@ export function CampaignTargetsTab({
 
       {/* CSV Import panel */}
       {!readOnly && importOpen && (
-        <div className="mt-4 rounded-md border border-brand-border p-4 bg-page-bg space-y-4">
+        <div className="mt-4 rounded-card border border-brand-border p-4 bg-page-bg space-y-4">
           <p className="text-sm font-medium">Import targets from CSV</p>
 
           {/* Import result summary */}
@@ -408,12 +408,12 @@ export function CampaignTargetsTab({
                 <div className="space-y-2">
                   <button
                     onClick={() => setErrorsExpanded((v) => !v)}
-                    className="text-xs text-brand-grey-dark hover:text-brand-black"
+                    className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
                   >
                     {errorsExpanded ? "Hide" : "Show"} error details
                   </button>
                   {errorsExpanded && (
-                    <div className="rounded border border-brand-border divide-y divide-brand-border text-xs max-h-40 overflow-y-auto">
+                    <div className="rounded-card border border-brand-border divide-y divide-brand-border text-xs max-h-40 overflow-y-auto">
                       {importResult.errors.map((e) => (
                         <div key={e.row} className="px-3 py-1.5 flex gap-3">
                           <span className="text-brand-grey-dark shrink-0">Row {e.row}</span>
@@ -424,7 +424,7 @@ export function CampaignTargetsTab({
                   )}
                   <button
                     onClick={handleDownloadErrors}
-                    className="text-xs text-brand-orange underline-offset-2 hover:underline"
+                    className={`${LINK_BUTTON} text-brand-orange`}
                   >
                     Download error report
                   </button>
@@ -436,7 +436,7 @@ export function CampaignTargetsTab({
                   resetImport();
                   setImportOpen(true);
                 }}
-                className="px-3 py-1.5 border border-brand-border rounded-md text-xs"
+                className={BUTTON_SECONDARY}
               >
                 Import another file
               </button>
@@ -450,7 +450,7 @@ export function CampaignTargetsTab({
                   onDragLeave={() => setDragOver(false)}
                   onDrop={handleFileDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-md p-6 text-center cursor-pointer transition-colors ${
+                  className={`border-2 border-dashed rounded-field p-6 text-center cursor-pointer transition-colors ${FOCUS_RING} ${
                     dragOver
                       ? "border-brand-orange/60 bg-brand-orange/5"
                       : "border-brand-border hover:border-brand-orange/40"
@@ -481,7 +481,7 @@ export function CampaignTargetsTab({
                         resetImport();
                         setImportOpen(true);
                       }}
-                      className="text-xs text-brand-grey-dark hover:text-brand-black"
+                      className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
                     >
                       Change file
                     </button>
@@ -522,7 +522,7 @@ export function CampaignTargetsTab({
                   )}
 
                   {importError && (
-                    <div className="px-3 py-2 rounded border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
+                    <div className="px-3 py-2 rounded-field border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
                       {importError}
                     </div>
                   )}
@@ -539,7 +539,7 @@ export function CampaignTargetsTab({
                 </button>
                 <button
                   onClick={resetImport}
-                  className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
+                  className={BUTTON_SECONDARY}
                 >
                   Cancel
                 </button>
@@ -561,7 +561,7 @@ export function CampaignTargetsTab({
         <div className="flex gap-2">
           <button
             onClick={cancelDeleteTarget}
-            className="px-4 py-2 border border-brand-border rounded-control text-sm"
+            className={BUTTON_SECONDARY}
           >
             Cancel
           </button>

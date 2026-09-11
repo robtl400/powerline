@@ -147,14 +147,14 @@ export default function Blocklist() {
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 rounded-md border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
+        <div className="mb-4 px-4 py-3 rounded-field border border-brand-border bg-page-bg text-brand-grey-dark text-sm">
           {error}
         </div>
       )}
 
       {/* Add entry form */}
       {isAdmin && showForm && (
-        <div className="rounded-md border border-brand-border p-4 mb-6 space-y-3 bg-page-bg">
+        <div className="rounded-card border border-brand-border p-4 mb-6 space-y-3 bg-page-bg">
           <p className="text-sm font-medium">New blocklist entry</p>
           {formError && (
             <p className="text-xs text-brand-grey-dark">{formError}</p>
@@ -183,7 +183,7 @@ export default function Blocklist() {
               type="button"
               onClick={() => setShowHashField((v) => !v)}
               aria-expanded={showHashField}
-              className="text-xs text-brand-grey-dark hover:text-brand-black"
+              className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
             >
               Advanced: paste a sha256 hash instead
             </button>
@@ -228,7 +228,7 @@ export default function Blocklist() {
                 setShowForm(false);
                 setFormError(null);
               }}
-              className="px-4 py-1.5 border border-brand-border rounded-md text-sm"
+              className={BUTTON_SECONDARY}
             >
               Cancel
             </button>
@@ -315,7 +315,7 @@ export default function Blocklist() {
         <div className="flex gap-2">
           <button
             onClick={() => setPendingDelete(null)}
-            className="px-4 py-2 border border-brand-border rounded-control text-sm"
+            className={BUTTON_SECONDARY}
           >
             Cancel
           </button>

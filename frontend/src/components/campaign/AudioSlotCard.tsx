@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Play } from "lucide-react";
 import client from "@/api/client";
-import { MAX_AUDIO_UPLOAD_BYTES } from "@/lib/constants";
-import { CARD_CLASS, FOCUS_RING, INPUT_CLASS } from "@/lib/styles";
+import { AUDIO_VERSION_BADGE, MAX_AUDIO_UPLOAD_BYTES } from "@/lib/constants";
+import { CARD_CLASS, FOCUS_RING, INPUT_CLASS, LINK_BUTTON } from "@/lib/styles";
 import type { AudioRecording } from "@/types/campaign";
 
 type Tab = "record" | "upload" | "tts";
@@ -386,7 +386,7 @@ export function AudioSlotCard({
                   <button
                     onClick={stopRecording}
                     aria-label="Stop recording"
-                    className={`px-4 py-1.5 bg-brand-grey-dark text-white rounded-control text-xs font-medium ${FOCUS_RING}`}
+                    className={`inline-flex min-h-[44px] items-center justify-center px-4 py-1.5 bg-brand-grey-dark text-white rounded-control text-xs font-medium ${FOCUS_RING}`}
                   >
                     Stop recording
                   </button>
@@ -419,7 +419,7 @@ export function AudioSlotCard({
                     </button>
                     <button
                       onClick={discardRecording}
-                      className={`px-4 py-1.5 border border-brand-border text-brand-grey-dark rounded-control text-xs ${FOCUS_RING}`}
+                      className={`inline-flex min-h-[44px] items-center justify-center px-4 py-1.5 border border-brand-border text-brand-grey-dark rounded-control text-xs ${FOCUS_RING}`}
                     >
                       Discard
                     </button>
@@ -457,7 +457,7 @@ export function AudioSlotCard({
               if (file) handleFileUpload(file);
             }}
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${FOCUS_RING} ${
+            className={`border-2 border-dashed rounded-field p-6 text-center cursor-pointer transition-colors ${FOCUS_RING} ${
               uploadDragOver
                 ? "border-brand-orange bg-[rgba(242,84,45,0.04)]"
                 : "border-brand-border hover:border-brand-orange/50"
@@ -528,7 +528,7 @@ export function AudioSlotCard({
                     key={chip}
                     type="button"
                     onClick={() => insertChip(chip)}
-                    className={`border border-brand-border rounded px-1.5 py-0.5 text-[11px] text-brand-grey-dark bg-page-bg hover:border-brand-grey-light transition-colors ${FOCUS_RING}`}
+                    className={`border border-brand-border rounded-field px-1.5 py-0.5 text-[11px] text-brand-grey-dark bg-page-bg hover:border-brand-grey-light transition-colors ${FOCUS_RING}`}
                   >
                     {chip}
                   </button>
@@ -559,7 +559,7 @@ export function AudioSlotCard({
                 href={active.file_url}
                 target="_blank"
                 rel="noreferrer"
-                className="flex flex-1 items-center gap-1 truncate text-brand-grey-dark hover:underline"
+                className={`flex flex-1 items-center gap-1 truncate rounded-control text-brand-grey-dark hover:underline ${FOCUS_RING}`}
               >
                 <Play size={12} aria-hidden="true" className="shrink-0" />
                 {active.file_url.split("/").pop()}
@@ -568,11 +568,7 @@ export function AudioSlotCard({
               <span className="flex-1 truncate text-brand-grey-dark">{active.tts_text}</span>
             )}
             <span
-              className="px-1.5 py-0.5 rounded text-[11px] font-medium"
-              style={{
-                background: "rgba(176,83,87,0.10)",
-                color: "#B05357",
-              }}
+              className={`px-1.5 py-0.5 rounded-field text-[11px] font-medium ${AUDIO_VERSION_BADGE.active}`}
             >
               Active v{active.version}
             </span>
@@ -584,7 +580,7 @@ export function AudioSlotCard({
         {versions.length > 1 && (
           <button
             onClick={() => setShowHistory((v) => !v)}
-            className="text-xs text-brand-grey-dark hover:text-brand-black"
+            className={`${LINK_BUTTON} text-brand-grey-dark hover:text-brand-black`}
           >
             {showHistory ? "Hide" : "Version history"} ({versions.length})
           </button>
@@ -599,12 +595,9 @@ export function AudioSlotCard({
             {versions.slice(0, 3).map((v) => (
               <div key={v.id} className="flex items-center gap-2 text-xs">
                 <span
-                  className="px-1.5 py-0.5 rounded font-medium"
-                  style={
-                    v.is_active
-                      ? { background: "rgba(176,83,87,0.10)", color: "#B05357" }
-                      : { background: "#F4F5F7", color: "#53565B" }
-                  }
+                  className={`px-1.5 py-0.5 rounded-field font-medium ${
+                    v.is_active ? AUDIO_VERSION_BADGE.active : AUDIO_VERSION_BADGE.inactive
+                  }`}
                 >
                   v{v.version}
                 </span>
@@ -617,7 +610,7 @@ export function AudioSlotCard({
                     disabled={isLive}
                     aria-disabled={isLive}
                     title={isLive ? "Pause the campaign to change audio" : undefined}
-                    className={`text-brand-orange hover:underline disabled:opacity-40 disabled:cursor-not-allowed rounded ${FOCUS_RING}`}
+                    className={`${LINK_BUTTON} text-brand-orange disabled:opacity-40 disabled:cursor-not-allowed`}
                   >
                     Make active
                   </button>

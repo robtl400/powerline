@@ -30,6 +30,8 @@ async def test_create_campaign(
     assert data["name"] == name
     assert data["status"] == "draft"
     assert data["target_count"] == 0
+    assert data["session_count"] == 0
+    assert data["completed_session_count"] == 0
     # Campaign cleanup is handled by the admin_user FK cascade (SET NULL on delete)
     # and will be cleaned up in subsequent runs via unique names.
 
@@ -52,6 +54,58 @@ async def test_get_campaign(
     assert resp.status_code == 200
     assert resp.json()["id"] == str(campaign.id)
     assert resp.json()["targets"] == []
+
+
+async def test_list_and_detail_report_session_counts(
+    client: AsyncClient,
+    db: AsyncSession,
+    campaign: Campaign,
+    admin_user: User,
+    admin_headers: dict,
+) -> None:
+    quiet = Campaign(
+        name=f"Quiet Campaign {uuid.uuid4().hex[:8]}",
+        created_by_id=admin_user.id,
+    )
+    db.add(quiet)
+
+    def _session(status: str) -> CallSession:
+        return CallSession(
+            campaign_id=campaign.id,
+            connection_type="webrtc",
+            twilio_call_sid=f"CAses{uuid.uuid4().hex[:20]}",
+            status=status,
+        )
+
+    seeded = [_session("completed"), _session("in_progress")]
+    db.add_all(seeded)
+    await db.commit()
+
+    try:
+        listing = await client.get("/api/v1/campaigns?limit=500", headers=admin_headers)
+        assert listing.status_code == 200, listing.text
+        body = listing.json()
+
+        by_id = {c["id"]: c for c in body["items"]}
+        assert len(by_id) == len(body["items"])
+        assert body["total"] == await db.scalar(select(func.count()).select_from(Campaign))
+
+        assert by_id[str(campaign.id)]["session_count"] == 2
+        assert by_id[str(campaign.id)]["completed_session_count"] == 1
+        assert by_id[str(quiet.id)]["session_count"] == 0
+        assert by_id[str(quiet.id)]["completed_session_count"] == 0
+
+        detail = await client.get(f"/api/v1/campaigns/{campaign.id}", headers=admin_headers)
+        assert detail.json()["session_count"] == 2
+        assert detail.json()["completed_session_count"] == 1
+
+        quiet_detail = await client.get(f"/api/v1/campaigns/{quiet.id}", headers=admin_headers)
+        assert quiet_detail.json()["session_count"] == 0
+        assert quiet_detail.json()["completed_session_count"] == 0
+    finally:
+        await db.execute(delete(CallSession).where(CallSession.id.in_([s.id for s in seeded])))
+        await db.execute(delete(Campaign).where(Campaign.id == quiet.id))
+        await db.commit()
 
 
 async def test_campaign_not_found(client: AsyncClient, admin_headers: dict) -> None:

@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import client from "@/api/client";
 import { getErrorDetail } from "@/lib/api-error";
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/lib/constants";
-import { BUTTON_PRIMARY, CARD_CLASS, FOCUS_RING, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
+import { BUTTON_PRIMARY, CARD_CLASS, INPUT_CLASS, PAGE_HEADING } from "@/lib/styles";
 
 const AUTH_CARD_CLASS = `w-full max-w-sm space-y-6 ${CARD_CLASS} p-8`;
 
@@ -82,7 +82,7 @@ export default function ResetPassword() {
             </p>
             <Link
               to="/login"
-              className={`${BUTTON_CLASS} ${FOCUS_RING}`}
+              className={BUTTON_CLASS}
             >
               Sign in
             </Link>

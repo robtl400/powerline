@@ -119,7 +119,7 @@ export default function DashboardShell() {
             ref={menuButtonRef}
             onClick={() => setDrawerOpen(true)}
             aria-expanded={drawerOpen}
-            className={`text-brand-grey-dark p-1 rounded ${FOCUS_RING}`}
+            className={`-ml-3 inline-flex h-11 w-11 items-center justify-center rounded-control text-brand-grey-dark ${FOCUS_RING}`}
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
